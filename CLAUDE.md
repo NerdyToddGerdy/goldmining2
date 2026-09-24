@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Browser game targeting itch.io (HTML5 zip upload). Stack: **TypeScript + Vite + PixiJS v8**, tests with **Vitest**. Pinned to Vite 6 because the local Node is 20.17; Vite 7+ needs Node ≥20.19.
+Browser game that will be hosted on GitHub Pages (https://nerdytoddgerdy.github.io/goldmining2/) and published on itch.io (HTML5 zip upload). Pages is not set up yet: the repo is private, and Pages on a private repo needs a paid GitHub plan. Stack: **TypeScript + Vite + PixiJS v8**, tests with **Vitest**. Pinned to Vite 6 because the local Node is 20.17; Vite 7+ needs Node ≥20.19.
 
 | Command | Does |
 |---|---|
@@ -24,7 +24,7 @@ Layout:
 
 Mobile and tablet: layouts are **landscape-first**. Phones held upright get a "turn your phone sideways" screen (CSS in `index.html`); tablets must work in both orientations. Every action needs a touch path, not just a key: no hover-only information (the creek map uses tap-to-select, tap-again-to-act), and hints, button labels, and messages go through `forInput()` / `usingTouch()` from `src/game/inputMode.ts` so touch players aren't told to press keys. Keep playfield elements inside the band between the top hint and the bottom button bar, which on a landscape phone is only a few hundred pixels tall.
 
-itch.io constraints: asset paths must stay relative (`base: './'` in `vite.config.ts`); the game runs inside an iframe; saves should use a game-specific key prefix because itch.io games share an origin.
+Hosting constraints (itch.io and GitHub Pages): asset paths must stay relative (`base: './'` in `vite.config.ts`), because both serve the game from a subpath; on itch.io the game runs inside an iframe; saves use a game-specific key prefix because itch.io games share an origin, as do all of an account's Pages sites.
 
 ## Source of truth
 

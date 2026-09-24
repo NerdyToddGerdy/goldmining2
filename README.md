@@ -4,7 +4,7 @@
 
 ## Status
 
-Early development. A browser game (TypeScript, Vite, PixiJS) intended for itch.io. The first playable target is the **Home Creek**: a standalone shovel-and-pan level that is also where you return after going broke.
+Early development. A browser game (TypeScript, Vite, PixiJS) that will be hosted on GitHub Pages at https://nerdytoddgerdy.github.io/goldmining2/ and published on itch.io. The first playable target is the **Home Creek**: a standalone shovel-and-pan level that is also where you return after going broke.
 
 ```sh
 npm install
