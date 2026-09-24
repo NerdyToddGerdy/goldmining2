@@ -25,6 +25,7 @@ export interface HudActions {
   pry(): void;
   bail(): void;
   walkCreek(): void;
+  newCreek(): void;
 }
 
 export interface HudState {
@@ -166,7 +167,7 @@ export class Hud {
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
       return list;
     }
-    return [];
+    return [['Start a new creek', () => this.on.newCreek()]];
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {

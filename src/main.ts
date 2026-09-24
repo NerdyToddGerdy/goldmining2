@@ -1,5 +1,14 @@
 import { Application } from 'pixi.js';
-import { HomeCreek, PanningSession, createRng, type DigSpot, type PanStepEvents, type ShovelResult } from './sim';
+import {
+  HomeCreek,
+  PanningSession,
+  createRng,
+  createSave,
+  loadSave,
+  type DigSpot,
+  type PanStepEvents,
+  type ShovelResult,
+} from './sim';
 import { BankView } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
@@ -7,9 +16,11 @@ import { PanCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
+import { clearSave, readSave, writeSave } from './game/storage';
 
 /** Simulation runs on a fixed step so outcomes do not depend on frame rate. */
 const SIM_DT = 1 / 60;
+const AUTOSAVE_SECONDS = 3;
 
 const BLOCKED_MESSAGES = {
   boulder: 'A boulder is in the way. Pry it loose first.',
@@ -33,10 +44,11 @@ async function start(): Promise<void> {
   host.appendChild(app.canvas);
 
   const rng = createRng(Date.now());
-  const creek = new HomeCreek(rng);
-  const session = new PanningSession(rng);
+  const loaded = loadSave(readSave(), rng);
+  const creek = loaded?.creek ?? new HomeCreek(rng);
+  const session = loaded?.session ?? new PanningSession(rng);
   let mode: Mode = 'creek';
-  let spot: DigSpot | null = null;
+  let spot: DigSpot | null = loaded?.place.spotId != null ? creek.spot(loaded.place.spotId) : null;
 
   const setMode = (next: Mode): void => {
     mode = next;
@@ -112,6 +124,12 @@ async function start(): Promise<void> {
     pry,
     bail,
     walkCreek: () => setMode('creek'),
+    newCreek: () => {
+      if (!window.confirm('Start over on a fresh creek? Your vial, jar, and dug spots will be lost.')) return;
+      clearSave();
+      saveBlocked = true; // Stop the autosave (and pagehide) from writing this game back before the reload.
+      window.location.reload();
+    },
     panConcentrate: () => {
       if (!session.canPanConcentrate || mode === 'creek') return;
       session.startConcentratePan();
@@ -136,7 +154,30 @@ async function start(): Promise<void> {
       if (picker) hud.toast(`A picker was wedged in that rock! ${picker.mg.toFixed(1)} mg into the vial.`);
     },
   );
-  setMode('creek');
+  // Put the player back where they left off: at their pan if one is in progress, else at their hole.
+  const pan = session.pan;
+  if (pan && pan.phase !== 'emptied') setMode('pan');
+  else if (spot) {
+    bankView.setSpot(spot);
+    setMode('bank');
+  } else setMode('creek');
+  if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
+
+  let saveBlocked = false;
+  let warnedStorage = false;
+  const save = (): void => {
+    if (saveBlocked) return;
+    const ok = writeSave(createSave(creek, session, { screen: mode, spotId: spot?.id ?? null }, Date.now()));
+    if (!ok && !warnedStorage) {
+      warnedStorage = true;
+      hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
+    }
+  };
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') save();
+  });
+  let sinceSave = 0;
 
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) Object.assign(window, { __game: { session, creek, get mode() { return mode; } } });
@@ -174,6 +215,12 @@ async function start(): Promise<void> {
       creekMap.update(dt);
     }
     hud.update(dt, { mode, session, creek, spot, controls, events });
+
+    sinceSave += dt;
+    if (sinceSave >= AUTOSAVE_SECONDS) {
+      sinceSave = 0;
+      save();
+    }
   });
 
   // The first click is also the user gesture browsers require before audio can play.

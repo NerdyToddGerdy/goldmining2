@@ -1,4 +1,4 @@
-import { Pan, totalMg, type PanLoad, type GoldPiece } from './pan';
+import { Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import type { Rng } from './rng';
 
 /** Black sand (pan-volume units) the concentrate jar holds. */
@@ -7,6 +7,14 @@ export const JAR_CAPACITY = 0.5;
 export const CONCENTRATE_POUR = 0.25;
 /** Less than this in the jar is not worth panning. */
 export const MIN_CONCENTRATE = 0.005;
+
+/** The player's panning state as plain data, for saving. */
+export interface SessionSnapshot {
+  readonly vial: readonly GoldPiece[];
+  readonly jar: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
+  readonly pansWorked: number;
+  readonly pan: PanSnapshot | null;
+}
 
 /**
  * The player's panning: the pan (empty until a shovelful goes in), the vial of recovered gold,
@@ -19,7 +27,27 @@ export class PanningSession {
   /** Pans of creek gravel worked; re-panned concentrate is not counted. */
   pansWorked = 0;
 
-  constructor(private readonly rng: Rng) {}
+  /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
+  constructor(
+    private readonly rng: Rng,
+    saved?: SessionSnapshot,
+  ) {
+    if (!saved) return;
+    this.vial.push(...saved.vial);
+    this.jar.blackSand = saved.jar.blackSand;
+    this.jar.gold.push(...saved.jar.gold);
+    this.pansWorked = saved.pansWorked;
+    this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
+  }
+
+  snapshot(): SessionSnapshot {
+    return structuredClone({
+      vial: this.vial,
+      jar: this.jar,
+      pansWorked: this.pansWorked,
+      pan: this.pan?.snapshot() ?? null,
+    });
+  }
 
   /** True when the pan can take a new shovelful: none yet, or the last one is finished. */
   get panIsFree(): boolean {

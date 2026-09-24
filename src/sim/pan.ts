@@ -117,6 +117,28 @@ export const PAN_TUNING = {
 let nextId = 1;
 const newId = (): number => nextId++;
 
+/** After restoring saved pieces and rocks, keep new ids clear of the restored ones. */
+export function reservePanIds(maxUsed: number): void {
+  nextId = Math.max(nextId, maxUsed + 1);
+}
+
+/** Everything needed to put a pan back exactly as it was, as plain data. */
+export interface PanSnapshot {
+  readonly kind: PanKind;
+  readonly initialLightSand: number;
+  readonly lightSand: number;
+  readonly blackSand: number;
+  readonly clay: number;
+  readonly stratification: number;
+  readonly turbidity: number;
+  readonly rocks: readonly Rock[];
+  readonly gold: readonly GoldPiece[];
+  readonly phase: PanPhase;
+  readonly elapsed: number;
+  readonly visible: readonly GoldPiece[];
+  readonly hidden: readonly GoldPiece[];
+}
+
 export class Pan {
   lightSand: number;
   blackSand: number;
@@ -181,6 +203,44 @@ export class Pan {
       this.gold.push(piece);
       budget -= piece.mg;
     }
+  }
+
+  snapshot(): PanSnapshot {
+    return {
+      kind: this.kind,
+      initialLightSand: this.initialLightSand,
+      lightSand: this.lightSand,
+      blackSand: this.blackSand,
+      clay: this.clay,
+      stratification: this.stratification,
+      turbidity: this.turbidity,
+      rocks: this.rocks,
+      gold: this.gold,
+      phase: this.phase,
+      elapsed: this.elapsed,
+      visible: this.visible,
+      hidden: this.hidden,
+    };
+  }
+
+  static restore(rng: Rng, snap: PanSnapshot): Pan {
+    const pan = new Pan(rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0, gold: [] });
+    // kind and initialLightSand are fixed for a pan's life; restoring is the one place they are set after construction.
+    const fixed = pan as { kind: PanKind; initialLightSand: number };
+    fixed.kind = snap.kind;
+    fixed.initialLightSand = snap.initialLightSand;
+    pan.lightSand = snap.lightSand;
+    pan.blackSand = snap.blackSand;
+    pan.clay = snap.clay;
+    pan.stratification = snap.stratification;
+    pan.turbidity = snap.turbidity;
+    pan.rocks = [...snap.rocks];
+    pan.gold = [...snap.gold];
+    pan.phase = snap.phase;
+    pan.elapsed = snap.elapsed;
+    pan.visible = [...snap.visible];
+    pan.hidden = [...snap.hidden];
+    return pan;
   }
 
   get workedDown(): boolean {

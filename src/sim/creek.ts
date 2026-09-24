@@ -88,13 +88,33 @@ export const CREEK_TUNING = {
 
 let nextSpotId = 1;
 
+/** The creek as plain data, for saving. */
+export interface CreekSnapshot {
+  readonly spots: readonly DigSpot[];
+  readonly highWaterEvents: number;
+}
+
 export class HomeCreek {
   readonly spots: DigSpot[];
   highWaterEvents = 0;
 
-  constructor(private readonly rng: Rng) {
+  /** A fresh creek, or with `saved`, the creek exactly as it was left. */
+  constructor(
+    private readonly rng: Rng,
+    saved?: CreekSnapshot,
+  ) {
+    if (saved) {
+      this.spots = structuredClone(saved.spots) as DigSpot[];
+      this.highWaterEvents = saved.highWaterEvents;
+      nextSpotId = Math.max(nextSpotId, ...this.spots.map((s) => s.id + 1));
+      return;
+    }
     const count = CREEK_TUNING.spotCount;
     this.spots = Array.from({ length: count }, (_, i) => this.makeSpot((i + 0.5) / count));
+  }
+
+  snapshot(): CreekSnapshot {
+    return structuredClone({ spots: this.spots, highWaterEvents: this.highWaterEvents });
   }
 
   spot(id: number): DigSpot {

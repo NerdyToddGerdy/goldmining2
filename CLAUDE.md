@@ -19,6 +19,7 @@ Layout:
 
 - `src/sim/` — **headless simulation**. Must never import `pixi.js`, audio, `src/game/`, or touch `window`/`document`: staffed sites run this model with nothing on screen. `src/sim/boundary.test.ts` enforces this. All randomness goes through the seeded `Rng`; all player-facing uncertain quantities use `Estimate`.
 - `src/game/` — PixiJS rendering and input. May import from `src/sim`, never the reverse.
+- Saves: `src/sim/save.ts` builds and validates versioned plain-data saves (creek, vial, jar, any pan in progress); `src/game/storage.ts` writes them to `localStorage`. When a snapshot shape changes, bump `SAVE_VERSION` and add a migration instead of discarding old saves — a player losing their vial is worse than migration code.
 - `src/main.ts` — app bootstrap, click-to-start overlay (browsers block audio until a user gesture), fullscreen button.
 
 itch.io constraints: asset paths must stay relative (`base: './'` in `vite.config.ts`); the game runs inside an iframe; saves should use a game-specific key prefix because itch.io games share an origin.
