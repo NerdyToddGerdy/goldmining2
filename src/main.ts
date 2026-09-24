@@ -3,6 +3,7 @@ import { HomeCreek, PanningSession, createRng, type DigSpot, type PanStepEvents,
 import { BankView } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
+import { PanCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
@@ -93,7 +94,10 @@ async function start(): Promise<void> {
   app.renderer.on('resize', layout);
 
   const hud = new Hud({
-    reveal: () => session.pan?.reveal(),
+    reveal: () => {
+      const pan = session.pan;
+      if (pan && coach.allowReveal(pan)) pan.reveal();
+    },
     collect: (save) => session.collect(save),
     backToHole: () => setMode('bank'),
     setTilt: (tilt) => (input.tilt = tilt),
@@ -107,6 +111,8 @@ async function start(): Promise<void> {
       if (picked) pickSpot(picked);
     },
   });
+
+  const coach = new PanCoach((message) => hud.toast(message));
 
   const input = new PanInput(
     app.canvas,
@@ -142,6 +148,7 @@ async function start(): Promise<void> {
         glints += e.glints;
         events = { ...e, darkSpilled, lightSpilled, clayRolledOut, glints };
       }
+      coach.update(dt, pan, controls);
       scene.update(dt);
       panView.update(dt, session, controls, input.swirlDirection, events);
     } else if (mode === 'bank') {

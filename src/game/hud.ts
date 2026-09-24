@@ -99,7 +99,8 @@ export class Hud {
   toast(message: string): void {
     this.toastEl.textContent = message;
     this.toastEl.hidden = false;
-    this.toastTimer = 3;
+    // Longer messages stay up longer.
+    this.toastTimer = Math.max(3, message.length / 18);
   }
 
   update(dt: number, state: HudState): void {
