@@ -103,6 +103,18 @@ describe('Pan', () => {
     expect(lateVisible / 30).toBeGreaterThan(0.8);
   });
 
+  it('breaks up all the clay with enough shaking, not just most of it', () => {
+    const pan = new Pan(createRng(12), { ...SPOT, clayiness: 1 });
+    expect(pan.clay).toBeGreaterThan(0.01);
+    let seconds = 0;
+    while (pan.clay > 0 && seconds < 20) {
+      pan.step(DT, { tilt: 0, slosh: 0, shake: 1 });
+      seconds += DT;
+    }
+    expect(pan.clay).toBe(0);
+    expect(seconds).toBeLessThan(10);
+  });
+
   it('rocks slow washing until raked out', () => {
     const rocky = new Pan(createRng(2), { ...SPOT, rockiness: 1 });
     expect(rocky.rocks.length).toBeGreaterThan(0);

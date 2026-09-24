@@ -90,6 +90,8 @@ export const PAN_TUNING = {
   overworkBelowFraction: 0.15,
   shakeStratRate: 0.6,
   shakeClayBreakRate: 0.8,
+  /** Below this, the last of the clay counts as broken up: otherwise it would only ever halve. */
+  clayGone: 0.004,
   sloshMixRate: 0.08,
   /** Clay balls roll out in proportion to wash squared: gentle water barely moves them. */
   clayRollRate: 0.8,
@@ -266,7 +268,8 @@ export class Pan {
     const shake = clamp01(controls.shake) * (1 - tilt);
     if (shake > 0) {
       this.stratification += shake * T.shakeStratRate * dt * (1 - this.stratification);
-      const broken = Math.min(this.clay, this.clay * shake * T.shakeClayBreakRate * dt);
+      let broken = Math.min(this.clay, this.clay * shake * T.shakeClayBreakRate * dt);
+      if (this.clay - broken < T.clayGone) broken = this.clay;
       this.clay -= broken;
       this.turbidity += broken * 4;
     }
@@ -298,6 +301,7 @@ export class Pan {
       clayRolledOut = Math.min(this.clay, this.clay * wash * wash * T.clayRollRate * dt);
       const share = clayRolledOut / (this.clay + this.lightSand + this.blackSand);
       this.clay -= clayRolledOut;
+      if (this.clay < T.clayGone) this.clay = 0;
       goldLost += this.loseGold(() => share * T.clayGoldCarry);
     }
 

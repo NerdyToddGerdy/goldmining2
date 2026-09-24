@@ -83,6 +83,7 @@ export class PanView extends Container {
   private rockGrains = new Map<number, Grain>();
   private initialBlackSand = 1;
   private initialClay = 1;
+  private initialClayBlobs = 0;
   private particles: Particle[] = [];
   private glints: Glint[] = [];
   private revealed: RevealedPiece[] = [];
@@ -132,6 +133,7 @@ export class PanView extends Container {
       grain(concentrate ? pileRadius * 0.8 : 0.75, 1.2, 2.4, pick(concentrate ? COLORS.residue : COLORS.dark)),
     );
     this.clayBlobs = pan.clay > 0.005 ? Array.from({ length: CLAY_BLOBS }, () => grain(0.7, 7, 12, COLORS.clay)) : [];
+    this.initialClayBlobs = this.clayBlobs.length;
     this.rockGrains = new Map(pan.rocks.map((rock) => [rock.id, grain(0.7, 11, 17, pick(COLORS.rock))]));
   }
 
@@ -189,7 +191,9 @@ export class PanView extends Container {
         this.pendingSpill.push({ color: pick(COLORS.dark), size: 2 });
       }
     }
-    const clayTarget = Math.ceil((pan.clay / this.initialClay) * this.clayBlobs.length);
+    // Scale against the blobs the pan started with, not the ones left: otherwise every frame
+    // halves what's shown, and rounding up keeps one blob forever.
+    const clayTarget = Math.ceil((pan.clay / this.initialClay) * this.initialClayBlobs);
     while (this.clayBlobs.length > clayTarget && pan.clay < this.initialClay) {
       const blob = this.removeNearestLip(this.clayBlobs, controls.tilt);
       if (blob) {
