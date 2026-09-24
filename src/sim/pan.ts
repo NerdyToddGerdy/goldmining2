@@ -34,6 +34,8 @@ export interface PanControls {
 }
 
 export type PanState = 'timid' | 'balanced' | 'aggressive';
+/** A shovelful of creek gravel, or black sand poured back from the concentrate jar. */
+export type PanKind = 'gravel' | 'concentrate';
 export type PanPhase = 'working' | 'revealed' | 'emptied';
 
 /** One shovelful of material in the pan, with the character of the layer it was dug from. */
@@ -55,6 +57,14 @@ export interface PanStepEvents {
   readonly darkSpilled: number;
   readonly clayRolledOut: number;
   readonly glints: number;
+  /** Gold pieces washed out this step. */
+  readonly goldLost: number;
+}
+
+/** Black sand and the gold hidden in it, poured from the concentrate jar. */
+export interface ConcentratePour {
+  readonly blackSand: number;
+  readonly gold: readonly GoldPiece[];
 }
 
 /** Tuning constants, gathered so the feel can be adjusted in one place. */
@@ -72,9 +82,12 @@ export const PAN_TUNING = {
   baseHeavyLoss: 0.012,
   /** Additional heavy loss per unit of wash above the safe limit. */
   excessHeavyLoss: 0.35,
-  /** Washing once there is almost no light sand left strips the concentrate itself. */
+  /**
+   * Washing once there is almost no light sand left strips the concentrate itself. Measured
+   * relative to what the pan started with, so a small pour from the jar is not "stripped" from the start.
+   */
   overworkLoss: 2,
-  overworkBelowLight: 0.1,
+  overworkBelowFraction: 0.15,
   shakeStratRate: 0.6,
   shakeClayBreakRate: 0.8,
   swirlMixRate: 0.08,
@@ -87,11 +100,18 @@ export const PAN_TUNING = {
   maxRockBlock: 0.6,
   turbidityDecay: 0.5,
   glintRate: 0.8,
-  workedDownLight: 0.03,
+  /** Worked down once this fraction of the starting light material is left. */
+  workedDownFraction: 0.04,
   mobility: { fine: 1.6, flake: 0.8, picker: 0.15 } as Record<GoldSize, number>,
   /** How easily remaining light sand hides a piece at reveal. */
   hideFactor: { fine: 1, flake: 0.5, picker: 0.1 } as Record<GoldSize, number>,
   rockPickerChance: 0.03,
+  /** Concentrate is heavy: it washes off slowly... */
+  concentrateWashScale: 0.45,
+  /** ...and tolerates much less wash before gold goes with it. */
+  concentrateSafeScale: 0.55,
+  /** Share of poured concentrate that is the finest, heaviest sand, left when worked down. */
+  concentrateResidue: 0.15,
 } as const;
 
 let nextId = 1;
@@ -115,11 +135,31 @@ export class Pan {
   hidden: GoldPiece[] = [];
 
   readonly initialLightSand: number;
+  readonly kind: PanKind;
 
+  /**
+   * A pan of creek gravel from `load`, or, with `pour`, black sand from the concentrate jar.
+   * In a concentrate pan the black sand itself is the material to wash away: relative to gold
+   * it is the light fraction, so it fills the role light sand plays in a gravel pan.
+   */
   constructor(
     private readonly rng: Rng,
     load: PanLoad,
+    pour?: ConcentratePour,
   ) {
+    if (pour) {
+      this.kind = 'concentrate';
+      this.clay = 0;
+      this.turbidity = 0;
+      this.stratification = 0.5;
+      this.lightSand = pour.blackSand * (1 - PAN_TUNING.concentrateResidue);
+      this.blackSand = pour.blackSand * PAN_TUNING.concentrateResidue;
+      this.initialLightSand = Math.max(this.lightSand, 1e-6);
+      this.rocks = [];
+      this.gold = [...pour.gold];
+      return;
+    }
+    this.kind = 'gravel';
     this.clay = load.clayiness * rng.range(0.05, 0.18);
     this.blackSand = rng.range(0.03, 0.07);
     this.lightSand = 0.85 - this.clay - this.blackSand;
@@ -144,12 +184,13 @@ export class Pan {
   }
 
   get workedDown(): boolean {
-    return this.lightSand <= PAN_TUNING.workedDownLight;
+    return this.lightSand <= this.initialLightSand * PAN_TUNING.workedDownFraction;
   }
 
   /** Wash beyond which black sand and gold start going over the lip. */
   get safeLimit(): number {
-    return PAN_TUNING.safeLimitBase + PAN_TUNING.safeLimitPerStrat * this.stratification;
+    const limit = PAN_TUNING.safeLimitBase + PAN_TUNING.safeLimitPerStrat * this.stratification;
+    return this.kind === 'concentrate' ? limit * PAN_TUNING.concentrateSafeScale : limit;
   }
 
   effectiveWash(controls: PanControls): number {
@@ -166,7 +207,7 @@ export class Pan {
   step(dt: number, controls: PanControls): PanStepEvents {
     const T = PAN_TUNING;
     if (this.phase !== 'working') {
-      return { state: 'timid', lightSpilled: 0, darkSpilled: 0, clayRolledOut: 0, glints: 0 };
+      return { state: 'timid', lightSpilled: 0, darkSpilled: 0, clayRolledOut: 0, glints: 0, goldLost: 0 };
     }
     this.elapsed += dt;
     const tilt = clamp01(controls.tilt);
@@ -187,20 +228,22 @@ export class Pan {
     this.turbidity = Math.max(0, this.turbidity - this.turbidity * (T.turbidityDecay + wash) * dt);
     const murk = 1 - Math.min(0.5, this.turbidity * 0.5);
 
-    const lightSpilled = Math.min(this.lightSand, wash * T.lightWashRate * murk * dt);
+    const washRate = T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale : 1);
+    const lightSpilled = Math.min(this.lightSand, wash * washRate * murk * dt);
     this.lightSand -= lightSpilled;
 
     // Heavy loss: small baseline from an unsorted pan, large once over the safe limit,
     // and severe when there is no light sand left to protect the concentrate.
     const excess = Math.max(0, wash - this.safeLimit);
-    const exposed = 1 + T.overworkLoss * (1 - Math.min(1, this.lightSand / T.overworkBelowLight));
+    const protection = this.lightSand / (this.initialLightSand * T.overworkBelowFraction);
+    const exposed = 1 + T.overworkLoss * (1 - Math.min(1, protection));
     const nearLimit = Math.min(1, wash / this.safeLimit) ** 3;
     const heavyLossRate = (nearLimit * (1 - this.stratification) * T.baseHeavyLoss + excess * T.excessHeavyLoss) * exposed;
 
     const darkSpilled = this.blackSand * Math.min(1, heavyLossRate * dt);
     this.blackSand -= darkSpilled;
     this.lostBlackSand += darkSpilled;
-    this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
+    let goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
 
     // Unbroken clay rolls out when swirled, carrying trapped gold with it.
     let clayRolledOut = 0;
@@ -208,7 +251,7 @@ export class Pan {
       clayRolledOut = Math.min(this.clay, this.clay * wash * wash * T.clayRollRate * dt);
       const share = clayRolledOut / (this.clay + this.lightSand + this.blackSand);
       this.clay -= clayRolledOut;
-      this.loseGold(() => share * T.clayGoldCarry);
+      goldLost += this.loseGold(() => share * T.clayGoldCarry);
     }
 
     // Glints hint at gold as the light layer thins; they never say how much.
@@ -217,7 +260,7 @@ export class Pan {
     const glintChance = visibility * Math.min(3, goldPresence * 0.1) * swirl * T.glintRate * dt;
     const glints = this.rng.next() < glintChance ? 1 : 0;
 
-    return { state, lightSpilled, darkSpilled, clayRolledOut, glints };
+    return { state, lightSpilled, darkSpilled, clayRolledOut, glints, goldLost };
   }
 
   /** Rake out and inspect one oversize rock. Returns a picker if one was stuck to it. */
@@ -256,7 +299,9 @@ export class Pan {
     return { collected, toJar: [], blackSand: 0 };
   }
 
-  private loseGold(chance: (size: GoldSize) => number): void {
+  /** Wash pieces out of the pan at random; returns how many went. */
+  private loseGold(chance: (size: GoldSize) => number): number {
+    const before = this.gold.length;
     this.gold = this.gold.filter((piece) => {
       if (this.rng.next() < chance(piece.size)) {
         this.lost.push(piece);
@@ -264,6 +309,7 @@ export class Pan {
       }
       return true;
     });
+    return before - this.gold.length;
   }
 }
 

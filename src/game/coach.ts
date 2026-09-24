@@ -2,12 +2,13 @@ import type { Pan, PanControls } from '../sim';
 
 /**
  * Nudges a new player when the pan is being worked in a way that can't succeed, e.g. swirling
- * a level pan (nothing can wash over the lip) or revealing before the sand is worked down.
- * Each nudge stops once the player has shown they've got it.
+ * a level pan (nothing can wash over the lip), revealing before the sand is worked down, or
+ * swirling on after it is. The learning nudges stop once the player has shown they've got it.
  */
 export class PanCoach {
   private swirlLevel = 0;
   private tiltStill = 0;
+  private overworking = 0;
   private hasWashed = false;
   private hasSwirled = false;
   private cooldown = 0;
@@ -25,10 +26,14 @@ export class PanCoach {
     if (controls.swirl > 0.2) this.hasSwirled = true;
 
     this.swirlLevel = controls.swirl > 0.2 && controls.tilt < 0.08 ? this.swirlLevel + dt : 0;
+    this.overworking = pan.workedDown && controls.swirl > 0.2 && controls.tilt > 0.05 ? this.overworking + dt : 0;
     this.tiltStill = controls.tilt > 0.1 && controls.swirl < 0.05 && controls.shake === 0 ? this.tiltStill + dt : 0;
 
     if (this.cooldown > 0) return;
-    if (!this.hasWashed && this.swirlLevel > 2) {
+    // Always shown, however experienced: overworking is expensive and easy to miss.
+    if (this.overworking > 1.5) {
+      this.nudge("You're down to the concentrate. Stop and reveal (R) before the gold washes out with it.");
+    } else if (!this.hasWashed && this.swirlLevel > 2) {
       this.nudge('The pan is level, so nothing can wash out. Tip it toward the lip with W, the mouse wheel, or the Tilt slider.');
     } else if (!this.hasSwirled && this.tiltStill > 3) {
       this.nudge('Drag in circles around the pan to swirl the water and carry the light sand over the lip.');

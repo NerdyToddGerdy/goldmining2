@@ -15,6 +15,7 @@ export interface HudActions {
   reveal(): void;
   collect(saveBlackSand: boolean): void;
   backToHole(): void;
+  panConcentrate(): void;
   setTilt(tilt: number): void;
   setShake(held: boolean): void;
   // Creek
@@ -119,12 +120,18 @@ export class Hud {
       this.actions.replaceChildren(...buttons.map(([label, action]) => button(label, action)));
     }
 
-    const resultKey = mode === 'pan' && pan ? `${pan.phase}:${session.pansWorked}` : '';
+    const resultKey = mode === 'pan' && pan ? `${pan.phase}:${pan.kind}:${session.pansWorked}:${session.vial.length}` : '';
     if (resultKey !== this.resultKey) {
       this.resultKey = resultKey;
       this.result.hidden = !pan || mode !== 'pan' || pan.phase === 'working';
-      if (pan?.phase === 'revealed') this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand);
-      if (pan?.phase === 'emptied') this.result.textContent = `Pan ${session.pansWorked} done. ${session.vialMg.toFixed(1)} mg in the vial.`;
+      if (pan?.phase === 'revealed') {
+        const cover = pan.kind === 'concentrate' ? 'black sand' : 'sand';
+        this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand, cover);
+      }
+      if (pan?.phase === 'emptied') {
+        const what = pan.kind === 'concentrate' ? 'Concentrate panned.' : `Pan ${session.pansWorked} done.`;
+        this.result.textContent = `${what} ${session.vialMg.toFixed(1)} mg in the vial.`;
+      }
     }
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toastEl.hidden = true;
@@ -145,7 +152,7 @@ export class Hud {
           ['Collect, dump black sand (D)', () => this.on.collect(false)],
         ];
       }
-      return [['Back to the hole (N)', () => this.on.backToHole()]];
+      return [['Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
     }
     if (mode === 'bank' && spot) {
       const blocked = creek.blockedBy(spot);
@@ -155,10 +162,15 @@ export class Hud {
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
+      list.push(...this.jarButton(session));
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
       return list;
     }
     return [];
+  }
+
+  private jarButton(session: PanningSession): [string, () => void][] {
+    return session.canPanConcentrate ? [['Pan the concentrate jar (J)', () => this.on.panConcentrate()]] : [];
   }
 
   private handleKey(key: string): void {
@@ -174,12 +186,14 @@ export class Hud {
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
       else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
+      else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();
     } else if (state.mode === 'bank') {
       if (key === 'p') this.on.shovel('pan');
       else if (key === 't') this.on.shovel('spoil');
       else if (key === 'b') this.on.pry();
       else if (key === 'a') this.on.bail();
       else if (key === 'escape') this.on.walkCreek();
+      else if (key === 'j') this.on.panConcentrate();
     }
   }
 
@@ -222,13 +236,13 @@ export class Hud {
   }
 }
 
-function describeFind(pieces: readonly GoldPiece[], sandLeft: number): string {
+function describeFind(pieces: readonly GoldPiece[], sandLeft: number, cover: string): string {
   const count = (size: GoldPiece['size']): number => pieces.filter((p) => p.size === size).length;
   const pickers = count('picker');
   const flakes = count('flake');
   const specks = count('fine');
   // Sand left in the pan hides gold. Say so rather than implying the pan was empty.
-  const covered = sandLeft > 0.25 ? ' Too much sand left to see everything.' : '';
+  const covered = sandLeft > 0.25 ? ` Too much ${cover} left to see everything.` : '';
   if (pieces.length === 0) return `No colour showing.${covered}`;
   const parts: string[] = [];
   if (pickers) parts.push(`${pickers} picker${pickers > 1 ? 's' : ''}`);

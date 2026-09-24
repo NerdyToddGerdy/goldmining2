@@ -46,6 +46,12 @@ async function start(): Promise<void> {
     input.enabled = mode === 'pan';
   };
 
+  /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
+  const startPanning = (): void => {
+    input.tilt = 0;
+    setMode('pan');
+  };
+
   const shovel = (into: 'pan' | 'spoil'): void => {
     if (!spot || mode !== 'bank') return;
     const highWaterBefore = creek.highWaterEvents;
@@ -59,7 +65,7 @@ async function start(): Promise<void> {
     if (creek.highWaterEvents > highWaterBefore) hud.toast('High water has come through and left fresh gravel along the creek.');
     if (result.load) {
       session.startPan(result.load);
-      setMode('pan');
+      startPanning();
     }
   };
 
@@ -106,6 +112,12 @@ async function start(): Promise<void> {
     pry,
     bail,
     walkCreek: () => setMode('creek'),
+    panConcentrate: () => {
+      if (!session.canPanConcentrate || mode === 'creek') return;
+      session.startConcentratePan();
+      startPanning();
+      hud.toast('Black sand is heavy and holds fine gold. Settle it, then swirl gently: a light touch keeps the gold in the pan.');
+    },
     pickSpot: (index) => {
       const picked = creek.spots[index];
       if (picked) pickSpot(picked);
@@ -126,6 +138,9 @@ async function start(): Promise<void> {
   );
   setMode('creek');
 
+  // Dev-only handle for inspecting state from the browser console or test scripts.
+  if (import.meta.env.DEV) Object.assign(window, { __game: { session, creek, get mode() { return mode; } } });
+
   let accumulator = 0;
   app.ticker.add((ticker) => {
     const dt = Math.min(ticker.deltaMS / 1000, 0.1);
@@ -139,6 +154,7 @@ async function start(): Promise<void> {
       let lightSpilled = 0;
       let clayRolledOut = 0;
       let glints = 0;
+      let goldLost = 0;
       while (accumulator >= SIM_DT) {
         accumulator -= SIM_DT;
         const e = pan.step(SIM_DT, controls);
@@ -146,7 +162,8 @@ async function start(): Promise<void> {
         lightSpilled += e.lightSpilled;
         clayRolledOut += e.clayRolledOut;
         glints += e.glints;
-        events = { ...e, darkSpilled, lightSpilled, clayRolledOut, glints };
+        goldLost += e.goldLost;
+        events = { ...e, darkSpilled, lightSpilled, clayRolledOut, glints, goldLost };
       }
       coach.update(dt, pan, controls);
       scene.update(dt);

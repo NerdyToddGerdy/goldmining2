@@ -17,6 +17,10 @@ const COLORS = {
   panFloor: 0x363431,
   light: [0xc8b891, 0xb3a37e, 0xd6c9a4, 0x9e906f],
   dark: [0x24211f, 0x302b28, 0x3b3530],
+  /** Black sand being washed off a concentrate pan: magnetite with the odd red garnet. */
+  concentrate: [0x1c1a19, 0x26221f, 0x2f2a26, 0x5a2e2a],
+  /** The finest, heaviest residue left under the gold in a concentrate pan. */
+  residue: [0x0f0e0d, 0x171514],
   clay: 0x8a5d3b,
   rock: [0x77746c, 0x8d8a80, 0x6a665e],
   water: 0x4f8a8c,
@@ -83,6 +87,8 @@ export class PanView extends Container {
   private glints: Glint[] = [];
   private revealed: RevealedPiece[] = [];
   private darkSpillCarry = 0;
+  /** Grain count for this pan's washable layer; a jar pour is a small pile. */
+  private lightCount = LIGHT_GRAINS;
 
   constructor() {
     super();
@@ -108,8 +114,17 @@ export class PanView extends Container {
     this.initialBlackSand = Math.max(pan.blackSand, 1e-6);
     this.initialClay = Math.max(pan.clay, 1e-6);
     this.revealed = [];
-    this.light = Array.from({ length: LIGHT_GRAINS }, () => grain(0.9, 1.4, 3.2, pick(COLORS.light)));
-    this.dark = Array.from({ length: DARK_GRAINS }, () => grain(0.75, 1.2, 2.4, pick(COLORS.dark)));
+    const concentrate = pan.kind === 'concentrate';
+    // A gravel pan starts about 70% washable sand; size a jar pour's pile to match its volume.
+    const fullness = Math.min(1, pan.initialLightSand / 0.7);
+    this.lightCount = Math.max(20, Math.round(LIGHT_GRAINS * fullness));
+    const pileRadius = concentrate ? 0.35 + 0.55 * Math.sqrt(fullness) : 0.9;
+    this.light = Array.from({ length: this.lightCount }, () =>
+      grain(pileRadius, 1.4, concentrate ? 2.4 : 3.2, pick(concentrate ? COLORS.concentrate : COLORS.light)),
+    );
+    this.dark = Array.from({ length: DARK_GRAINS }, () =>
+      grain(concentrate ? pileRadius * 0.8 : 0.75, 1.2, 2.4, pick(concentrate ? COLORS.residue : COLORS.dark)),
+    );
     this.clayBlobs = pan.clay > 0.005 ? Array.from({ length: CLAY_BLOBS }, () => grain(0.7, 7, 12, COLORS.clay)) : [];
     this.rockGrains = new Map(pan.rocks.map((rock) => [rock.id, grain(0.7, 11, 17, pick(COLORS.rock))]));
   }
@@ -154,7 +169,7 @@ export class PanView extends Container {
     }
 
     // Grains leave in the order they sit nearest the lip, and fly out over it.
-    const lightTarget = Math.round((pan.lightSand / pan.initialLightSand) * LIGHT_GRAINS);
+    const lightTarget = Math.round((pan.lightSand / pan.initialLightSand) * this.lightCount);
     while (this.light.length > lightTarget) this.spill(this.removeNearestLip(this.light, controls.tilt));
     const darkTarget = Math.round((pan.blackSand / this.initialBlackSand) * DARK_GRAINS);
     while (this.dark.length > darkTarget) this.spill(this.removeNearestLip(this.dark, controls.tilt));
@@ -180,6 +195,8 @@ export class PanView extends Container {
       const wash = controls.swirl * controls.tilt;
       for (let i = 0; i < Math.ceil(wash * 4); i++) this.spillAtLip(COLORS.spray, 1.5, true);
     }
+    // Gold going over the lip flashes as it goes: the clearest sign of washing too hard.
+    for (let i = 0; i < (events?.goldLost ?? 0); i++) this.spillAtLip(COLORS.goldBright, 2);
     if (events && events.glints > 0 && this.dark.length > 0) {
       const g = pick(this.dark);
       const p = this.grainPos(g, controls.tilt * 0.08);
