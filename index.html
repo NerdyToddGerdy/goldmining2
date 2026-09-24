@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gold Prospecting</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1d2419; overflow: hidden; }
+      #game { position: fixed; inset: 0; }
+      #start {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: rgba(20, 26, 18, 0.85); color: #efe6cf; cursor: pointer;
+        font: 600 22px/1.4 Georgia, serif; letter-spacing: 0.02em; user-select: none;
+      }
+      #fullscreen {
+        position: fixed; right: 12px; bottom: 12px; padding: 6px 10px;
+        background: rgba(0, 0, 0, 0.35); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.4);
+        border-radius: 4px; font: 13px system-ui, sans-serif; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <!-- Browsers block audio until a user gesture, so play starts from a click. -->
+    <div id="start">Click to start at the creek</div>
+    <button id="fullscreen" type="button">Fullscreen</button>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

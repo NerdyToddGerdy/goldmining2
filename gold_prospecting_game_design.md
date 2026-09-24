@@ -147,6 +147,7 @@ This supports the idea that a claim may be depleted for a pan but profitable aga
 
 | Site type | Typical capacity | Strength | Constraint | Unlock potential |
 |---|---|---|---|---|
+| Home Creek | Micro | Free, permanent, always reachable | No room or steady flow for equipment | Shovel and pan only (see Home Creek) |
 | Creek bend | Small | Cheap and accessible early income | Low throughput, limited space, seasonal water | Pan, hand sluice, compact classifier |
 | Narrow ravine | Small to medium | Strong water or rich pockets | Difficult access, hazards, limited footprint | Winch, portable pump, compact highbanker |
 | Gravel bar | Medium | Shallow deposits and usable space | Flood risk and shifting terrain | Sluice line, trommel, small camp |
@@ -277,7 +278,7 @@ If the player runs out of money, they should be forced to downsize—not forced 
 
 Low-cost recovery options:
 
-- Pan a publicly accessible or informal creek location.
+- Return to the Home Creek and pan it with shovel and pan alone.
 - Work old tailings with improved knowledge.
 - Take short sample-collection or test-pan contracts.
 - Sell, salvage, or scrap bulky equipment while retaining portable essentials.
@@ -295,6 +296,63 @@ Low-cost recovery options:
 - A failed claim should yield some salvage, data, or future lead.
 
 The recovery phase should feel scrappy and rewarding. An experienced player should recover more effectively than a new player because they retain knowledge, skills, contacts, and better judgment.
+
+---
+
+## Home Creek
+
+The Home Creek is a standalone level: the player, a shovel, a pan, and a small creek. There are no other tools. It is the first place the player works and the place they return to after bankruptcy.
+
+### Why only a shovel and a pan
+
+The limit comes from the site, not from the player's level. The Home Creek is a micro-site: a narrow feeder creek with small gravel banks, shallow fast water, and no flat ground. There is no room to set a sluice and not enough steady flow to run one. The player learns the core rule in their first minutes: **this ground supports this much and no more.** Classifiers and sluices first appear at a larger creek-bend site, because the ground changed.
+
+### Role in the game
+
+| Situation | What the Home Creek provides |
+|---|---|
+| New game | The starting level: learn to read ground, dig, and pan |
+| Standalone play | A complete, calm loop that can be played indefinitely |
+| Bankruptcy | The guaranteed recovery location: free, always reachable, needs no consumables |
+| Returning expert | Faster, better recovery, because the player's knowledge carries over |
+
+It satisfies the anti-death-spiral rules directly. The creek cannot be leased, lost, or foreclosed. The shovel and pan cannot be seized, sold off, or broken. Nothing used here can run out.
+
+### Site rules
+
+- **No claim, fees, or staff.** It is informal public ground, and the work is the player's own.
+- **Finite spots, renewing creek.** Each dig spot has real layered reserves and visibly runs out. High-water events redeposit a modest amount of surface gold along the creek, so the creek as a whole never goes permanently dry, while any single spot can.
+- **Modest but reliable.** Well-read ground pays steadily. The Home Creek should never out-earn a developed claim.
+- **Uncertainty stays.** Ground signs raise the odds of a good spot, but only the pan confirms it.
+
+### Reading the ground
+
+Visible signs that tell the player where gold is likely to have settled:
+
+- Inside bends and slow water downstream of obstructions.
+- Bedrock exposed in the creek bed, especially its cracks and crevices.
+- Black-sand streaks on gravel bars.
+- Moss and roots on rocks at the high-water line, which trap fine gold.
+- Boulders with gravel packed behind them.
+
+### Shovel interaction
+
+| Stage | Description |
+|---|---|
+| Setup | Choose a dig spot based on ground signs |
+| Operation | Dig down through the bank. The cut face visibly shows the layers: overburden, gravel, the darker pay streak, bedrock |
+| Interruption | Boulders that must be levered out, water seeping into the hole, or a small bank slump that buries the hole |
+| Harvest | Reach bedrock and scrape its cracks: the richest material in the creek, and the shovel's reward moment |
+
+The key decision is **where and how deep**. Topsoil is quick to dig but poor. The pay streak and bedrock are richer but cost time.
+
+### Leaving the creek
+
+The Home Creek is also how the player finds their next site. Panning at different points shows where colour becomes stronger or weaker, so the player can follow it upstream or into side gullies toward a lead. Selling gold buys supplies and access to that lead. The player leaves when they choose to, not because the creek forced them out.
+
+### Returning after bankruptcy
+
+The player returns with nothing but the shovel, the pan, and what they know. The creek remembers which spots were worked and which have been refilled by high water. An experienced player recognises good ground faster, pans with less loss, and follows colour to a new lead sooner than a new player could.
 
 ---
 
@@ -436,6 +494,79 @@ For each piece of gear, answer:
 | Crusher | Break and grade | Ore enters; rock fractures; graded material exits | Energy use versus fineness and stress |
 | Metal detector | Sweep and pinpoint | Signal changes over targets; player chooses where to dig | Search time versus moving onward |
 | Drill rig | Position and core | Drill descends; cores emerge; geological layers become visible | Information value versus cost |
+
+---
+
+## Pan UX Specification
+
+The pan is the first tool the player touches and the last one they can lose. It must be deep enough to carry the standalone Home Creek on its own, and it is held to the same standard as the sluice.
+
+### Core fantasy
+
+The player crouches at the water's edge with a pan of raw creek gravel. They shake it to let the heavy material sink, pick out the rocks, then swirl and tilt so the light sand washes over the lip. The pan's contents shrink down to a streak of black sand, and the final swirl shows whether there is gold in it.
+
+### Pan material flow
+
+```text
+Shovel load of gravel
+→ submerge and break up clay
+→ shake to stratify (heavies sink)
+→ rake off and inspect large rocks
+→ swirl and tilt; light material washes over the lip
+→ black-sand concentrate
+→ final swirl reveal
+→ pick flakes and pickers into the vial; save black sand to the concentrate jar
+```
+
+### Persistent visual indicators
+
+- **Water clarity:** Muddy water means clay or fines remain unbroken; clear water means the load is working.
+- **Material layering:** Pale sand on top, darker material settling toward the bottom and the riffles.
+- **Lip spill:** What is going over the edge. Pale sand is fine. A dark streak means black sand, and possibly gold, is being lost.
+- **Glints:** Brief flashes during swirling that hint at gold but never confirm the amount.
+- **Pan fill:** The pile visibly shrinks from a full load to a thin concentrate.
+
+### Operating states
+
+| State | Visual signal | Mechanical result | Player response |
+|---|---|---|---|
+| Timid | Water stays cloudy; material barely moves; little spills over the lip | Very slow; nothing is lost but little is done | Tilt more, swirl faster |
+| Balanced | Light sand sheets off the lip; dark layer stays put | Good speed with minimal loss | Continue |
+| Aggressive | Dark streaks go over the lip; the pan empties quickly | Fast, but fine gold and black sand are lost | Level the pan and re-stratify |
+
+Stratification matters: shaking the load resets the layering and makes it safe to work faster again. A skilled player alternates between shaking and swirling. A careless player just swirls harder.
+
+### Key player controls
+
+- Tilt angle.
+- Swirl speed.
+- Shake (stratify) action.
+- When to stop and reveal.
+
+### Interruptions
+
+- **Clay balls:** Clay can trap gold and roll it out of the pan. The player must break the clay up underwater.
+- **Oversize rocks:** Large rocks need to be raked out, and each one inspected before it is thrown away. There is a small chance of a nugget stuck to one.
+- **Poor panning water:** Shallow or muddy water makes stratification slower and the pan harder to read. The player can move to a better spot on the bank.
+
+### Harvest: the reveal
+
+1. Work the pan down to black sand.
+2. Hold it level and give one slow swirl to fan the concentrate out.
+3. Reveal: no colour, a few specks, a tail of flakes, or a picker.
+4. Pick visible gold into the vial by finger, or wet the fingertip to lift fine flakes.
+5. Choose whether to save the black sand to the concentrate jar or dump it.
+
+The concentrate jar is the tailings layer at the smallest scale. Saved black sand still holds fine gold that can be re-panned later, and it becomes worth more once better finishing equipment is available.
+
+### Compact inspection panel
+
+| Readout | Purpose |
+|---|---|
+| Loss estimate | Rough indication of material lost over the lip this pan |
+| Pans worked | Session count, for comparing spots |
+| Colour per pan | Running average for the current dig spot, approximate |
+| Vial contents | Recovered gold, shown physically first, weight second |
 
 ---
 

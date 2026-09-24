@@ -4,7 +4,14 @@
 
 ## Status
 
-Design stage. This repository currently contains the design brief only — there is no code, engine, or build yet.
+Early development. A browser game (TypeScript, Vite, PixiJS) intended for itch.io. The first playable target is the **Home Creek**: a standalone shovel-and-pan level that is also where you return after going broke.
+
+```sh
+npm install
+npm run dev          # play locally
+npm test             # run the simulation tests
+npm run package:itch # build itch.zip for upload
+```
 
 ## The idea
 
@@ -37,6 +44,8 @@ Staff exist so you can leave. You are always the most efficient operator on your
 | File | What it is |
 |---|---|
 | [`gold_prospecting_game_design.md`](gold_prospecting_game_design.md) | The full design brief — location system, site archetypes, equipment tiers, economy, staffing, material chains, and the sluice UX reference spec |
+| [`src/sim/`](src/sim) | Headless game simulation — no rendering, fully testable |
+| [`src/game/`](src/game) | PixiJS rendering and input |
 | [`CLAUDE.md`](CLAUDE.md) | Working notes for Claude Code: repo state and the cross-cutting design invariants that are easy to break when building one system in isolation |
 
 The **Sluice UX Specification** in the design brief is the reference interaction — the level of detail every other piece of equipment is measured against.
