@@ -1,6 +1,7 @@
-import { HomeCreek, type CreekSnapshot } from './creek';
+import { HOME_CREEK_PROFILE } from './creek';
 import { reservePanIds } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
+import { Region, type RegionSnapshot } from './region';
 import type { Rng } from './rng';
 
 /**
@@ -10,28 +11,31 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+
+const SCREENS = ['creek', 'bank', 'pan', 'town', 'region'] as const;
 
 /** Where the player was standing, so a reload puts them back there. */
 export interface SavedPlace {
-  readonly screen: 'creek' | 'bank' | 'pan' | 'town';
+  readonly screen: (typeof SCREENS)[number];
+  readonly creekId: number;
   readonly spotId: number | null;
 }
 
 export interface SaveData {
   readonly version: typeof SAVE_VERSION;
   readonly savedAt: number;
-  readonly creek: CreekSnapshot;
+  readonly region: RegionSnapshot;
   readonly session: SessionSnapshot;
   readonly place: SavedPlace;
 }
 
-export function createSave(creek: HomeCreek, session: PanningSession, place: SavedPlace, now: number): SaveData {
-  return { version: SAVE_VERSION, savedAt: now, creek: creek.snapshot(), session: session.snapshot(), place };
+export function createSave(region: Region, session: PanningSession, place: SavedPlace, now: number): SaveData {
+  return { version: SAVE_VERSION, savedAt: now, region: region.snapshot(), session: session.snapshot(), place };
 }
 
 export interface LoadedGame {
-  readonly creek: HomeCreek;
+  readonly region: Region;
   readonly session: PanningSession;
   readonly place: SavedPlace;
 }
@@ -39,12 +43,29 @@ export interface LoadedGame {
 /**
  * Bring older saves up to the current version, one step at a time.
  * v1 → v2: money arrived; v1 players had none.
+ * v2 → v3: the single creek became the Home Creek in a region of creeks and leads.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
   let save: Record<string, unknown> = data;
   if (save.version === 1 && isObject(save.session)) {
     save = { ...save, version: 2, session: { ...save.session, cash: 0, earned: 0, soldMg: 0 } };
+  }
+  if (save.version === 2 && isObject(save.creek) && Array.isArray(save.creek.spots) && isObject(save.place)) {
+    const { creek: oldCreek, ...rest } = save;
+    const creek = oldCreek as { spots: unknown[]; highWaterEvents: unknown };
+    const home = {
+      id: 1,
+      profile: HOME_CREEK_PROFILE,
+      spots: creek.spots.map((spot) => (isObject(spot) ? { ...spot, gully: null } : spot)),
+      highWaterEvents: creek.highWaterEvents,
+    };
+    save = {
+      ...rest,
+      version: 3,
+      region: { creeks: [home], leads: [], offers: [], offersStockedAt: null },
+      place: { ...save.place, creekId: 1 },
+    };
   }
   return save;
 }
@@ -53,11 +74,14 @@ function migrate(data: unknown): unknown {
 export function loadSave(raw: unknown, rng: Rng): LoadedGame | null {
   const data = migrate(raw);
   if (!isSaveData(data)) return null;
-  const creek = new HomeCreek(rng, data.creek);
+  const region = new Region(rng, data.region);
+  // Creeks saved before gullies existed get them now, so the Home Creek can still lead somewhere.
+  region.home.addGullies();
   const session = new PanningSession(rng, data.session);
   reservePanIds(maxPieceId(data.session));
+  const creek = region.creeks.find((c) => c.id === data.place.creekId) ?? region.home;
   const spotId = data.place.spotId !== null && creek.spots.some((s) => s.id === data.place.spotId) ? data.place.spotId : null;
-  return { creek, session, place: { screen: data.place.screen, spotId } };
+  return { region, session, place: { screen: data.place.screen, creekId: creek.id, spotId } };
 }
 
 function maxPieceId(session: SessionSnapshot): number {
@@ -72,14 +96,18 @@ function maxPieceId(session: SessionSnapshot): number {
 
 function isSaveData(data: unknown): data is SaveData {
   if (!isObject(data) || data.version !== SAVE_VERSION) return false;
-  const { creek, session, place } = data;
-  if (!isObject(creek) || !Array.isArray(creek.spots) || creek.spots.length === 0) return false;
-  if (!creek.spots.every((s) => isObject(s) && typeof s.id === 'number' && Array.isArray(s.layers))) return false;
+  const { region, session, place } = data;
+  if (!isObject(region) || !Array.isArray(region.creeks) || region.creeks.length === 0) return false;
+  if (!Array.isArray(region.leads) || !Array.isArray(region.offers)) return false;
+  for (const creek of region.creeks) {
+    if (!isObject(creek) || typeof creek.id !== 'number' || !isObject(creek.profile) || !Array.isArray(creek.spots)) return false;
+    if (!creek.spots.every((s) => isObject(s) && typeof s.id === 'number' && Array.isArray(s.layers))) return false;
+  }
   if (!isObject(session) || !Array.isArray(session.vial) || !isObject(session.jar)) return false;
   if (typeof session.jar.blackSand !== 'number' || !Array.isArray(session.jar.gold)) return false;
   if (typeof session.cash !== 'number' || typeof session.earned !== 'number' || typeof session.soldMg !== 'number') return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
-  if (!isObject(place) || !['creek', 'bank', 'pan', 'town'].includes(place.screen as string)) return false;
+  if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
   return true;
 }
 

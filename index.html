@@ -33,6 +33,18 @@
         top: 66%; font-size: 17px; line-height: 1.5; padding: 10px 16px; border-radius: 4px;
         background: rgba(30, 20, 12, 0.75); text-shadow: none; max-width: min(560px, 90vw);
       }
+      .hud-panel {
+        position: absolute; right: 12px; top: 44px; width: min(340px, calc(100vw - 24px)); max-height: 62vh; overflow-y: auto;
+        background: rgba(30, 22, 14, 0.9); border: 1px solid rgba(239, 230, 207, 0.25); border-radius: 4px;
+        padding: 10px 12px; pointer-events: auto; font-size: 13px;
+      }
+      .hud-panel h3 { margin: 0 0 8px; font: 600 17px Georgia, serif; color: #f3d77a; }
+      .hud-panel p { margin: 2px 0 6px; }
+      .hud-panel .small { font-size: 12px; opacity: 0.75; }
+      .hud-panel .lead { border-top: 1px solid rgba(239, 230, 207, 0.15); padding: 8px 0; }
+      .hud-panel .lead.dud { opacity: 0.5; }
+      .hud-panel .found { color: #9fd08a; }
+      .hud-panel button[disabled] { opacity: 0.4; cursor: default; }
       .hud-toast {
         position: absolute; left: 50%; top: 28%; transform: translateX(-50%);
         background: rgba(20, 26, 18, 0.85); padding: 8px 14px; border-radius: 4px; color: #f3d77a;

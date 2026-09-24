@@ -26,3 +26,9 @@ export function createRng(seed: number): Rng {
     int: (min, max) => min + Math.floor((max - min + 1) * next()),
   };
 }
+
+/** Standard normal sample (Box-Muller). */
+export function normal(rng: Rng): number {
+  const u = Math.max(rng.next(), 1e-12);
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng.next());
+}

@@ -7,3 +7,4 @@ export * from './panningSession';
 export * from './creek';
 export * from './save';
 export * from './market';
+export * from './region';

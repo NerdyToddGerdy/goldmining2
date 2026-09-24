@@ -362,7 +362,19 @@ The sliding rate creates a small decision: sell now, or keep panning to reach a 
 
 ### Leaving the creek
 
-The Home Creek is also how the player finds their next site. Panning at different points shows where colour becomes stronger or weaker, so the player can follow it upstream or into side gullies toward a lead. Selling gold buys supplies and access to that lead. The player leaves when they choose to, not because the creek forced them out.
+The Home Creek is also how the player finds their next site. Leads point to further creek stretches: shovel-and-pan ground like the Home Creek, but finite. Only the Home Creek renews with high water. Leads come from three places:
+
+- **Following colour upstream.** Dry side gullies join the creek. If one carries gold down from further up, spots just downstream of its mouth are richer, so panning along the creek shows a trail of colour. The player keeps field notes (pans and colour per spot) to read it. A test pan up the right gully that shows colour follows the trail to a new stretch. A barren gully pans empty. This lead is free, always real, and earned by reading the ground.
+- **Clues while digging.** Now and then the shovel turns up an old pan, a survey stake, or a note in a tin. It points to a named stretch the player can follow later.
+- **The claims board in town.** Leads for sale, restocked every dozen pans:
+
+| Source | Price | Reliability | Estimate |
+|---|---:|---:|---|
+| Rumour | $2–4 | ~55% real | Very wide, talked up |
+| Old claim record | $8–12 | ~85% real | Moderate |
+| Map fragment | $15–25 | ~95% real | Narrow |
+
+Every lead states a richness range relative to the Home Creek. It is an estimate, never the truth, and a dud still states one. Following a lead either puts a new stretch on the region map or marks the lead as a dud. Found stretches can have gullies of their own, so leads can chain further out. The player leaves when they choose to, not because the creek forced them out.
 
 ### Returning after bankruptcy
 

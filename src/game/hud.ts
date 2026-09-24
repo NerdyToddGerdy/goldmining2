@@ -3,13 +3,16 @@ import {
   quoteSale,
   type DigSpot,
   type GoldPiece,
-  type HomeCreek,
+  type Creek,
   type PanControls,
   type PanStepEvents,
   type PanningSession,
+  type Lead,
+  type LeadSource,
+  type Region,
 } from '../sim';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region';
 
 export interface HudActions {
   // Pan
@@ -28,14 +31,19 @@ export interface HudActions {
   walkCreek(): void;
   newCreek(): void;
   walkToTown(): void;
+  openRegion(): void;
   // Town
   sell(): void;
+  buyLead(leadId: number): void;
+  // Region
+  followLead(leadId: number): void;
 }
 
 export interface HudState {
   readonly mode: Mode;
   readonly session: PanningSession;
-  readonly creek: HomeCreek;
+  readonly region: Region;
+  readonly creek: Creek;
   readonly spot: DigSpot | null;
   readonly controls: PanControls;
   readonly events: PanStepEvents | null;
@@ -45,7 +53,16 @@ const HINTS: Record<Mode, string> = {
   creek: 'Walk the creek and pick a spot to dig (click, or press its number). Inside bends, bedrock, black sand, moss lines and boulders are good signs, but only the pan tells the truth.',
   bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
   town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
+  region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
   pan: 'Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
+};
+
+const SOURCE_NAMES: Record<LeadSource, string> = {
+  colourTrail: 'Colour trail',
+  clue: 'Clue',
+  rumour: 'Rumour',
+  claimRecord: 'Old claim record',
+  mapFragment: 'Map fragment',
 };
 
 const LAYER_NAMES = { overburden: 'topsoil', gravel: 'gravel', payStreak: 'pay streak', bedrock: 'bedrock cracks' } as const;
@@ -64,6 +81,8 @@ export class Hud {
   private readonly inspect: HTMLElement;
   private readonly toastEl: HTMLElement;
   private readonly cash: HTMLElement;
+  private readonly panel: HTMLElement;
+  private panelKey = '';
   private buttonsKey = '';
   private resultKey = '';
   private inspectOpen = false;
@@ -79,6 +98,7 @@ export class Hud {
       <div class="hud-result" hidden></div>
       <div class="hud-inspect" hidden></div>
       <div class="hud-toast" hidden></div>
+      <div class="hud-panel" hidden></div>
       <div class="hud-bar">
         <span class="hud-pan-controls">
           <label class="hud-tilt">Tilt <input type="range" min="0" max="1" step="0.01" value="0" /></label>
@@ -97,6 +117,15 @@ export class Hud {
     this.inspect = this.root.querySelector('.hud-inspect') as HTMLElement;
     this.toastEl = this.root.querySelector('.hud-toast') as HTMLElement;
     this.cash = this.root.querySelector('.hud-cash') as HTMLElement;
+    this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
+    this.panel.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('button');
+      if (!target) return;
+      target.blur();
+      const id = Number(target.dataset.lead);
+      if (target.dataset.action === 'buy') this.on.buyLead(id);
+      if (target.dataset.action === 'follow') this.on.followLead(id);
+    });
 
     this.tilt.addEventListener('input', () => on.setTilt(Number(this.tilt.value)));
     const shake = this.root.querySelector('.hud-shake') as HTMLElement;
@@ -140,17 +169,20 @@ export class Hud {
       this.result.hidden = mode === 'town' ? false : !pan || mode !== 'pan' || pan.phase === 'working';
       this.result.classList.toggle('hud-result-town', mode === 'town');
       if (mode === 'town') this.result.textContent = describeOffer(session);
-      if (pan?.phase === 'revealed') {
+      else if (mode !== 'pan') {
+        // No result card on other screens.
+      } else if (pan?.phase === 'revealed') {
         const cover = pan.kind === 'concentrate' ? 'black sand' : 'sand';
         this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand, cover);
       }
-      if (pan?.phase === 'emptied') {
+      else if (pan?.phase === 'emptied') {
         const what = pan.kind === 'concentrate' ? 'Concentrate panned.' : `Pan ${session.pansWorked} done.`;
         this.result.textContent = `${what} ${session.vialMg.toFixed(1)} mg in the vial.`;
       }
     }
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toastEl.hidden = true;
+    this.renderPanel(state);
 
     const spilled = events ? events.darkSpilled / Math.max(dt, 1e-6) : 0;
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
@@ -187,7 +219,42 @@ export class Hud {
       const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
       return [...sell, ['Back to the creek (Esc)', () => this.on.walkCreek()]];
     }
-    return [['Walk to town (T)', () => this.on.walkToTown()], ['Start a new creek', () => this.on.newCreek()]];
+    if (mode === 'region') {
+      return [[`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()], ['Start over', () => this.on.newCreek()]];
+    }
+    return [
+      ['Region map (M)', () => this.on.openRegion()],
+      ['Walk to town (T)', () => this.on.walkToTown()],
+    ];
+  }
+
+  /** The notebook of leads on the region map, and the claims board in town. */
+  private renderPanel(state: HudState): void {
+    const { mode, region, session } = state;
+    const show = mode === 'region' || mode === 'town';
+    const key = show
+      ? `${mode}:${session.cash}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      : '';
+    if (key === this.panelKey) return;
+    this.panelKey = key;
+    this.panel.hidden = !show;
+    if (!show) return;
+    if (mode === 'town') {
+      const offers = region.offers.map(({ lead, price }) => {
+        const afford = session.cash >= price;
+        return `<div class="lead">${leadHeader(lead)}<button type="button" data-action="buy" data-lead="${lead.id}" ${afford ? '' : 'disabled'}>Buy for $${price}</button></div>`;
+      });
+      this.panel.innerHTML = `<h3>Claims board</h3>${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
+    } else {
+      const leads = [...region.leads].reverse().map((lead) => {
+        const action =
+          lead.status === 'open' ? `<button type="button" data-action="follow" data-lead="${lead.id}">Follow it</button>`
+          : lead.status === 'dud' ? '<span class="dud">Nothing there.</span>'
+          : '<span class="found">Found. It is on the map.</span>';
+        return `<div class="lead ${lead.status}">${leadHeader(lead)}${action}</div>`;
+      });
+      this.panel.innerHTML = `<h3>Notebook</h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
+    }
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {
@@ -203,6 +270,9 @@ export class Hud {
       const n = Number(key);
       if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
       else if (key === 't') this.on.walkToTown();
+      else if (key === 'm') this.on.openRegion();
+    } else if (state.mode === 'region') {
+      if (key === 'escape') this.on.walkCreek();
     } else if (state.mode === 'town') {
       if (key === 's') this.on.sell();
       else if (key === 'escape') this.on.walkCreek();
@@ -259,6 +329,11 @@ export class Hud {
     }
     this.inspect.innerHTML = [...rows, ...common].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   }
+}
+
+function leadHeader(lead: Lead): string {
+  const { low, high } = lead.richness;
+  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p><p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
 }
 
 function describeOffer(session: PanningSession): string {

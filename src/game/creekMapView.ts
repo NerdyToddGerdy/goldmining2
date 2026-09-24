@@ -1,10 +1,11 @@
 import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
-import type { DigSpot, GroundSign, HomeCreek } from '../sim';
+import type { DigSpot, GroundSign, Creek } from '../sim';
 
 /**
- * Top-down view of the Home Creek stretch. Ground signs are drawn physically at each spot
- * (gravel bars on inside bends, black-sand streaks, moss, exposed bedrock, trapping boulders).
- * Hovering names what the player notices; it never reveals richness.
+ * Top-down view of a creek stretch. Ground signs are drawn physically at each spot (gravel bars
+ * on inside bends, black-sand streaks, moss, exposed bedrock, trapping boulders), and dry side
+ * gullies join the creek. Hovering names what the player notices and shows their own field
+ * notes (pans and colour kept); it never reveals richness.
  */
 
 export const SIGN_NAMES: Record<GroundSign, string> = {
@@ -17,23 +18,26 @@ export const SIGN_NAMES: Record<GroundSign, string> = {
 
 const BANK = 0x5d5a38;
 const WATER = 0x2f5a5e;
+const GULLY = 0x8a7d5a;
 
 export class CreekMapView extends Container {
   private readonly g = new Graphics();
   private readonly labels = new Container();
   private readonly tooltip = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 14, fontFamily: 'system-ui, sans-serif', wordWrap: true, wordWrapWidth: 260 } });
   private readonly tooltipBg = new Graphics();
+  private readonly title = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 20, fontFamily: 'Georgia, serif', letterSpacing: 1 } });
   private width_ = 800;
   private height_ = 600;
   private hovered: DigSpot | null = null;
   private time = 0;
 
   constructor(
-    private readonly creek: HomeCreek,
+    private creek: Creek,
     private readonly onPick: (spot: DigSpot) => void,
   ) {
     super();
-    this.addChild(this.g, this.labels, this.tooltipBg, this.tooltip);
+    this.title.anchor.set(0.5, 0);
+    this.addChild(this.g, this.labels, this.title, this.tooltipBg, this.tooltip);
     this.eventMode = 'static';
     this.on('globalpointermove', (e: FederatedPointerEvent) => (this.hovered = this.spotAt(e.global.x, e.global.y)));
     this.on('pointertap', (e: FederatedPointerEvent) => {
@@ -42,18 +46,30 @@ export class CreekMapView extends Container {
     });
   }
 
+  setCreek(creek: Creek): void {
+    this.creek = creek;
+    this.hovered = null;
+    this.layout(this.width_, this.height_);
+  }
+
   layout(width: number, height: number): void {
     this.width_ = width;
     this.height_ = height;
     this.hitArea = new Rectangle(0, 0, width, height);
+    this.title.text = this.creek.profile.name;
+    this.title.position.set(width / 2, 58);
     this.labels.removeChildren().forEach((c) => c.destroy());
-    this.creek.spots.forEach((spot, i) => {
-      const p = this.spotPos(spot);
-      const label = new Text({ text: String(i + 1), style: { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' } });
-      label.anchor.set(0.5);
-      label.position.set(p.x, p.y + 26);
-      this.labels.addChild(label);
-    });
+    const style = { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' };
+    this.creek.creekSpots.forEach((spot, i) => this.addLabel(String(i + 1), spot, style));
+    for (const spot of this.creek.gullySpots) this.addLabel('gully', spot, { ...style, fontSize: 11, fill: 0xd8ccaa });
+  }
+
+  private addLabel(text: string, spot: DigSpot, style: { fill: number; fontSize: number; fontFamily: string }): void {
+    const p = this.spotPos(spot);
+    const label = new Text({ text, style });
+    label.anchor.set(0.5);
+    label.position.set(p.x, p.y + 26);
+    this.labels.addChild(label);
   }
 
   update(dt: number): void {
@@ -79,6 +95,7 @@ export class CreekMapView extends Container {
     }
     g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.4 });
 
+    for (const spot of this.creek.gullySpots) this.drawGully(g, spot);
     for (const spot of this.creek.spots) this.drawSpot(g, spot);
     this.drawTooltip();
   }
@@ -125,14 +142,31 @@ export class CreekMapView extends Container {
     if (spot === this.hovered) g.circle(p.x, p.y, 30).stroke({ width: 2, color: 0xefe6cf, alpha: 0.6 });
   }
 
+  /** A dry side channel running from the creek out to the edge of the view. */
+  private drawGully(g: Graphics, spot: DigSpot): void {
+    const { mouth, end } = this.gullyLine(spot);
+    g.moveTo(mouth.x, mouth.y)
+      .quadraticCurveTo(mouth.x + (end.x - mouth.x) * 0.2 - 30, (mouth.y + end.y) / 2, end.x, end.y)
+      .stroke({ width: 16, color: GULLY, alpha: 0.9 });
+    g.moveTo(mouth.x, mouth.y)
+      .quadraticCurveTo(mouth.x + (end.x - mouth.x) * 0.2 - 30, (mouth.y + end.y) / 2, end.x, end.y)
+      .stroke({ width: 4, color: 0x6b6044, alpha: 0.8 });
+  }
+
   private drawTooltip(): void {
     const spot = this.hovered;
     this.tooltip.visible = this.tooltipBg.visible = spot !== null;
     if (!spot) return;
-    const index = this.creek.spots.indexOf(spot) + 1;
-    const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
     const state = this.creek.isWorkedOut(spot) ? 'Worked out.' : spot.spoil > 0 || spot.layers.some((l) => l.loads < l.initialLoads) ? 'You have dug here.' : 'Undug.';
-    this.tooltip.text = `Spot ${index}: ${noticed}.\n${state} Click to dig.`;
+    const notes = spot.notes ? `\nYour notes: ${spot.notes.pans} pan${spot.notes.pans === 1 ? '' : 's'}, ${(spot.notes.mg / spot.notes.pans).toFixed(1)} mg a pan.` : '';
+    if (spot.gully) {
+      const traced = spot.gully.traced ? '\nYou traced its colour upstream.' : '';
+      this.tooltip.text = `Side gully: a dry wash comes down here. Test-pan its floor to see if colour comes from up there.${notes}${traced}\n${state} Click to dig.`;
+    } else {
+      const index = this.creek.creekSpots.indexOf(spot) + 1;
+      const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
+      this.tooltip.text = `Spot ${index}: ${noticed}.${notes}\n${state} Click to dig.`;
+    }
     const p = this.spotPos(spot);
     const x = Math.min(p.x + 34, this.width_ - 280);
     const y = Math.max(8, p.y - 70);
@@ -144,12 +178,34 @@ export class CreekMapView extends Container {
     return this.height_ * 0.48 + Math.sin((x / this.width_) * Math.PI * 2.2 + 0.4) * this.height_ * 0.15;
   }
 
-  /** Spots sit on the bank beside the channel; inside-bend spots sit on the inside of the curve. */
+  /** Gullies alternate sides of the creek and run out to the edge of the view. */
+  private gullyLine(spot: DigSpot): { mouth: { x: number; y: number }; end: { x: number; y: number } } {
+    const x = this.width_ * (0.08 + 0.84 * spot.position);
+    const up = this.creek.gullySpots.indexOf(spot) % 2 === 0;
+    const centre = this.creekY(x) + 17;
+    return {
+      mouth: { x, y: up ? centre - 14 : centre + 14 },
+      end: { x: x + 60, y: up ? 90 : this.height_ - 70 },
+    };
+  }
+
+  /** Spots sit on the bank beside the channel; inside-bend spots sit on the inside of the curve. Gully spots sit up their gully. */
   private spotPos(spot: DigSpot): { x: number; y: number } {
+    if (spot.gully) {
+      const { mouth, end } = this.gullyLine(spot);
+      const t = 0.55;
+      // Point on the gully's curve (matching drawGully's control point).
+      const cx = mouth.x + (end.x - mouth.x) * 0.2 - 30;
+      const cy = (mouth.y + end.y) / 2;
+      return {
+        x: (1 - t) ** 2 * mouth.x + 2 * (1 - t) * t * cx + t ** 2 * end.x,
+        y: (1 - t) ** 2 * mouth.y + 2 * (1 - t) * t * cy + t ** 2 * end.y,
+      };
+    }
     const x = this.width_ * (0.08 + 0.84 * spot.position);
     const k = (Math.PI * 2.2) / this.width_;
     const curvatureDown = -Math.sin(x * k + 0.4) > 0;
-    const index = this.creek.spots.indexOf(spot);
+    const index = this.creek.creekSpots.indexOf(spot);
     const below = spot.signs.includes('insideBend') ? curvatureDown : index % 2 === 0;
     const centre = this.creekY(x) + 17;
     return { x, y: below ? centre + 62 : centre - 62 };

@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import type { DigSpot, HomeCreek, LayerKind } from '../sim';
+import type { DigSpot, Creek, LayerKind } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
@@ -48,7 +48,7 @@ export class BankView extends Container {
   private time = 0;
 
   constructor(
-    private readonly creek: HomeCreek,
+    private creek: Creek,
     private readonly actions: BankActions,
   ) {
     super();
@@ -66,8 +66,9 @@ export class BankView extends Container {
     this.hitArea = new Rectangle(0, 0, width, height);
   }
 
-  setSpot(spot: DigSpot): void {
+  setSpot(creek: Creek, spot: DigSpot): void {
     if (spot !== this.spot) this.clods = [];
+    this.creek = creek;
     this.spot = spot;
   }
 

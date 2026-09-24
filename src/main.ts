@@ -1,11 +1,14 @@
 import { Application } from 'pixi.js';
 import {
-  HomeCreek,
   PanningSession,
+  Region,
   createRng,
   createSave,
   loadSave,
+  totalMg,
+  type Creek,
   type DigSpot,
+  type FollowResult,
   type PanStepEvents,
   type ShovelResult,
 } from './sim';
@@ -16,6 +19,7 @@ import { PanCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
+import { RegionMapView } from './game/regionMapView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
 
@@ -46,13 +50,17 @@ async function start(): Promise<void> {
 
   const rng = createRng(Date.now());
   const loaded = loadSave(readSave(), rng);
-  const creek = loaded?.creek ?? new HomeCreek(rng);
+  const region = loaded?.region ?? new Region(rng);
   const session = loaded?.session ?? new PanningSession(rng);
+  let creek: Creek = loaded ? region.creek(loaded.place.creekId) : region.home;
   let mode: Mode = 'creek';
   let spot: DigSpot | null = loaded?.place.spotId != null ? creek.spot(loaded.place.spotId) : null;
+  /** Where the pan's current shovelful came from, for field notes and gully colour. */
+  let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
   const setMode = (next: Mode): void => {
     mode = next;
+    regionMap.visible = mode === 'region';
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
     townView.visible = mode === 'town';
@@ -77,10 +85,47 @@ async function start(): Promise<void> {
     bankView.landed(into, result.from);
     if (result.event) hud.toast(EVENT_MESSAGES[result.event]);
     if (creek.highWaterEvents > highWaterBefore) hud.toast('High water has come through and left fresh gravel along the creek.');
+    if (result.clue) {
+      const lead = region.clueFound();
+      hud.toast(`Your shovel turns something up. ${lead.note} It points to ${lead.name}. Noted in your notebook (M).`);
+    }
     if (result.load) {
       session.startPan(result.load);
+      panSpot = spot;
       startPanning();
     }
+  };
+
+  const collect = (saveBlackSand: boolean): void => {
+    const pan = session.pan;
+    if (!pan || pan.phase !== 'revealed') return;
+    const collected = session.collect(saveBlackSand);
+    const from = panSpot;
+    panSpot = null;
+    if (pan.kind !== 'gravel' || !from) return;
+    creek.recordPan(from.id, totalMg(collected));
+    // Colour up a source gully: follow it to where it comes from.
+    if (from.gully && collected.length > 0) {
+      const traced = region.traceGully(from);
+      if (traced?.found) hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name}. It is on your region map (M).`);
+    }
+  };
+
+  const describeFollow = (result: FollowResult): string =>
+    result.found
+      ? `You find ${result.creek.profile.name}. It is on your region map now.`
+      : `You walk out to ${result.lead.name}, but there's nothing there. The ${result.lead.source === 'rumour' ? 'rumour' : 'lead'} was wrong.`;
+
+  const goToCreek = (next: Creek): void => {
+    if (next !== creek) spot = null;
+    creek = next;
+    creekMap.setCreek(next);
+    setMode('creek');
+  };
+
+  const walkToTown = (): void => {
+    region.restockOffers(session.pansWorked);
+    setMode('town');
   };
 
   const pry = (): void => {
@@ -94,18 +139,20 @@ async function start(): Promise<void> {
 
   const pickSpot = (picked: DigSpot): void => {
     spot = picked;
-    bankView.setSpot(picked);
+    bankView.setSpot(creek, picked);
     setMode('bank');
   };
+  const regionMap = new RegionMapView(region, (place) => (place.kind === 'town' ? walkToTown() : goToCreek(place.creek)));
   const creekMap = new CreekMapView(creek, pickSpot);
   const bankView = new BankView(creek, { shovel, pry, bail });
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(creekMap, bankView, townView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, townView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
+    regionMap.layout(width, height);
     creekMap.layout(width, height);
     bankView.layout(width, height);
     townView.layout(width, height);
@@ -120,7 +167,7 @@ async function start(): Promise<void> {
       const pan = session.pan;
       if (pan && coach.allowReveal(pan)) pan.reveal();
     },
-    collect: (save) => session.collect(save),
+    collect,
     backToHole: () => setMode('bank'),
     setTilt: (tilt) => (input.tilt = tilt),
     setShake: (held) => (input.shakeHeld = held),
@@ -128,14 +175,21 @@ async function start(): Promise<void> {
     pry,
     bail,
     walkCreek: () => setMode('creek'),
-    walkToTown: () => setMode('town'),
+    walkToTown,
+    openRegion: () => setMode('region'),
+    buyLead: (leadId) => {
+      const lead = region.buy(leadId, session);
+      if (lead) hud.toast(`Bought: ${lead.name}. Follow it from your notebook on the region map.`);
+      else hud.toast("You can't afford that yet.");
+    },
+    followLead: (leadId) => hud.toast(describeFollow(region.follow(leadId))),
     sell: () => {
       if (mode !== 'town' || session.vial.length === 0) return;
       const sale = session.sellVial();
       hud.toast(`Sold for $${sale.total.toFixed(2)}. You have $${session.cash.toFixed(2)}.`);
     },
     newCreek: () => {
-      if (!window.confirm('Start over on a fresh creek? Your vial, jar, and dug spots will be lost.')) return;
+      if (!window.confirm('Start over? Your creeks, leads, vial, jar, and cash will all be lost.')) return;
       clearSave();
       saveBlocked = true; // Stop the autosave (and pagehide) from writing this game back before the reload.
       window.location.reload();
@@ -147,7 +201,7 @@ async function start(): Promise<void> {
       hud.toast('Black sand is heavy and holds fine gold. Settle it, then swirl gently: a light touch keeps the gold in the pan.');
     },
     pickSpot: (index) => {
-      const picked = creek.spots[index];
+      const picked = creek.creekSpots[index];
       if (picked) pickSpot(picked);
     },
   });
@@ -167,9 +221,10 @@ async function start(): Promise<void> {
   // Put the player back where they left off. A pan in progress always wins: it can't be set down.
   const pan = session.pan;
   const screen = loaded?.place.screen ?? 'creek';
-  if (spot) bankView.setSpot(spot);
+  if (spot) bankView.setSpot(creek, spot);
   if (pan && pan.phase !== 'emptied') setMode('pan');
-  else if (screen === 'town') setMode('town');
+  else if (screen === 'town') walkToTown();
+  else if (screen === 'region') setMode('region');
   else if ((screen === 'bank' || screen === 'pan') && spot) setMode('bank');
   else setMode('creek');
   if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
@@ -178,7 +233,7 @@ async function start(): Promise<void> {
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(creek, session, { screen: mode, spotId: spot?.id ?? null }, Date.now()));
+    const ok = writeSave(createSave(region, session, { screen: mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now()));
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -191,7 +246,11 @@ async function start(): Promise<void> {
   let sinceSave = 0;
 
   // Dev-only handle for inspecting state from the browser console or test scripts.
-  if (import.meta.env.DEV) Object.assign(window, { __game: { session, creek, get mode() { return mode; } } });
+  if (import.meta.env.DEV) {
+    Object.assign(window, {
+      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)) },
+    });
+  }
 
   let accumulator = 0;
   app.ticker.add((ticker) => {
@@ -222,12 +281,14 @@ async function start(): Promise<void> {
       panView.update(dt, session, controls, input.swirlDirection, events);
     } else if (mode === 'bank') {
       bankView.update(dt);
+    } else if (mode === 'region') {
+      regionMap.update(creek);
     } else if (mode === 'town') {
       townView.update(dt, session);
     } else {
       creekMap.update(dt);
     }
-    hud.update(dt, { mode, session, creek, spot, controls, events });
+    hud.update(dt, { mode, session, region, creek, spot, controls, events });
 
     sinceSave += dt;
     if (sinceSave >= AUTOSAVE_SECONDS) {
