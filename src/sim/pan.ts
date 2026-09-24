@@ -182,27 +182,14 @@ export class Pan {
       return;
     }
     this.kind = 'gravel';
-    this.clay = load.clayiness * rng.range(0.05, 0.18);
-    this.blackSand = rng.range(0.03, 0.07);
-    this.lightSand = 0.85 - this.clay - this.blackSand;
+    const shovelful = rollShovelful(rng, load);
+    this.clay = shovelful.clay;
+    this.blackSand = shovelful.blackSand;
+    this.lightSand = shovelful.lightSand;
     this.initialLightSand = this.lightSand;
     this.turbidity = this.clay * 2;
-
-    const rockCount = Math.round(load.rockiness * rng.range(2, 7));
-    this.rocks = Array.from({ length: rockCount }, () => ({
-      id: newId(),
-      stuckPicker: rng.next() < PAN_TUNING.rockPickerChance ? makePiece(rng, 'picker') : null,
-    }));
-
-    this.gold = [];
-    let budget = load.richness * rng.range(0.3, 1.8);
-    while (budget > 0 && this.gold.length < 80) {
-      const roll = rng.next();
-      const size: GoldSize = roll < 0.7 ? 'fine' : roll < 0.97 ? 'flake' : 'picker';
-      const piece = makePiece(rng, size);
-      this.gold.push(piece);
-      budget -= piece.mg;
-    }
+    this.rocks = shovelful.rocks;
+    this.gold = shovelful.gold;
   }
 
   snapshot(): PanSnapshot {
@@ -371,6 +358,39 @@ export class Pan {
     });
     return before - this.gold.length;
   }
+}
+
+/** What one shovelful actually holds, in pan-volume units. Pans and sluices both start from this. */
+export interface Shovelful {
+  readonly lightSand: number;
+  readonly blackSand: number;
+  readonly clay: number;
+  readonly rocks: Rock[];
+  readonly gold: GoldPiece[];
+}
+
+/** Roll the hidden contents of a shovelful dug from ground with the given character. */
+export function rollShovelful(rng: Rng, load: PanLoad): Shovelful {
+  const clay = load.clayiness * rng.range(0.05, 0.18);
+  const blackSand = rng.range(0.03, 0.07);
+  const lightSand = 0.85 - clay - blackSand;
+
+  const rockCount = Math.round(load.rockiness * rng.range(2, 7));
+  const rocks = Array.from({ length: rockCount }, () => ({
+    id: newId(),
+    stuckPicker: rng.next() < PAN_TUNING.rockPickerChance ? makePiece(rng, 'picker') : null,
+  }));
+
+  const gold: GoldPiece[] = [];
+  let budget = load.richness * rng.range(0.3, 1.8);
+  while (budget > 0 && gold.length < 80) {
+    const roll = rng.next();
+    const size: GoldSize = roll < 0.7 ? 'fine' : roll < 0.97 ? 'flake' : 'picker';
+    const piece = makePiece(rng, size);
+    gold.push(piece);
+    budget -= piece.mg;
+  }
+  return { lightSand, blackSand, clay, rocks, gold };
 }
 
 function makePiece(rng: Rng, size: GoldSize): GoldPiece {

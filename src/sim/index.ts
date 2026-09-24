@@ -8,3 +8,4 @@ export * from './creek';
 export * from './save';
 export * from './market';
 export * from './region';
+export * from './sluice';

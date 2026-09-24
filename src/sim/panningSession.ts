@@ -1,5 +1,6 @@
 import { Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
+import type { Concentrate } from './sluice';
 import type { Rng } from './rng';
 
 /** Black sand (pan-volume units) the concentrate jar holds. */
@@ -78,6 +79,15 @@ export class PanningSession {
 
   get canPanConcentrate(): boolean {
     return this.panIsFree && this.jar.blackSand >= MIN_CONCENTRATE;
+  }
+
+  /**
+   * Wash a sluice's cleanout (the moss and what it held) into the concentrate jar, ready to pan.
+   * The jar holds it however full it gets; the capacity only sets how full it looks.
+   */
+  addConcentrate(concentrate: Concentrate): void {
+    this.jar.blackSand += concentrate.blackSand;
+    this.jar.gold.push(...concentrate.gold);
   }
 
   /**
