@@ -79,6 +79,26 @@ describe('save and load', () => {
     expect(loadSave({ ...good, session: { ...(good.session as object), vial: 'x' } }, rng)).toBeNull();
   });
 
+  it('carries money through a save', () => {
+    const { creek, session } = playedGame();
+    session.cash = 12.34;
+    session.earned = 20;
+    const loaded = loadSave(throughJson(createSave(creek, session, { screen: 'town', spotId: null }, 0)), createRng(3))!;
+    expect(loaded.session.cash).toBeCloseTo(12.34);
+    expect(loaded.place.screen).toBe('town');
+  });
+
+  it('upgrades a version 1 save rather than discarding it', () => {
+    const { creek, session } = playedGame();
+    const v2 = throughJson(createSave(creek, session, { screen: 'bank', spotId: null }, 0)) as Record<string, unknown>;
+    const { cash: _c, earned: _e, soldMg: _s, ...v1Session } = v2.session as Record<string, unknown>;
+    const v1 = { ...v2, version: 1, session: v1Session };
+    const loaded = loadSave(v1, createRng(4));
+    expect(loaded).not.toBeNull();
+    expect(loaded!.session.cash).toBe(0);
+    expect(loaded!.session.vialMg).toBeCloseTo(session.vialMg);
+  });
+
   it('drops a remembered spot that no longer exists', () => {
     const { creek, session } = playedGame();
     const loaded = loadSave(throughJson(createSave(creek, session, { screen: 'bank', spotId: 9999 }, 0)), createRng(2))!;

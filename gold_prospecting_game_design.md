@@ -346,6 +346,20 @@ Visible signs that tell the player where gold is likely to have settled:
 
 The key decision is **where and how deep**. Topsoil is quick to dig but poor. The pay streak and bedrock are richer but cost time.
 
+### Selling gold
+
+Gold is sold at the assay office in town, reached from the creek. The buyer weighs the vial and pays spot price less a cut:
+
+| Lot weight (fines and flakes) | Share of spot paid |
+|---|---:|
+| Under 100 mg | 70% |
+| 100 mg to 1 g | 80% |
+| 1 g and over | 88% |
+
+Pickers sell whole as specimens at 1.5× spot. Prices are grounded in reality (about $120 a gram), so the Home Creek pays modestly, as intended: a skilled day of panning is worth tens of dollars, not hundreds.
+
+The sliding rate creates a small decision: sell now, or keep panning to reach a better rate. Selling never costs anything, so it never blocks the recovery path. Black sand is not bought. It has to be panned to release its gold.
+
 ### Leaving the creek
 
 The Home Creek is also how the player finds their next site. Panning at different points shows where colour becomes stronger or weaker, so the player can follow it upstream or into side gullies toward a lead. Selling gold buys supplies and access to that lead. The player leaves when they choose to, not because the creek forced them out.

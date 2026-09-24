@@ -1,4 +1,5 @@
 import { Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
+import { quoteSale, type SaleQuote } from './market';
 import type { Rng } from './rng';
 
 /** Black sand (pan-volume units) the concentrate jar holds. */
@@ -14,6 +15,9 @@ export interface SessionSnapshot {
   readonly jar: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
   readonly pansWorked: number;
   readonly pan: PanSnapshot | null;
+  readonly cash: number;
+  readonly earned: number;
+  readonly soldMg: number;
 }
 
 /**
@@ -26,6 +30,11 @@ export class PanningSession {
   readonly jar: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
   /** Pans of creek gravel worked; re-panned concentrate is not counted. */
   pansWorked = 0;
+  /** Dollars on hand. */
+  cash = 0;
+  /** Lifetime dollars from gold sales, and milligrams sold. */
+  earned = 0;
+  soldMg = 0;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -37,6 +46,9 @@ export class PanningSession {
     this.jar.blackSand = saved.jar.blackSand;
     this.jar.gold.push(...saved.jar.gold);
     this.pansWorked = saved.pansWorked;
+    this.cash = saved.cash;
+    this.earned = saved.earned;
+    this.soldMg = saved.soldMg;
     this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
   }
 
@@ -46,6 +58,9 @@ export class PanningSession {
       jar: this.jar,
       pansWorked: this.pansWorked,
       pan: this.pan?.snapshot() ?? null,
+      cash: this.cash,
+      earned: this.earned,
+      soldMg: this.soldMg,
     });
   }
 
@@ -96,6 +111,16 @@ export class PanningSession {
     this.jar.blackSand += blackSand;
     if (this.pan.kind === 'gravel') this.pansWorked += 1;
     return collected;
+  }
+
+  /** Sell everything in the vial to the gold buyer. */
+  sellVial(): SaleQuote {
+    const quote = quoteSale(this.vial);
+    this.cash += quote.total;
+    this.earned += quote.total;
+    this.soldMg += quote.weighedMg + quote.specimenMg;
+    this.vial.length = 0;
+    return quote;
   }
 
   get vialMg(): number {

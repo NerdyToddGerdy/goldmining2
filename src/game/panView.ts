@@ -105,8 +105,9 @@ export class PanView extends Container {
     this.rx = this.radius * 0.78;
     this.ry = this.radius * 0.48;
     this.body.position.set(centerX, centerY);
-    this.vialGraphics.position.set(width - 90, 28);
-    this.vialLabel.position.set(width - 96, 150);
+    // Below the HUD's cash readout in the top-right corner.
+    this.vialGraphics.position.set(width - 90, 48);
+    this.vialLabel.position.set(width - 96, 170);
   }
 
   setPan(pan: Pan): void {

@@ -16,6 +16,7 @@ import { PanCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
+import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
 
 /** Simulation runs on a fixed step so outcomes do not depend on frame rate. */
@@ -54,6 +55,7 @@ async function start(): Promise<void> {
     mode = next;
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
+    townView.visible = mode === 'town';
     scene.visible = panView.visible = mode === 'pan';
     input.enabled = mode === 'pan';
   };
@@ -99,12 +101,14 @@ async function start(): Promise<void> {
   const bankView = new BankView(creek, { shovel, pry, bail });
   const scene = new CreekScene();
   const panView = new PanView();
-  app.stage.addChild(creekMap, bankView, scene, panView);
+  const townView = new TownView();
+  app.stage.addChild(creekMap, bankView, townView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
     creekMap.layout(width, height);
     bankView.layout(width, height);
+    townView.layout(width, height);
     scene.resize(width, height);
     panView.layout(width, height, width / 2, scene.waterTop + (height - scene.waterTop) * 0.45);
   };
@@ -124,6 +128,12 @@ async function start(): Promise<void> {
     pry,
     bail,
     walkCreek: () => setMode('creek'),
+    walkToTown: () => setMode('town'),
+    sell: () => {
+      if (mode !== 'town' || session.vial.length === 0) return;
+      const sale = session.sellVial();
+      hud.toast(`Sold for $${sale.total.toFixed(2)}. You have $${session.cash.toFixed(2)}.`);
+    },
     newCreek: () => {
       if (!window.confirm('Start over on a fresh creek? Your vial, jar, and dug spots will be lost.')) return;
       clearSave();
@@ -154,13 +164,14 @@ async function start(): Promise<void> {
       if (picker) hud.toast(`A picker was wedged in that rock! ${picker.mg.toFixed(1)} mg into the vial.`);
     },
   );
-  // Put the player back where they left off: at their pan if one is in progress, else at their hole.
+  // Put the player back where they left off. A pan in progress always wins: it can't be set down.
   const pan = session.pan;
+  const screen = loaded?.place.screen ?? 'creek';
+  if (spot) bankView.setSpot(spot);
   if (pan && pan.phase !== 'emptied') setMode('pan');
-  else if (spot) {
-    bankView.setSpot(spot);
-    setMode('bank');
-  } else setMode('creek');
+  else if (screen === 'town') setMode('town');
+  else if ((screen === 'bank' || screen === 'pan') && spot) setMode('bank');
+  else setMode('creek');
   if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
 
   let saveBlocked = false;
@@ -211,6 +222,8 @@ async function start(): Promise<void> {
       panView.update(dt, session, controls, input.swirlDirection, events);
     } else if (mode === 'bank') {
       bankView.update(dt);
+    } else if (mode === 'town') {
+      townView.update(dt, session);
     } else {
       creekMap.update(dt);
     }

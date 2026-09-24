@@ -1,5 +1,6 @@
 import {
   JAR_CAPACITY,
+  quoteSale,
   type DigSpot,
   type GoldPiece,
   type HomeCreek,
@@ -8,7 +9,7 @@ import {
   type PanningSession,
 } from '../sim';
 
-export type Mode = 'creek' | 'bank' | 'pan';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town';
 
 export interface HudActions {
   // Pan
@@ -26,6 +27,9 @@ export interface HudActions {
   bail(): void;
   walkCreek(): void;
   newCreek(): void;
+  walkToTown(): void;
+  // Town
+  sell(): void;
 }
 
 export interface HudState {
@@ -40,6 +44,7 @@ export interface HudState {
 const HINTS: Record<Mode, string> = {
   creek: 'Walk the creek and pick a spot to dig (click, or press its number). Inside bends, bedrock, black sand, moss lines and boulders are good signs, but only the pan tells the truth.',
   bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
+  town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
   pan: 'Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
 };
 
@@ -58,6 +63,7 @@ export class Hud {
   private readonly result: HTMLElement;
   private readonly inspect: HTMLElement;
   private readonly toastEl: HTMLElement;
+  private readonly cash: HTMLElement;
   private buttonsKey = '';
   private resultKey = '';
   private inspectOpen = false;
@@ -69,6 +75,7 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-hint"></div>
+      <div class="hud-cash"></div>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect" hidden></div>
       <div class="hud-toast" hidden></div>
@@ -89,6 +96,7 @@ export class Hud {
     this.result = this.root.querySelector('.hud-result') as HTMLElement;
     this.inspect = this.root.querySelector('.hud-inspect') as HTMLElement;
     this.toastEl = this.root.querySelector('.hud-toast') as HTMLElement;
+    this.cash = this.root.querySelector('.hud-cash') as HTMLElement;
 
     this.tilt.addEventListener('input', () => on.setTilt(Number(this.tilt.value)));
     const shake = this.root.querySelector('.hud-shake') as HTMLElement;
@@ -111,6 +119,8 @@ export class Hud {
     const pan = session.pan;
 
     this.hint.textContent = HINTS[mode];
+    const cash = `$${session.cash.toFixed(2)}`;
+    if (this.cash.textContent !== cash) this.cash.textContent = cash;
     this.panControls.hidden = mode !== 'pan';
     if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
 
@@ -121,10 +131,15 @@ export class Hud {
       this.actions.replaceChildren(...buttons.map(([label, action]) => button(label, action)));
     }
 
-    const resultKey = mode === 'pan' && pan ? `${pan.phase}:${pan.kind}:${session.pansWorked}:${session.vial.length}` : '';
+    const resultKey =
+      mode === 'pan' && pan ? `${pan.phase}:${pan.kind}:${session.pansWorked}:${session.vial.length}`
+      : mode === 'town' ? `town:${session.vial.length}:${session.cash}`
+      : '';
     if (resultKey !== this.resultKey) {
       this.resultKey = resultKey;
-      this.result.hidden = !pan || mode !== 'pan' || pan.phase === 'working';
+      this.result.hidden = mode === 'town' ? false : !pan || mode !== 'pan' || pan.phase === 'working';
+      this.result.classList.toggle('hud-result-town', mode === 'town');
+      if (mode === 'town') this.result.textContent = describeOffer(session);
       if (pan?.phase === 'revealed') {
         const cover = pan.kind === 'concentrate' ? 'black sand' : 'sand';
         this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand, cover);
@@ -167,7 +182,12 @@ export class Hud {
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
       return list;
     }
-    return [['Start a new creek', () => this.on.newCreek()]];
+    if (mode === 'town') {
+      const offer = quoteSale(session.vial);
+      const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
+      return [...sell, ['Back to the creek (Esc)', () => this.on.walkCreek()]];
+    }
+    return [['Walk to town (T)', () => this.on.walkToTown()], ['Start a new creek', () => this.on.newCreek()]];
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {
@@ -182,6 +202,10 @@ export class Hud {
     if (state.mode === 'creek') {
       const n = Number(key);
       if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
+      else if (key === 't') this.on.walkToTown();
+    } else if (state.mode === 'town') {
+      if (key === 's') this.on.sell();
+      else if (key === 'escape') this.on.walkCreek();
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
@@ -237,6 +261,20 @@ export class Hud {
   }
 }
 
+function describeOffer(session: PanningSession): string {
+  if (session.vial.length === 0) {
+    return session.earned > 0
+      ? `Nothing in the vial. You've sold ${session.soldMg.toFixed(1)} mg for $${session.earned.toFixed(2)} so far.`
+      : 'Nothing in the vial yet. Pan some colour and bring it in.';
+  }
+  const q = quoteSale(session.vial);
+  const lines = [[plural(q.counts.fine, 'speck'), plural(q.counts.flake, 'flake'), plural(q.counts.picker, 'picker')].join(', ')];
+  if (q.weighedMg > 0) lines.push(`${q.weighedMg.toFixed(1)} mg by weight at ${Math.round(q.rate * 100)}% of spot: $${q.weighedValue.toFixed(2)}`);
+  if (q.specimenMg > 0) lines.push(`Pickers as specimens: $${q.specimenValue.toFixed(2)}`);
+  if (q.nextTier) lines.push(`Bring ${q.nextTier.fromMg} mg or more at once for ${Math.round(q.nextTier.rate * 100)}%.`);
+  return lines.join('\n');
+}
+
 function describeFind(pieces: readonly GoldPiece[], sandLeft: number, cover: string): string {
   const count = (size: GoldPiece['size']): number => pieces.filter((p) => p.size === size).length;
   const pickers = count('picker');
@@ -246,10 +284,14 @@ function describeFind(pieces: readonly GoldPiece[], sandLeft: number, cover: str
   const covered = sandLeft > 0.25 ? ` Too much ${cover} left to see everything.` : '';
   if (pieces.length === 0) return `No colour showing.${covered}`;
   const parts: string[] = [];
-  if (pickers) parts.push(`${pickers} picker${pickers > 1 ? 's' : ''}`);
-  if (flakes) parts.push(`${flakes} flake${flakes > 1 ? 's' : ''}`);
-  if (specks) parts.push(`${specks} speck${specks > 1 ? 's' : ''}`);
+  if (pickers) parts.push(plural(pickers, 'picker'));
+  if (flakes) parts.push(plural(flakes, 'flake'));
+  if (specks) parts.push(plural(specks, 'speck'));
   return `Colour! ${parts.join(', ')}.${covered}`;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 function el(tag: string, className: string): HTMLElement {
