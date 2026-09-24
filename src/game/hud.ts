@@ -11,6 +11,7 @@ import {
   type LeadSource,
   type Region,
 } from '../sim';
+import { forInput, usingTouch } from './inputMode';
 
 export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region';
 
@@ -24,6 +25,8 @@ export interface HudActions {
   setShake(held: boolean): void;
   // Creek
   pickSpot(index: number): void;
+  /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
+  digSelected(): void;
   // Bank
   shovel(into: 'pan' | 'spoil'): void;
   pry(): void;
@@ -45,6 +48,8 @@ export interface HudState {
   readonly region: Region;
   readonly creek: Creek;
   readonly spot: DigSpot | null;
+  /** On the creek map, the spot tapped once to see its signs. */
+  readonly selectedSpot: DigSpot | null;
   readonly controls: PanControls;
   readonly events: PanStepEvents | null;
 }
@@ -55,6 +60,15 @@ const HINTS: Record<Mode, string> = {
   town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
   region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
   pan: 'Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
+};
+
+/** Shorter hints without keys, for touchscreens. */
+const TOUCH_HINTS: Record<Mode, string> = {
+  creek: 'Tap a spot to read its signs, then tap again to dig. Only the pan tells the truth.',
+  bank: 'Drag from the hole to the pan, or to the spoil pile. Tap a boulder to pry it; tap a flooded hole to bail.',
+  town: 'The buyer pays spot less a cut. Bigger lots get a better rate.',
+  region: 'Tap a place to walk there. Follow leads from your notebook.',
+  pan: 'Drag circles to swirl · Tilt slider tips the pan · hold Shake · tap rocks to rake them out',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -83,6 +97,8 @@ export class Hud {
   private readonly cash: HTMLElement;
   private readonly panel: HTMLElement;
   private panelKey = '';
+  /** Small screens start with the notebook and claims board folded up. */
+  private panelCollapsed = matchMedia('(max-width: 700px), (max-height: 500px)').matches;
   private buttonsKey = '';
   private resultKey = '';
   private inspectOpen = false;
@@ -119,6 +135,11 @@ export class Hud {
     this.cash = this.root.querySelector('.hud-cash') as HTMLElement;
     this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
     this.panel.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('h3')) {
+        this.panelCollapsed = !this.panelCollapsed;
+        this.panel.classList.toggle('collapsed', this.panelCollapsed);
+        return;
+      }
       const target = (e.target as HTMLElement).closest('button');
       if (!target) return;
       target.blur();
@@ -136,7 +157,7 @@ export class Hud {
   }
 
   toast(message: string): void {
-    this.toastEl.textContent = message;
+    this.toastEl.textContent = forInput(message);
     this.toastEl.hidden = false;
     // Longer messages stay up longer.
     this.toastTimer = Math.max(3, message.length / 18);
@@ -147,13 +168,14 @@ export class Hud {
     const { mode, session, controls, events } = state;
     const pan = session.pan;
 
-    this.hint.textContent = HINTS[mode];
+    const hint = usingTouch() ? TOUCH_HINTS[mode] : HINTS[mode];
+    if (this.hint.textContent !== hint) this.hint.textContent = hint;
     const cash = `$${session.cash.toFixed(2)}`;
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
     this.panControls.hidden = mode !== 'pan';
     if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
 
-    const buttons = this.buttonsFor(state);
+    const buttons = this.buttonsFor(state).map(([label, action]): [string, () => void] => [forInput(label), action]);
     const key = buttons.map(([label]) => label).join('|');
     if (key !== this.buttonsKey) {
       this.buttonsKey = key;
@@ -222,10 +244,11 @@ export class Hud {
     if (mode === 'region') {
       return [[`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()], ['Start over', () => this.on.newCreek()]];
     }
-    return [
-      ['Region map (M)', () => this.on.openRegion()],
-      ['Walk to town (T)', () => this.on.walkToTown()],
-    ];
+    const selected = state.selectedSpot;
+    const dig: [string, () => void][] = selected
+      ? [[selected.gully ? 'Dig in the gully' : `Dig at spot ${state.creek.creekSpots.indexOf(selected) + 1}`, () => this.on.digSelected()]]
+      : [];
+    return [...dig, ['Region map (M)', () => this.on.openRegion()], ['Walk to town (T)', () => this.on.walkToTown()]];
   }
 
   /** The notebook of leads on the region map, and the claims board in town. */
@@ -233,18 +256,19 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${session.cash}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.panelCollapsed}:${session.cash}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
     this.panel.hidden = !show;
+    this.panel.classList.toggle('collapsed', this.panelCollapsed);
     if (!show) return;
     if (mode === 'town') {
       const offers = region.offers.map(({ lead, price }) => {
         const afford = session.cash >= price;
         return `<div class="lead">${leadHeader(lead)}<button type="button" data-action="buy" data-lead="${lead.id}" ${afford ? '' : 'disabled'}>Buy for $${price}</button></div>`;
       });
-      this.panel.innerHTML = `<h3>Claims board</h3>${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
+      this.panel.innerHTML = `<h3>Claims board <span class="count">${region.offers.length}</span></h3>${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
     } else {
       const leads = [...region.leads].reverse().map((lead) => {
         const action =
@@ -253,7 +277,8 @@ export class Hud {
           : '<span class="found">Found. It is on the map.</span>';
         return `<div class="lead ${lead.status}">${leadHeader(lead)}${action}</div>`;
       });
-      this.panel.innerHTML = `<h3>Notebook</h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
+      const open = region.leads.filter((l) => l.status === 'open').length;
+      this.panel.innerHTML = `<h3>Notebook <span class="count">${open ? `${open} to follow` : region.leads.length}</span></h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
     }
   }
 

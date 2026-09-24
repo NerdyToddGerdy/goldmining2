@@ -45,7 +45,16 @@ async function start(): Promise<void> {
   if (!host) throw new Error('Missing #game element');
 
   const app = new Application();
-  await app.init({ resizeTo: host, background: 0x1d2419, antialias: true });
+  // Render at the screen's real pixel density so phones and tablets are sharp; cap at 2x for speed.
+  await app.init({
+    resizeTo: host,
+    background: 0x1d2419,
+    antialias: true,
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
+    autoDensity: true,
+  });
+  // No long-press menus over the game: a held finger is shaking the pan or carrying a shovelful.
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
   host.appendChild(app.canvas);
 
   const rng = createRng(Date.now());
@@ -60,6 +69,7 @@ async function start(): Promise<void> {
 
   const setMode = (next: Mode): void => {
     mode = next;
+    if (mode !== 'creek') creekMap.selected = null;
     regionMap.visible = mode === 'region';
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
@@ -200,6 +210,9 @@ async function start(): Promise<void> {
       startPanning();
       hud.toast('Black sand is heavy and holds fine gold. Settle it, then swirl gently: a light touch keeps the gold in the pan.');
     },
+    digSelected: () => {
+      if (mode === 'creek' && creekMap.selected) pickSpot(creekMap.selected);
+    },
     pickSpot: (index) => {
       const picked = creek.creekSpots[index];
       if (picked) pickSpot(picked);
@@ -248,7 +261,7 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)) },
+      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap },
     });
   }
 
@@ -288,7 +301,7 @@ async function start(): Promise<void> {
     } else {
       creekMap.update(dt);
     }
-    hud.update(dt, { mode, session, region, creek, spot, controls, events });
+    hud.update(dt, { mode, session, region, creek, spot, selectedSpot: creekMap.selected, controls, events });
 
     sinceSave += dt;
     if (sinceSave >= AUTOSAVE_SECONDS) {
@@ -299,6 +312,7 @@ async function start(): Promise<void> {
 
   // The first click is also the user gesture browsers require before audio can play.
   const overlay = document.getElementById('start');
+  if (overlay && matchMedia('(pointer: coarse)').matches) overlay.textContent = 'Tap to start at the creek';
   overlay?.addEventListener('click', () => overlay.remove(), { once: true });
 
   const fullscreen = document.getElementById('fullscreen');

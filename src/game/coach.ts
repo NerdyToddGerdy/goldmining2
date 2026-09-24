@@ -1,4 +1,5 @@
 import type { Pan, PanControls } from '../sim';
+import { usingTouch } from './inputMode';
 
 /**
  * Nudges a new player when the pan is being worked in a way that can't succeed, e.g. swirling
@@ -32,9 +33,13 @@ export class PanCoach {
     if (this.cooldown > 0) return;
     // Always shown, however experienced: overworking is expensive and easy to miss.
     if (this.overworking > 1.5) {
-      this.nudge("You're down to the concentrate. Stop and reveal (R) before the gold washes out with it.");
+      this.nudge("You're down to the concentrate. Stop and reveal before the gold washes out with it.");
     } else if (!this.hasWashed && this.swirlLevel > 2) {
-      this.nudge('The pan is level, so nothing can wash out. Tip it toward the lip with W, the mouse wheel, or the Tilt slider.');
+      this.nudge(
+        usingTouch()
+          ? 'The pan is level, so nothing can wash out. Tip it toward the lip with the Tilt slider.'
+          : 'The pan is level, so nothing can wash out. Tip it toward the lip with W, the mouse wheel, or the Tilt slider.',
+      );
     } else if (!this.hasSwirled && this.tiltStill > 3) {
       this.nudge('Drag in circles around the pan to swirl the water and carry the light sand over the lip.');
     }
@@ -48,7 +53,7 @@ export class PanCoach {
     const sandLeft = pan.lightSand / pan.initialLightSand;
     if (sandLeft < 0.4 || this.time - this.revealWarnedAt < 5) return true;
     this.revealWarnedAt = this.time;
-    this.say(`About ${Math.round(sandLeft * 100)}% of the sand is still in the pan and will hide the gold. Keep washing, or press R again to reveal anyway.`);
+    this.say(`About ${Math.round(sandLeft * 100)}% of the sand is still in the pan and will hide the gold. Keep washing, or ${usingTouch() ? 'tap Stop & reveal' : 'press R'} again to reveal anyway.`);
     return false;
   }
 

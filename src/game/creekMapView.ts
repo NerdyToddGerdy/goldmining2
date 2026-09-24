@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
 import type { DigSpot, GroundSign, Creek } from '../sim';
+import { usingTouch } from './inputMode';
 
 /**
  * Top-down view of a creek stretch. Ground signs are drawn physically at each spot (gravel bars
@@ -29,6 +30,8 @@ export class CreekMapView extends Container {
   private width_ = 800;
   private height_ = 600;
   private hovered: DigSpot | null = null;
+  /** Touch has no hover: the first tap selects a spot to read, the second digs. */
+  selected: DigSpot | null = null;
   private time = 0;
 
   constructor(
@@ -39,16 +42,25 @@ export class CreekMapView extends Container {
     this.title.anchor.set(0.5, 0);
     this.addChild(this.g, this.labels, this.title, this.tooltipBg, this.tooltip);
     this.eventMode = 'static';
-    this.on('globalpointermove', (e: FederatedPointerEvent) => (this.hovered = this.spotAt(e.global.x, e.global.y)));
+    this.on('globalpointermove', (e: FederatedPointerEvent) => {
+      if (e.pointerType === 'mouse') this.hovered = this.spotAt(e.global.x, e.global.y);
+    });
     this.on('pointertap', (e: FederatedPointerEvent) => {
       const spot = this.spotAt(e.global.x, e.global.y);
-      if (spot) this.onPick(spot);
+      if (e.pointerType === 'mouse') {
+        if (spot) this.onPick(spot);
+        return;
+      }
+      this.hovered = null;
+      if (spot && spot === this.selected) this.onPick(spot);
+      else this.selected = spot;
     });
   }
 
   setCreek(creek: Creek): void {
     this.creek = creek;
     this.hovered = null;
+    this.selected = null;
     this.layout(this.width_, this.height_);
   }
 
@@ -57,7 +69,7 @@ export class CreekMapView extends Container {
     this.height_ = height;
     this.hitArea = new Rectangle(0, 0, width, height);
     this.title.text = this.creek.profile.name;
-    this.title.position.set(width / 2, 58);
+    this.title.position.set(width / 2, this.short ? 36 : 58);
     this.labels.removeChildren().forEach((c) => c.destroy());
     const style = { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' };
     this.creek.creekSpots.forEach((spot, i) => this.addLabel(String(i + 1), spot, style));
@@ -65,7 +77,7 @@ export class CreekMapView extends Container {
   }
 
   private addLabel(text: string, spot: DigSpot, style: { fill: number; fontSize: number; fontFamily: string }): void {
-    const p = this.spotPos(spot);
+    const p = this.screenPosition(spot);
     const label = new Text({ text, style });
     label.anchor.set(0.5);
     label.position.set(p.x, p.y + 26);
@@ -101,7 +113,7 @@ export class CreekMapView extends Container {
   }
 
   private drawSpot(g: Graphics, spot: DigSpot): void {
-    const p = this.spotPos(spot);
+    const p = this.screenPosition(spot);
     const toward = Math.sign(this.creekY(p.x) + 17 - p.y);
 
     for (const sign of spot.signs) {
@@ -139,7 +151,7 @@ export class CreekMapView extends Container {
       g.moveTo(p.x, p.y + 6).lineTo(p.x, p.y - 14).stroke({ width: 3, color: 0x8a6a45 });
       g.poly([p.x, p.y - 14, p.x + 12, p.y - 10, p.x, p.y - 6]).fill(0xc9503b);
     }
-    if (spot === this.hovered) g.circle(p.x, p.y, 30).stroke({ width: 2, color: 0xefe6cf, alpha: 0.6 });
+    if (spot === this.hovered || spot === this.selected) g.circle(p.x, p.y, 30).stroke({ width: 2, color: 0xefe6cf, alpha: 0.6 });
   }
 
   /** A dry side channel running from the creek out to the edge of the view. */
@@ -154,28 +166,48 @@ export class CreekMapView extends Container {
   }
 
   private drawTooltip(): void {
-    const spot = this.hovered;
+    const spot = this.hovered ?? this.selected;
+    const action = usingTouch() ? 'Tap again to dig.' : 'Click to dig.';
     this.tooltip.visible = this.tooltipBg.visible = spot !== null;
     if (!spot) return;
     const state = this.creek.isWorkedOut(spot) ? 'Worked out.' : spot.spoil > 0 || spot.layers.some((l) => l.loads < l.initialLoads) ? 'You have dug here.' : 'Undug.';
     const notes = spot.notes ? `\nYour notes: ${spot.notes.pans} pan${spot.notes.pans === 1 ? '' : 's'}, ${(spot.notes.mg / spot.notes.pans).toFixed(1)} mg a pan.` : '';
     if (spot.gully) {
       const traced = spot.gully.traced ? '\nYou traced its colour upstream.' : '';
-      this.tooltip.text = `Side gully: a dry wash comes down here. Test-pan its floor to see if colour comes from up there.${notes}${traced}\n${state} Click to dig.`;
+      this.tooltip.text = `Side gully: a dry wash comes down here. Test-pan its floor to see if colour comes from up there.${notes}${traced}\n${state} ${action}`;
     } else {
       const index = this.creek.creekSpots.indexOf(spot) + 1;
       const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
-      this.tooltip.text = `Spot ${index}: ${noticed}.${notes}\n${state} Click to dig.`;
+      this.tooltip.text = `Spot ${index}: ${noticed}.${notes}\n${state} ${action}`;
     }
-    const p = this.spotPos(spot);
+    const p = this.screenPosition(spot);
     const x = Math.min(p.x + 34, this.width_ - 280);
     const y = Math.max(8, p.y - 70);
     this.tooltip.position.set(x + 8, y + 6);
     this.tooltipBg.clear().roundRect(x, y, this.tooltip.width + 16, this.tooltip.height + 12, 4).fill({ color: 0x0c100b, alpha: 0.85 });
   }
 
+  /** Phones held sideways: everything has to fit in a few hundred pixels of height. */
+  private get short(): boolean {
+    return this.height_ < 500;
+  }
+
+  /** The band the map is drawn in: below the hint and title, above the button bar. */
+  private get band(): { top: number; bottom: number } {
+    return this.short ? { top: 62, bottom: this.height_ - 58 } : { top: 90, bottom: this.height_ - 70 };
+  }
+
+  /** How far spots sit from the creek's centre line. */
+  private get spotOffset(): number {
+    const { top, bottom } = this.band;
+    return Math.min(62, (bottom - top) * 0.22);
+  }
+
   private creekY(x: number): number {
-    return this.height_ * 0.48 + Math.sin((x / this.width_) * Math.PI * 2.2 + 0.4) * this.height_ * 0.15;
+    const { top, bottom } = this.band;
+    const mid = (top + bottom) / 2 - 17;
+    const amplitude = Math.min(this.height_ * 0.15, (bottom - top) / 2 - this.spotOffset - 30);
+    return mid + Math.sin((x / this.width_) * Math.PI * 2.2 + 0.4) * Math.max(0, amplitude);
   }
 
   /** Gullies alternate sides of the creek and run out to the edge of the view. */
@@ -185,12 +217,12 @@ export class CreekMapView extends Container {
     const centre = this.creekY(x) + 17;
     return {
       mouth: { x, y: up ? centre - 14 : centre + 14 },
-      end: { x: x + 60, y: up ? 90 : this.height_ - 70 },
+      end: { x: x + 60, y: up ? this.band.top : this.band.bottom },
     };
   }
 
   /** Spots sit on the bank beside the channel; inside-bend spots sit on the inside of the curve. Gully spots sit up their gully. */
-  private spotPos(spot: DigSpot): { x: number; y: number } {
+  screenPosition(spot: DigSpot): { x: number; y: number } {
     if (spot.gully) {
       const { mouth, end } = this.gullyLine(spot);
       const t = 0.55;
@@ -208,12 +240,12 @@ export class CreekMapView extends Container {
     const index = this.creek.creekSpots.indexOf(spot);
     const below = spot.signs.includes('insideBend') ? curvatureDown : index % 2 === 0;
     const centre = this.creekY(x) + 17;
-    return { x, y: below ? centre + 62 : centre - 62 };
+    return { x, y: below ? centre + this.spotOffset : centre - this.spotOffset };
   }
 
   private spotAt(x: number, y: number): DigSpot | null {
     for (const spot of this.creek.spots) {
-      const p = this.spotPos(spot);
+      const p = this.screenPosition(spot);
       if (Math.hypot(x - p.x, y - p.y) < 34) return spot;
     }
     return null;

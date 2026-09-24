@@ -101,7 +101,8 @@ export class PanView extends Container {
   }
 
   layout(width: number, height: number, centerX: number, centerY: number): void {
-    this.radius = Math.min(width, height) * 0.32;
+    // Fill short landscape phones without overwhelming a desktop window.
+    this.radius = Math.min(width * 0.3, height * 0.4, 260);
     this.rx = this.radius * 0.78;
     this.ry = this.radius * 0.48;
     this.body.position.set(centerX, centerY);

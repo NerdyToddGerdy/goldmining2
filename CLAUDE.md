@@ -22,6 +22,8 @@ Layout:
 - Saves: `src/sim/save.ts` builds and validates versioned plain-data saves (creek, vial, jar, any pan in progress); `src/game/storage.ts` writes them to `localStorage`. When a snapshot shape changes, bump `SAVE_VERSION` and add a migration instead of discarding old saves — a player losing their vial is worse than migration code.
 - `src/main.ts` — app bootstrap, click-to-start overlay (browsers block audio until a user gesture), fullscreen button.
 
+Mobile and tablet: layouts are **landscape-first**. Phones held upright get a "turn your phone sideways" screen (CSS in `index.html`); tablets must work in both orientations. Every action needs a touch path, not just a key: no hover-only information (the creek map uses tap-to-select, tap-again-to-act), and hints, button labels, and messages go through `forInput()` / `usingTouch()` from `src/game/inputMode.ts` so touch players aren't told to press keys. Keep playfield elements inside the band between the top hint and the bottom button bar, which on a landscape phone is only a few hundred pixels tall.
+
 itch.io constraints: asset paths must stay relative (`base: './'` in `vite.config.ts`); the game runs inside an iframe; saves should use a game-specific key prefix because itch.io games share an origin.
 
 ## Source of truth
