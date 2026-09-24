@@ -40,3 +40,7 @@ Staff exist so you can leave. You are always the most efficient operator on your
 | [`CLAUDE.md`](CLAUDE.md) | Working notes for Claude Code: repo state and the cross-cutting design invariants that are easy to break when building one system in isolation |
 
 The **Sluice UX Specification** in the design brief is the reference interaction — the level of detail every other piece of equipment is measured against.
+
+## License
+
+[MIT](LICENSE)
