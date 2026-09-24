@@ -374,6 +374,8 @@ The Home Creek is also how the player finds their next site. Leads point to furt
 | Old claim record | $8–12 | ~85% real | Moderate |
 | Map fragment | $15–25 | ~95% real | Narrow |
 
+About a third of stretches are **creek bends**: one or two spots with steady water, a usable drop, and room on the bank for a sluice. Some leads mention "a wide gravel bar with steady water". Better sources mention real bars more often and invent them less, but the mention can still be wrong. Whether a sluice can be set is a property of the ground: the Home Creek never has a sluice site, and owning a sluice doesn't create one.
+
 Every lead states a richness range relative to the Home Creek. It is an estimate, never the truth, and a dud still states one. Following a lead either puts a new stretch on the region map or marks the lead as a dud. Found stretches can have gullies of their own, so leads can chain further out. The player leaves when they choose to, not because the creek forced them out.
 
 ### Returning after bankruptcy

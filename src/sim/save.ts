@@ -11,7 +11,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region'] as const;
 
@@ -44,6 +44,7 @@ export interface LoadedGame {
  * Bring older saves up to the current version, one step at a time.
  * v1 → v2: money arrived; v1 players had none.
  * v2 → v3: the single creek became the Home Creek in a region of creeks and leads.
+ * v3 → v4: sluice sites. Existing creeks and leads predate them, so they have none.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -65,6 +66,32 @@ function migrate(data: unknown): unknown {
       version: 3,
       region: { creeks: [home], leads: [], offers: [], offersStockedAt: null },
       place: { ...save.place, creekId: 1 },
+    };
+  }
+  if (save.version === 3 && isObject(save.region)) {
+    const region = save.region;
+    const creeks = Array.isArray(region.creeks) ? region.creeks : [];
+    const leadV4 = (lead: unknown): unknown =>
+      isObject(lead) && isObject(lead.truth) ? { ...lead, hint: null, truth: { ...lead.truth, bend: false } } : lead;
+    save = {
+      ...save,
+      version: 4,
+      region: {
+        ...region,
+        creeks: creeks.map((creek) =>
+          isObject(creek) && isObject(creek.profile) && Array.isArray(creek.spots)
+            ? {
+                ...creek,
+                profile: { ...creek.profile, sluiceSites: 0 },
+                spots: creek.spots.map((spot) => (isObject(spot) ? { ...spot, sluiceSite: null } : spot)),
+              }
+            : creek,
+        ),
+        leads: Array.isArray(region.leads) ? region.leads.map(leadV4) : region.leads,
+        offers: Array.isArray(region.offers)
+          ? region.offers.map((offer) => (isObject(offer) ? { ...offer, lead: leadV4(offer.lead) } : offer))
+          : region.offers,
+      },
     };
   }
   return save;

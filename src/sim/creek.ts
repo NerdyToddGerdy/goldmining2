@@ -1,4 +1,5 @@
 import type { PanLoad } from './pan';
+import type { SluiceSite } from './sluice';
 import { normal, type Rng } from './rng';
 
 /**
@@ -62,6 +63,11 @@ export interface DigSpot {
   water: number;
   /** Shovelfuls tossed onto the spoil pile. */
   spoil: number;
+  /**
+   * Set when a sluice can go in the creek right beside this spot: steady water, a usable drop,
+   * and room on the bank. A property of the ground; owning a sluice doesn't change it.
+   */
+  readonly sluiceSite: SluiceSite | null;
   /** The player's field notes: gravel pans from this spot and the gold they kept. Absent until the first pan. */
   notes?: { pans: number; mg: number };
   /** How quickly water seeps in as the hole deepens. */
@@ -122,6 +128,11 @@ export interface CreekProfile {
   readonly gullyCount: number;
   /** Chance that one of the gullies carries gold down from a further stretch. */
   readonly sourceChance: number;
+  /**
+   * Spots with room and steady water for a sluice. Zero for narrow stretches; a creek bend has
+   * one or two. The Home Creek never has any: it is shovel-and-pan ground by design.
+   */
+  readonly sluiceSites: number;
 }
 
 export const HOME_CREEK_PROFILE: CreekProfile = {
@@ -131,6 +142,7 @@ export const HOME_CREEK_PROFILE: CreekProfile = {
   spotCount: 6,
   gullyCount: 2,
   sourceChance: 1,
+  sluiceSites: 0,
 };
 
 let nextSpotId = 1;
@@ -179,6 +191,17 @@ export class Creek {
       return this.makeSpot(position, trail(position, sourceMouth), null);
     });
     joins.forEach((position, i) => this.spots.push(this.makeGullySpot(position, i === sourceIndex)));
+
+    // Sluice sites go at creek spots; never on a renewing (Home) creek, whatever the profile says.
+    const siteCount = profile.renewing ? 0 : Math.min(profile.sluiceSites, count);
+    for (const spot of shuffle(rng, [...this.creekSpots]).slice(0, siteCount)) {
+      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(0.3, 0.9), flow: rng.range(0.6, 1) };
+    }
+  }
+
+  /** Spots where a sluice can be set. */
+  get sluiceSpots(): DigSpot[] {
+    return this.spots.filter((s) => s.sluiceSite !== null);
   }
 
   snapshot(): CreekSnapshot {
@@ -384,6 +407,7 @@ export class Creek {
     return {
       id: nextSpotId++,
       gully,
+      sluiceSite: null,
       position,
       signs,
       layers,

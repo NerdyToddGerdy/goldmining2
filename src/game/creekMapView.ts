@@ -137,6 +137,14 @@ export class CreekMapView extends Container {
       }
     }
 
+    // A sluice site: a steady riffle drop in the channel beside the spot.
+    if (spot.sluiceSite) {
+      const waterY = this.creekY(p.x) + 17;
+      for (let i = 0; i < 3; i++) {
+        g.moveTo(p.x - 14 + i * 9, waterY - 8).lineTo(p.x - 8 + i * 9, waterY + 8).stroke({ width: 2, color: 0xdfeee9, alpha: 0.7 });
+      }
+    }
+
     const workedOut = this.creek.isWorkedOut(spot);
     const dug = spot.layers.some((l) => l.loads < l.initialLoads) || spot.spoil > 0;
     if (dug) {
@@ -178,7 +186,8 @@ export class CreekMapView extends Container {
     } else {
       const index = this.creek.creekSpots.indexOf(spot) + 1;
       const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
-      this.tooltip.text = `Spot ${index}: ${noticed}.${notes}\n${state} ${action}`;
+      const sluice = spot.sluiceSite ? '\nSteady water and a good drop here: room for a sluice.' : '';
+      this.tooltip.text = `Spot ${index}: ${noticed}.${sluice}${notes}\n${state} ${action}`;
     }
     const p = this.screenPosition(spot);
     const x = Math.min(p.x + 34, this.width_ - 280);

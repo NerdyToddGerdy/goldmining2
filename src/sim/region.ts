@@ -20,11 +20,16 @@ export interface Lead {
   readonly note: string;
   /** What the lead suggests about richness, relative to the Home Creek. Never exact. */
   readonly richness: Estimate;
+  /**
+   * What the lead says about the ground, e.g. that there is room and steady water for a sluice.
+   * Like the richness, it can be wrong.
+   */
+  readonly hint: string | null;
   status: LeadStatus;
   /** The creek found by following it. */
   creekId: number | null;
   /** Hidden truth: whether there is anything there, and how rich it really is. */
-  readonly truth: { readonly real: boolean; readonly richness: number };
+  readonly truth: { readonly real: boolean; readonly richness: number; readonly bend: boolean };
 }
 
 export interface LeadOffer {
@@ -57,7 +62,11 @@ export const REGION_TUNING = {
   /** Real stretches: lognormal richness around this, relative to the Home Creek. */
   stretchRichness: 1.3,
   stretchRichnessSigma: 0.5,
+  /** Share of stretches that are creek bends, with room and water for a sluice. */
+  bendChance: 0.35,
 } as const;
+
+const BEND_HINT = 'Mentions a wide gravel bar with steady water: room for a sluice.';
 
 const NAME_FIRST = ['Coyote', 'Tin Cup', 'Grubstake', 'Lost Horse', 'Magpie', 'Deadwood', 'Sluicebox', 'Nugget', 'Two Pine', 'Blue Jay', 'Hangman', 'Whiskey', 'Old Man', 'Rattlesnake', 'Bitter Root'];
 const NAME_SECOND = ['Gulch', 'Creek', 'Run', 'Bar', 'Draw', 'Fork', 'Wash', 'Hollow'];
@@ -192,6 +201,7 @@ export class Region {
       spotCount: this.rng.int(3, 5),
       gullyCount: this.rng.int(0, 2),
       sourceChance: 0.5,
+      sluiceSites: lead.truth.bend ? this.rng.int(1, 2) : 0,
     };
     const creek = new Creek(this.rng, undefined, profile);
     this.creeks.push(creek);
@@ -208,15 +218,20 @@ export class Region {
     // A dud still claims something: what it says is invented, around a typical stretch.
     const claimed = (real ? richness : REGION_TUNING.stretchRichness) * traits.optimism * rng.range(0.75, 1.3);
     const notes = NOTES[source];
+    // Whether the ground has room for a sluice, and whether the lead says so. Better sources are
+    // more likely to mention a real bar and less likely to invent one.
+    const bend = rng.next() < REGION_TUNING.bendChance;
+    const mentionsBar = bend ? rng.next() < 0.4 + 0.5 * traits.reliability : rng.next() < (1 - traits.reliability) * 0.4;
     return {
       id: nextLeadId++,
       source,
       name: `${NAME_FIRST[rng.int(0, NAME_FIRST.length - 1)]} ${NAME_SECOND[rng.int(0, NAME_SECOND.length - 1)]}`,
       note: notes[rng.int(0, notes.length - 1)]!,
       richness: estimateAround(claimed, traits.vagueness),
+      hint: mentionsBar ? BEND_HINT : null,
       status: 'open',
       creekId: null,
-      truth: { real, richness },
+      truth: { real, richness, bend },
     };
   }
 }

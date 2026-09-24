@@ -358,7 +358,8 @@ export class Hud {
 
 function leadHeader(lead: Lead): string {
   const { low, high } = lead.richness;
-  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p><p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
+  const hint = lead.hint ? `<p class="small">${lead.hint}</p>` : '';
+  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${hint}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
 }
 
 function describeOffer(session: PanningSession): string {
