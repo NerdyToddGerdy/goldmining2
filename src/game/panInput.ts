@@ -1,31 +1,31 @@
 import type { PanControls } from '../sim';
+import { SloshTracker } from './sloshTracker';
 
-const FULL_SWIRL_RAD_PER_SEC = Math.PI * 2 * 1.5;
 const TILT_KEY_RATE = 0.9;
 
 /**
  * Turns mouse, touch, and keyboard into pan controls.
- * Swirl: drag in circles around the pan. Tilt: W/S, arrow keys, mouse wheel, or the slider.
- * Shake: hold Space or the shake button.
+ * Slosh: drag back and forth toward and away from the lip. Tilt: W/S, arrow keys, mouse wheel,
+ * or the slider. Shake: hold Space or the shake button.
  */
 export class PanInput {
   tilt = 0;
-  swirl = 0;
-  /** +1 counter-clockwise, -1 clockwise, following the last drag. */
-  swirlDirection = 1;
+  slosh = 0;
+  /** Where the water is being pushed: -1 away from the lip, +1 toward it. For drawing the surge. */
+  sloshOffset = 0;
   shakeHeld = false;
   /** Only the pan screen listens; other screens handle their own pointer input. */
   enabled = false;
 
-  private pointerDown = false;
-  private lastAngle: number | null = null;
-  private pendingRadians = 0;
+  private readonly tracker = new SloshTracker();
+  /** The finger or mouse doing the sloshing; a second finger on the slider or Shake is ignored here. */
+  private pointerId: number | null = null;
   private downAt: { x: number; y: number } | null = null;
   private readonly keys = new Set<string>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly panCenter: () => { x: number; y: number },
+    private readonly panRadius: () => number,
     private readonly onTap: (x: number, y: number) => void,
   ) {
     canvas.style.touchAction = 'none';
@@ -48,41 +48,33 @@ export class PanInput {
     if (this.keys.has('s') || this.keys.has('arrowdown')) this.tilt -= TILT_KEY_RATE * dt;
     this.tilt = clamp01(this.tilt);
 
-    const target = dt > 0 ? Math.min(1, Math.abs(this.pendingRadians / dt) / FULL_SWIRL_RAD_PER_SEC) : 0;
-    if (this.pendingRadians !== 0) this.swirlDirection = Math.sign(this.pendingRadians);
-    this.pendingRadians = 0;
-    // Rise quickly with the hand, settle more slowly as the water keeps turning.
-    const rate = target > this.swirl ? 10 : 2.5;
-    this.swirl += (target - this.swirl) * Math.min(1, dt * rate);
-
-    return { tilt: this.tilt, swirl: this.swirl, shake: this.shakeHeld || this.keys.has(' ') ? 1 : 0 };
+    const { slosh, offset } = this.tracker.sample(dt, this.panRadius());
+    this.slosh = slosh;
+    this.sloshOffset = offset;
+    return { tilt: this.tilt, slosh, shake: this.shakeHeld || this.keys.has(' ') ? 1 : 0 };
   }
 
   private readonly handleDown = (e: PointerEvent): void => {
-    if (!this.enabled) return;
-    this.pointerDown = true;
-    this.lastAngle = this.angleOf(e);
+    if (!this.enabled || this.pointerId !== null) return;
+    this.pointerId = e.pointerId;
     this.downAt = { x: e.clientX, y: e.clientY };
+    this.tracker.start(e.clientX);
   };
 
   private readonly handleMove = (e: PointerEvent): void => {
-    if (!this.pointerDown || this.lastAngle === null) return;
-    const angle = this.angleOf(e);
-    let delta = angle - this.lastAngle;
-    if (delta > Math.PI) delta -= Math.PI * 2;
-    if (delta < -Math.PI) delta += Math.PI * 2;
-    this.pendingRadians += delta;
-    this.lastAngle = angle;
+    if (e.pointerId !== this.pointerId) return;
+    this.tracker.move(e.clientX, this.panRadius());
   };
 
   private readonly handleUp = (e: PointerEvent): void => {
-    if (this.pointerDown && this.downAt && Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < 8) {
+    if (e.pointerId !== this.pointerId) return;
+    if (this.downAt && Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < 8) {
       const rect = this.canvas.getBoundingClientRect();
       this.onTap(e.clientX - rect.left, e.clientY - rect.top);
     }
-    this.pointerDown = false;
-    this.lastAngle = null;
+    this.pointerId = null;
     this.downAt = null;
+    this.tracker.end();
   };
 
   private readonly handleWheel = (e: WheelEvent): void => {
@@ -101,13 +93,6 @@ export class PanInput {
   private readonly handleKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.key.toLowerCase());
   };
-
-  private angleOf(e: PointerEvent): number {
-    const rect = this.canvas.getBoundingClientRect();
-    const center = this.panCenter();
-    // Screen y points down; negate so counter-clockwise drags are positive.
-    return Math.atan2(-(e.clientY - rect.top - center.y), e.clientX - rect.left - center.x);
-  }
 }
 
 function clamp01(value: number): number {

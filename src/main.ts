@@ -208,7 +208,7 @@ async function start(): Promise<void> {
       if (!session.canPanConcentrate || mode === 'creek') return;
       session.startConcentratePan();
       startPanning();
-      hud.toast('Black sand is heavy and holds fine gold. Settle it, then swirl gently: a light touch keeps the gold in the pan.');
+      hud.toast('Black sand is heavy and holds fine gold. Settle it, then slosh gently: a light touch keeps the gold in the pan.');
     },
     digSelected: () => {
       if (mode === 'creek' && creekMap.selected) pickSpot(creekMap.selected);
@@ -223,7 +223,7 @@ async function start(): Promise<void> {
 
   const input = new PanInput(
     app.canvas,
-    () => panView.center,
+    () => panView.panRadius,
     (x, y) => {
       const rockId = panView.rockAt(x, y);
       if (rockId === null) return;
@@ -291,7 +291,7 @@ async function start(): Promise<void> {
       }
       coach.update(dt, pan, controls);
       scene.update(dt);
-      panView.update(dt, session, controls, input.swirlDirection, events);
+      panView.update(dt, session, controls, input.sloshOffset, events);
     } else if (mode === 'bank') {
       bankView.update(dt);
     } else if (mode === 'region') {

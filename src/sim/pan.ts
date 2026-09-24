@@ -4,9 +4,9 @@ import type { Rng } from './rng';
  * Gold pan simulation (see "Pan UX Specification" in the design doc).
  *
  * The pan holds a load of creek gravel: light sand, black sand, unbroken clay, oversize rocks,
- * and discrete gold pieces. The player controls tilt, swirl, and shake. Washing removes light
+ * and discrete gold pieces. The player controls tilt, slosh, and shake. Washing removes light
  * sand over the lip; washing harder than the current stratification can hold also loses black
- * sand and gold. Shaking re-stratifies (heavies sink) and breaks clay; swirling slowly mixes the
+ * sand and gold. Shaking re-stratifies (heavies sink) and breaks clay; sloshing slowly mixes the
  * layers again. Gold stays hidden until the player chooses to stop and reveal.
  */
 
@@ -27,8 +27,8 @@ export interface Rock {
 export interface PanControls {
   /** 0 = level, 1 = tipped hard toward the lip. */
   readonly tilt: number;
-  /** 0 = still, 1 = fastest swirl. */
-  readonly swirl: number;
+  /** 0 = still, 1 = fastest slosh. */
+  readonly slosh: number;
   /** 0 = none, 1 = full side-to-side shake. */
   readonly shake: number;
 }
@@ -90,7 +90,7 @@ export const PAN_TUNING = {
   overworkBelowFraction: 0.15,
   shakeStratRate: 0.6,
   shakeClayBreakRate: 0.8,
-  swirlMixRate: 0.08,
+  sloshMixRate: 0.08,
   /** Clay balls roll out in proportion to wash squared: gentle water barely moves them. */
   clayRollRate: 0.8,
   /** Share of the gold in a clay ball's share of the pan that leaves with it. */
@@ -255,7 +255,7 @@ export class Pan {
 
   effectiveWash(controls: PanControls): number {
     const block = Math.min(PAN_TUNING.maxRockBlock, this.rocks.length * PAN_TUNING.rockBlock);
-    return clamp01(controls.swirl) * clamp01(controls.tilt) * (1 - block);
+    return clamp01(controls.slosh) * clamp01(controls.tilt) * (1 - block);
   }
 
   classify(wash: number): PanState {
@@ -271,7 +271,7 @@ export class Pan {
     }
     this.elapsed += dt;
     const tilt = clamp01(controls.tilt);
-    const swirl = clamp01(controls.swirl);
+    const slosh = clamp01(controls.slosh);
     const wash = this.effectiveWash(controls);
     const state = this.classify(wash);
 
@@ -283,7 +283,7 @@ export class Pan {
       this.clay -= broken;
       this.turbidity += broken * 4;
     }
-    this.stratification -= swirl * T.swirlMixRate * dt * this.stratification;
+    this.stratification -= slosh * T.sloshMixRate * dt * this.stratification;
 
     this.turbidity = Math.max(0, this.turbidity - this.turbidity * (T.turbidityDecay + wash) * dt);
     const murk = 1 - Math.min(0.5, this.turbidity * 0.5);
@@ -305,7 +305,7 @@ export class Pan {
     this.lostBlackSand += darkSpilled;
     let goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
 
-    // Unbroken clay rolls out when swirled, carrying trapped gold with it.
+    // Unbroken clay rolls out when sloshed, carrying trapped gold with it.
     let clayRolledOut = 0;
     if (this.clay > 0 && wash > 0) {
       clayRolledOut = Math.min(this.clay, this.clay * wash * wash * T.clayRollRate * dt);
@@ -317,7 +317,7 @@ export class Pan {
     // Glints hint at gold as the light layer thins; they never say how much.
     const visibility = 1 - Math.min(1, this.lightSand / 0.35);
     const goldPresence = this.gold.reduce((sum, p) => sum + (p.size === 'fine' ? 0.2 : p.size === 'flake' ? 1 : 3), 0);
-    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * swirl * T.glintRate * dt;
+    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * slosh * T.glintRate * dt;
     const glints = this.rng.next() < glintChance ? 1 : 0;
 
     return { state, lightSpilled, darkSpilled, clayRolledOut, glints, goldLost };

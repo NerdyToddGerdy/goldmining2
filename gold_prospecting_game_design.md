@@ -509,7 +509,7 @@ For each piece of gear, answer:
 
 | Gear | Player verb | Visual loop | Meaningful choice |
 |---|---|---|---|
-| Gold pan | Swirl and tilt | Sediment circles; light sand spills; black sand and flakes remain | Wash speed versus retaining potential value |
+| Gold pan | Slosh and tilt | Water surges toward the lip; light sand spills; black sand and flakes remain | Wash speed versus retaining potential value |
 | Classifier | Shake and sort | Oversize rocks bounce away; sized material falls through | Screen size versus speed and suitability |
 | Shovel and bucket | Dig and carry | Ground lowers; bucket fills; pay dirt moves to processing | Which patch or depth deserves time |
 | Sluice | Feed, tune, clean out | Water flows; gravel enters; tailings exit; moss gathers concentrate | Flow, slope, feed rate, cleanout timing |
@@ -529,7 +529,7 @@ The pan is the first tool the player touches and the last one they can lose. It 
 
 ### Core fantasy
 
-The player crouches at the water's edge with a pan of raw creek gravel. They shake it to let the heavy material sink, pick out the rocks, then swirl and tilt so the light sand washes over the lip. The pan's contents shrink down to a streak of black sand, and the final swirl shows whether there is gold in it.
+The player crouches at the water's edge with a pan of raw creek gravel. They shake it to let the heavy material sink, pick out the rocks, then tilt it and slosh it back and forth so the light sand washes over the lip. The pan's contents shrink down to a streak of black sand, and a last slow turn shows whether there is gold in it.
 
 ### Pan material flow
 
@@ -538,9 +538,9 @@ Shovel load of gravel
 → submerge and break up clay
 → shake to stratify (heavies sink)
 → rake off and inspect large rocks
-→ swirl and tilt; light material washes over the lip
+→ slosh and tilt; light material washes over the lip
 → black-sand concentrate
-→ final swirl reveal
+→ final reveal
 → pick flakes and pickers into the vial; save black sand to the concentrate jar
 ```
 
@@ -549,23 +549,23 @@ Shovel load of gravel
 - **Water clarity:** Muddy water means clay or fines remain unbroken; clear water means the load is working.
 - **Material layering:** Pale sand on top, darker material settling toward the bottom and the riffles.
 - **Lip spill:** What is going over the edge. Pale sand is fine. A dark streak means black sand, and possibly gold, is being lost.
-- **Glints:** Brief flashes during swirling that hint at gold but never confirm the amount.
+- **Glints:** Brief flashes during sloshing that hint at gold but never confirm the amount.
 - **Pan fill:** The pile visibly shrinks from a full load to a thin concentrate.
 
 ### Operating states
 
 | State | Visual signal | Mechanical result | Player response |
 |---|---|---|---|
-| Timid | Water stays cloudy; material barely moves; little spills over the lip | Very slow; nothing is lost but little is done | Tilt more, swirl faster |
+| Timid | Water stays cloudy; material barely moves; little spills over the lip | Very slow; nothing is lost but little is done | Tilt more, slosh faster |
 | Balanced | Light sand sheets off the lip; dark layer stays put | Good speed with minimal loss | Continue |
 | Aggressive | Dark streaks go over the lip; the pan empties quickly | Fast, but fine gold and black sand are lost | Level the pan and re-stratify |
 
-Stratification matters: shaking the load resets the layering and makes it safe to work faster again. A skilled player alternates between shaking and swirling. A careless player just swirls harder.
+Stratification matters: shaking the load resets the layering and makes it safe to work faster again. A skilled player alternates between shaking and sloshing. A careless player just sloshes harder.
 
 ### Key player controls
 
 - Tilt angle.
-- Swirl speed.
+- Slosh speed: drag back and forth toward and away from the lip. Each stroke toward the lip surges water and light sand over the edge.
 - Shake (stratify) action.
 - When to stop and reveal.
 
@@ -578,7 +578,7 @@ Stratification matters: shaking the load resets the layering and makes it safe t
 ### Harvest: the reveal
 
 1. Work the pan down to black sand.
-2. Hold it level and give one slow swirl to fan the concentrate out.
+2. Hold it level and give it one slow turn to fan the concentrate out.
 3. Reveal: no colour, a few specks, a tail of flakes, or a picker.
 4. Pick visible gold into the vial by finger, or wet the fingertip to lift fine flakes.
 5. Choose whether to save the black sand to the concentrate jar or dump it.

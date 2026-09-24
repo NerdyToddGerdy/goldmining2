@@ -10,10 +10,10 @@ type Policy = (pan: Pan) => PanControls;
 /** Shake level until settled and clay is gone, then wash moderately; re-shake when the layers mix. */
 const skilled: Policy = (pan) =>
   pan.clay > 0.005 || pan.stratification < 0.5
-    ? { tilt: 0, swirl: 0, shake: 1 }
-    : { tilt: 0.45, swirl: 0.7, shake: 0 };
-const aggressive: Policy = () => ({ tilt: 0.9, swirl: 1, shake: 0 });
-const timid: Policy = () => ({ tilt: 0.15, swirl: 0.3, shake: 0 });
+    ? { tilt: 0, slosh: 0, shake: 1 }
+    : { tilt: 0.45, slosh: 0.7, shake: 0 };
+const aggressive: Policy = () => ({ tilt: 0.9, slosh: 1, shake: 0 });
+const timid: Policy = () => ({ tilt: 0.15, slosh: 0.3, shake: 0 });
 
 function workPan(seed: number, policy: Policy, rakeRocks = true): { pan: Pan; collected: number; initial: number } {
   const pan = new Pan(createRng(seed), SPOT);
@@ -81,12 +81,12 @@ describe('Pan', () => {
     expect(pan.classify(0.3)).toBe('aggressive');
   });
 
-  it('shaking restores stratification and swirling mixes it', () => {
+  it('shaking restores stratification and sloshing mixes it', () => {
     const pan = new Pan(createRng(6), SPOT);
-    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0, swirl: 0, shake: 1 });
+    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0, slosh: 0, shake: 1 });
     const settled = pan.stratification;
     expect(settled).toBeGreaterThan(0.7);
-    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0.1, swirl: 1, shake: 0 });
+    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0.1, slosh: 1, shake: 0 });
     expect(pan.stratification).toBeLessThan(settled);
   });
 
@@ -106,7 +106,7 @@ describe('Pan', () => {
   it('rocks slow washing until raked out', () => {
     const rocky = new Pan(createRng(2), { ...SPOT, rockiness: 1 });
     expect(rocky.rocks.length).toBeGreaterThan(0);
-    const controls = { tilt: 0.5, swirl: 0.8, shake: 0 };
+    const controls = { tilt: 0.5, slosh: 0.8, shake: 0 };
     const blocked = rocky.effectiveWash(controls);
     for (const rock of [...rocky.rocks]) rocky.rakeRock(rock.id);
     expect(rocky.effectiveWash(controls)).toBeGreaterThan(blocked);

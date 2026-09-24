@@ -87,6 +87,10 @@ export class PanView extends Container {
   private glints: Glint[] = [];
   private revealed: RevealedPiece[] = [];
   private darkSpillCarry = 0;
+  /** How far the slosh is pushing the water: -1 away from the lip, +1 toward it. */
+  private surge = 0;
+  /** Material the sim has washed out, held back until a stroke toward the lip carries it over. */
+  private pendingSpill: { color: number; size: number }[] = [];
   /** Grain count for this pan's washable layer; a jar pour is a small pile. */
   private lightCount = LIGHT_GRAINS;
 
@@ -96,8 +100,8 @@ export class PanView extends Container {
     this.addChild(this.body, this.spray, this.vialGraphics, this.vialLabel);
   }
 
-  get center(): { x: number; y: number } {
-    return { x: this.body.x, y: this.body.y };
+  get panRadius(): number {
+    return this.radius;
   }
 
   layout(width: number, height: number, centerX: number, centerY: number): void {
@@ -141,7 +145,7 @@ export class PanView extends Container {
     return null;
   }
 
-  update(dt: number, session: PanningSession, controls: PanControls, swirlDirection: number, events: PanStepEvents | null): void {
+  update(dt: number, session: PanningSession, controls: PanControls, sloshOffset: number, events: PanStepEvents | null): void {
     const pan = session.pan;
     if (!pan) return;
     if (pan !== this.pan) this.setPan(pan);
@@ -152,22 +156,24 @@ export class PanView extends Container {
     this.body.rotation = controls.tilt * 0.22;
     this.body.pivot.x = -this.shakeOffset;
 
-    if (pan.phase === 'working') this.animateWorking(dt, pan, controls, swirlDirection, events);
+    this.surge = pan.phase === 'working' ? sloshOffset : 0;
+    if (pan.phase === 'working') this.animateWorking(dt, pan, controls, events);
     else if (pan.phase === 'revealed' && this.revealed.length === 0) this.fanOut(pan);
+    this.releaseSpill(pan.phase !== 'working');
 
     this.updateParticles(dt);
     this.draw(pan, controls);
     this.drawVial(session);
   }
 
-  private animateWorking(dt: number, pan: Pan, controls: PanControls, dir: number, events: PanStepEvents | null): void {
-    const spin = dir * controls.swirl * 2.2;
-    for (const g of this.light) g.a += (spin / (0.35 + g.r)) * dt;
-    for (const g of this.dark) g.a += ((spin * (1 - pan.stratification * 0.6)) / (0.35 + g.r)) * dt;
-    for (const g of this.clayBlobs) g.a += (spin * 0.5 * dt) / (0.35 + g.r);
-    for (const g of this.rockGrains.values()) g.a += (spin * 0.25 * dt) / (0.35 + g.r);
-    if (controls.shake > 0) {
-      for (const g of this.light) g.r = Math.min(0.92, Math.max(0.05, g.r + (Math.random() - 0.5) * 0.02));
+  private animateWorking(dt: number, pan: Pan, controls: PanControls, events: PanStepEvents | null): void {
+    // Sloshing and shaking both jostle the loose sand; the surge itself is drawn as a shift toward the lip.
+    const jostle = Math.max(controls.shake, controls.slosh * 0.5) * 0.02;
+    if (jostle > 0) {
+      for (const g of this.light) {
+        g.r = Math.min(0.92, Math.max(0.05, g.r + (Math.random() - 0.5) * jostle));
+        g.a += (Math.random() - 0.5) * jostle * 2;
+      }
     }
 
     // Grains leave in the order they sit nearest the lip, and fly out over it.
@@ -180,7 +186,7 @@ export class PanView extends Container {
       this.darkSpillCarry += (events.darkSpilled / this.initialBlackSand) * DARK_GRAINS * 4;
       while (this.darkSpillCarry >= 1) {
         this.darkSpillCarry -= 1;
-        this.spillAtLip(pick(COLORS.dark), 2);
+        this.pendingSpill.push({ color: pick(COLORS.dark), size: 2 });
       }
     }
     const clayTarget = Math.ceil((pan.clay / this.initialClay) * this.clayBlobs.length);
@@ -194,11 +200,12 @@ export class PanView extends Container {
     for (const id of [...this.rockGrains.keys()]) if (!pan.rocks.some((r) => r.id === id)) this.rockGrains.delete(id);
 
     if (events?.state === 'aggressive') {
-      const wash = controls.swirl * controls.tilt;
-      for (let i = 0; i < Math.ceil(wash * 4); i++) this.spillAtLip(COLORS.spray, 1.5, true);
+      // Whitewater only breaks over the lip on a stroke toward it.
+      const wash = controls.slosh * controls.tilt;
+      if (this.surge > 0.2) for (let i = 0; i < Math.ceil(wash * 4); i++) this.spillAtLip(COLORS.spray, 1.5, true);
     }
     // Gold going over the lip flashes as it goes: the clearest sign of washing too hard.
-    for (let i = 0; i < (events?.goldLost ?? 0); i++) this.spillAtLip(COLORS.goldBright, 2);
+    for (let i = 0; i < (events?.goldLost ?? 0); i++) this.pendingSpill.push({ color: COLORS.goldBright, size: 2 });
     if (events && events.glints > 0 && this.dark.length > 0) {
       const g = pick(this.dark);
       const p = this.grainPos(g, controls.tilt * 0.08);
@@ -229,17 +236,21 @@ export class PanView extends Container {
     g.ellipse(0, 0, R, R * 0.62).fill(COLORS.panBody).stroke({ width: R * 0.06, color: COLORS.panRim });
     g.ellipse(0, 0, this.rx, this.ry).fill(COLORS.panFloor);
 
-    const lightShift = pan.phase === 'working' ? controls.tilt * 0.28 : 0;
-    const darkShift = pan.phase === 'working' ? controls.tilt * 0.08 : 0;
+    // Tilt pools material toward the lip; each slosh stroke surges the loose light sand most,
+    // settled heavies less, and rocks and clay hardly at all.
+    const working = pan.phase === 'working';
+    const lightShift = working ? controls.tilt * 0.28 + this.surge * 0.25 : 0;
+    const darkShift = working ? controls.tilt * 0.08 + this.surge * 0.1 * (1 - pan.stratification * 0.6) : 0;
+    const heavyShift = working ? this.surge * 0.04 : 0;
     const settled = pan.stratification;
 
     if (pan.phase !== 'emptied') {
       for (const d of this.dark) if (d.layer <= settled || pan.phase === 'revealed') this.dot(g, d, darkShift, s);
       for (const l of this.light) this.dot(g, l, lightShift, s);
       if (pan.phase === 'working') for (const d of this.dark) if (d.layer > settled) this.dot(g, d, darkShift, s);
-      for (const c of this.clayBlobs) this.dot(g, c, darkShift, s);
+      for (const c of this.clayBlobs) this.dot(g, c, heavyShift, s);
       for (const r of this.rockGrains.values()) {
-        const p = this.grainPos(r, 0);
+        const p = this.grainPos(r, heavyShift);
         g.circle(p.x, p.y, r.size * s).fill(r.color).stroke({ width: 1.5, color: 0x3c3a35 });
       }
     }
@@ -255,7 +266,7 @@ export class PanView extends Container {
     // Water film: pools toward the lip as the pan tips; clay and fines turn it brown.
     const murk = Math.min(1, pan.turbidity * 1.5);
     const waterColor = lerpColor(COLORS.water, COLORS.mud, murk);
-    g.ellipse(controls.tilt * this.rx * 0.3, 0, this.rx * (1 - controls.tilt * 0.3), this.ry * 0.95)
+    g.ellipse(controls.tilt * this.rx * 0.3 + this.surge * this.rx * 0.15, 0, this.rx * (1 - controls.tilt * 0.3), this.ry * 0.95)
       .fill({ color: waterColor, alpha: 0.18 + murk * 0.55 });
 
     for (const glint of this.glints) {
@@ -295,7 +306,18 @@ export class PanView extends Container {
   }
 
   private spill(g: Grain | undefined): void {
-    if (g) this.spillAtLip(g.color, g.size * this.scaleFactor * 0.8);
+    if (g) this.pendingSpill.push({ color: g.color, size: g.size * this.scaleFactor * 0.8 });
+  }
+
+  /**
+   * Pour held-back material over the lip in waves, on strokes toward it. Anything left when the
+   * pan stops working, or a big backlog, goes at once so nothing is silently dropped.
+   */
+  private releaseSpill(flush: boolean): void {
+    const queue = this.pendingSpill;
+    if (queue.length === 0) return;
+    const count = flush || queue.length > 40 ? queue.length : this.surge > 0.2 ? Math.ceil(queue.length / 3) : 0;
+    for (const item of queue.splice(0, count)) this.spillAtLip(item.color, item.size);
   }
 
   private spillAtLip(color: number, size: number, isSpray = false): void {

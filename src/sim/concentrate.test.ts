@@ -7,10 +7,10 @@ const DT = 1 / 30;
 type Policy = (pan: Pan) => PanControls;
 
 /** Gentle: settle, then a light touch well inside the narrow concentrate limit. */
-const gentle: Policy = (pan) => (pan.stratification < 0.6 ? { tilt: 0, swirl: 0, shake: 1 } : { tilt: 0.3, swirl: 0.5, shake: 0 });
+const gentle: Policy = (pan) => (pan.stratification < 0.6 ? { tilt: 0, slosh: 0, shake: 1 } : { tilt: 0.3, slosh: 0.5, shake: 0 });
 /** The skilled gravel technique, which is too rough for concentrate. */
 const gravelTechnique: Policy = (pan) =>
-  pan.stratification < 0.5 ? { tilt: 0, swirl: 0, shake: 1 } : { tilt: 0.45, swirl: 0.7, shake: 0 };
+  pan.stratification < 0.5 ? { tilt: 0, slosh: 0, shake: 1 } : { tilt: 0.45, slosh: 0.7, shake: 0 };
 
 function jarGold(seed: number): GoldPiece[] {
   const rng = createRng(seed);
@@ -60,7 +60,7 @@ describe('concentrate pan', () => {
     for (const amount of [0.02, 0.05, 0.1]) expect(recovery(gentle, amount)).toBeGreaterThan(0.75);
   });
 
-  it('loses gold gradually, not all at once, when swirled past worked down', () => {
+  it('loses gold gradually, not all at once, when sloshed past worked down', () => {
     const gold = jarGold(9);
     const pan = new Pan(createRng(9), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.1, gold });
     for (let t = 0; t < 300 && !pan.workedDown; t += DT) pan.step(DT, gentle(pan));

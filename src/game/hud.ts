@@ -59,7 +59,7 @@ const HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
   town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
   region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
-  pan: 'Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
+  pan: 'Drag back and forth to slosh · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -68,7 +68,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan, or to the spoil pile. Tap a boulder to pry it; tap a flooded hole to bail.',
   town: 'The buyer pays spot less a cut. Bigger lots get a better rate.',
   region: 'Tap a place to walk there. Follow leads from your notebook.',
-  pan: 'Drag circles to swirl · Tilt slider tips the pan · hold Shake · tap rocks to rake them out',
+  pan: 'Drag back and forth to slosh · Tilt slider tips the pan · hold Shake · tap rocks to rake them out',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
