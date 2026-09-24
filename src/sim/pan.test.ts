@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Pan, totalMg, type DigSpot, type PanControls } from './pan';
+import { Pan, totalMg, type PanLoad, type PanControls } from './pan';
 import { createRng } from './rng';
 
-const SPOT: DigSpot = { richness: 4, clayiness: 0.5, rockiness: 0.5 };
+const SPOT: PanLoad = { richness: 4, clayiness: 0.5, rockiness: 0.5 };
 const DT = 1 / 30;
 
 type Policy = (pan: Pan) => PanControls;

@@ -126,6 +126,7 @@ export class PanView extends Container {
 
   update(dt: number, session: PanningSession, controls: PanControls, swirlDirection: number, events: PanStepEvents | null): void {
     const pan = session.pan;
+    if (!pan) return;
     if (pan !== this.pan) this.setPan(pan);
     this.time += dt;
 

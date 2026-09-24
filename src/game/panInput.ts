@@ -14,6 +14,8 @@ export class PanInput {
   /** +1 counter-clockwise, -1 clockwise, following the last drag. */
   swirlDirection = 1;
   shakeHeld = false;
+  /** Only the pan screen listens; other screens handle their own pointer input. */
+  enabled = false;
 
   private pointerDown = false;
   private lastAngle: number | null = null;
@@ -57,6 +59,7 @@ export class PanInput {
   }
 
   private readonly handleDown = (e: PointerEvent): void => {
+    if (!this.enabled) return;
     this.pointerDown = true;
     this.lastAngle = this.angleOf(e);
     this.downAt = { x: e.clientX, y: e.clientY };
@@ -83,11 +86,13 @@ export class PanInput {
   };
 
   private readonly handleWheel = (e: WheelEvent): void => {
+    if (!this.enabled) return;
     e.preventDefault();
     this.tilt = clamp01(this.tilt - e.deltaY * 0.0015);
   };
 
   private readonly handleKeyDown = (e: KeyboardEvent): void => {
+    if (!this.enabled) return;
     const key = e.key.toLowerCase();
     if (key === ' ' || key.startsWith('arrow')) e.preventDefault();
     this.keys.add(key);

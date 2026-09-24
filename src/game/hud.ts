@@ -1,44 +1,87 @@
-import { JAR_CAPACITY, type GoldPiece, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
+import {
+  JAR_CAPACITY,
+  type DigSpot,
+  type GoldPiece,
+  type HomeCreek,
+  type PanControls,
+  type PanStepEvents,
+  type PanningSession,
+} from '../sim';
+
+export type Mode = 'creek' | 'bank' | 'pan';
 
 export interface HudActions {
+  // Pan
   reveal(): void;
   collect(saveBlackSand: boolean): void;
-  nextPan(): void;
+  backToHole(): void;
   setTilt(tilt: number): void;
   setShake(held: boolean): void;
+  // Creek
+  pickSpot(index: number): void;
+  // Bank
+  shovel(into: 'pan' | 'spoil'): void;
+  pry(): void;
+  bail(): void;
+  walkCreek(): void;
 }
 
+export interface HudState {
+  readonly mode: Mode;
+  readonly session: PanningSession;
+  readonly creek: HomeCreek;
+  readonly spot: DigSpot | null;
+  readonly controls: PanControls;
+  readonly events: PanStepEvents | null;
+}
+
+const HINTS: Record<Mode, string> = {
+  creek: 'Walk the creek and pick a spot to dig (click, or press its number). Inside bends, bedrock, black sand, moss lines and boulders are good signs, but only the pan tells the truth.',
+  bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
+  pan: 'Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
+};
+
+const LAYER_NAMES = { overburden: 'topsoil', gravel: 'gravel', payStreak: 'pay streak', bedrock: 'bedrock cracks' } as const;
+
 /**
- * DOM controls around the canvas: tilt slider and shake button (for touch), phase actions,
- * and the optional inspection panel. The world view stays primary; the panel is off by default.
+ * DOM controls around the canvas. Buttons and hints change with the mode; the tilt slider and
+ * shake button (for touch) only show while panning. The inspection panel is off by default.
  */
 export class Hud {
   private readonly root: HTMLElement;
+  private readonly hint: HTMLElement;
+  private readonly panControls: HTMLElement;
   private readonly tilt: HTMLInputElement;
   private readonly actions: HTMLElement;
   private readonly result: HTMLElement;
   private readonly inspect: HTMLElement;
   private readonly toastEl: HTMLElement;
-  private phaseShown = '';
+  private buttonsKey = '';
+  private resultKey = '';
   private inspectOpen = false;
   private lossRate = 0;
   private toastTimer = 0;
+  private state: HudState | null = null;
 
   constructor(private readonly on: HudActions) {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
-      <div class="hud-hint">Drag in circles to swirl · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out</div>
+      <div class="hud-hint"></div>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect" hidden></div>
       <div class="hud-toast" hidden></div>
       <div class="hud-bar">
-        <label class="hud-tilt">Tilt <input type="range" min="0" max="1" step="0.01" value="0" /></label>
-        <button type="button" class="hud-shake">Shake</button>
+        <span class="hud-pan-controls">
+          <label class="hud-tilt">Tilt <input type="range" min="0" max="1" step="0.01" value="0" /></label>
+          <button type="button" class="hud-shake">Shake</button>
+        </span>
         <span class="hud-actions"></span>
         <button type="button" class="hud-inspect-toggle" title="Inspection panel (I)">Inspect</button>
       </div>`;
     document.body.appendChild(this.root);
 
+    this.hint = this.root.querySelector('.hud-hint') as HTMLElement;
+    this.panControls = this.root.querySelector('.hud-pan-controls') as HTMLElement;
     this.tilt = this.root.querySelector('input') as HTMLInputElement;
     this.actions = this.root.querySelector('.hud-actions') as HTMLElement;
     this.result = this.root.querySelector('.hud-result') as HTMLElement;
@@ -50,51 +93,93 @@ export class Hud {
     shake.addEventListener('pointerdown', () => on.setShake(true));
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
     (this.root.querySelector('.hud-inspect-toggle') as HTMLElement).addEventListener('click', () => this.toggleInspect());
-
-    window.addEventListener('keydown', (e) => {
-      const key = e.key.toLowerCase();
-      if (key === 'i') this.toggleInspect();
-      else if (key === 'r' && this.phaseShown === 'working') on.reveal();
-      else if (key === 'c' && this.phaseShown === 'revealed') on.collect(true);
-      else if (key === 'd' && this.phaseShown === 'revealed') on.collect(false);
-      else if ((key === 'n' || key === 'enter') && this.phaseShown === 'emptied') on.nextPan();
-    });
+    window.addEventListener('keydown', (e) => this.handleKey(e.key.toLowerCase()));
   }
 
   toast(message: string): void {
     this.toastEl.textContent = message;
     this.toastEl.hidden = false;
-    this.toastTimer = 2.5;
+    this.toastTimer = 3;
   }
 
-  update(dt: number, session: PanningSession, controls: PanControls, events: PanStepEvents | null): void {
+  update(dt: number, state: HudState): void {
+    this.state = state;
+    const { mode, session, controls, events } = state;
     const pan = session.pan;
-    if (document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
 
-    if (pan.phase !== this.phaseShown) {
-      this.phaseShown = pan.phase;
-      this.actions.replaceChildren(...this.buttonsFor(pan.phase));
-      this.result.hidden = pan.phase === 'working';
-      if (pan.phase === 'revealed') this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand);
-      if (pan.phase === 'emptied') this.result.textContent = `Pan ${session.pansWorked} done. ${session.vialMg.toFixed(1)} mg in the vial.`;
+    this.hint.textContent = HINTS[mode];
+    this.panControls.hidden = mode !== 'pan';
+    if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
+
+    const buttons = this.buttonsFor(state);
+    const key = buttons.map(([label]) => label).join('|');
+    if (key !== this.buttonsKey) {
+      this.buttonsKey = key;
+      this.actions.replaceChildren(...buttons.map(([label, action]) => button(label, action)));
+    }
+
+    const resultKey = mode === 'pan' && pan ? `${pan.phase}:${session.pansWorked}` : '';
+    if (resultKey !== this.resultKey) {
+      this.resultKey = resultKey;
+      this.result.hidden = !pan || mode !== 'pan' || pan.phase === 'working';
+      if (pan?.phase === 'revealed') this.result.textContent = describeFind(pan.visible, pan.lightSand / pan.initialLightSand);
+      if (pan?.phase === 'emptied') this.result.textContent = `Pan ${session.pansWorked} done. ${session.vialMg.toFixed(1)} mg in the vial.`;
     }
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toastEl.hidden = true;
 
     const spilled = events ? events.darkSpilled / Math.max(dt, 1e-6) : 0;
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
-    if (this.inspectOpen) this.renderInspect(session, events);
+    if (this.inspectOpen) this.renderInspect(state);
   }
 
-  private buttonsFor(phase: string): HTMLElement[] {
-    if (phase === 'working') return [button('Stop & reveal (R)', () => this.on.reveal())];
-    if (phase === 'revealed') {
-      return [
-        button('Collect, save black sand (C)', () => this.on.collect(true)),
-        button('Collect, dump black sand (D)', () => this.on.collect(false)),
-      ];
+  private buttonsFor(state: HudState): [string, () => void][] {
+    const { mode, session, creek, spot } = state;
+    if (mode === 'pan') {
+      const phase = session.pan?.phase;
+      if (phase === 'working') return [['Stop & reveal (R)', () => this.on.reveal()]];
+      if (phase === 'revealed') {
+        return [
+          ['Collect, save black sand (C)', () => this.on.collect(true)],
+          ['Collect, dump black sand (D)', () => this.on.collect(false)],
+        ];
+      }
+      return [['Back to the hole (N)', () => this.on.backToHole()]];
     }
-    return [button('Scoop next pan (N)', () => this.on.nextPan())];
+    if (mode === 'bank' && spot) {
+      const blocked = creek.blockedBy(spot);
+      const list: [string, () => void][] = [];
+      if (blocked === null) {
+        list.push(['Shovel into pan (P)', () => this.on.shovel('pan')], ['Toss aside (T)', () => this.on.shovel('spoil')]);
+      }
+      if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
+      if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
+      list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
+      return list;
+    }
+    return [];
+  }
+
+  private handleKey(key: string): void {
+    if (key === 'i') return this.toggleInspect();
+    const state = this.state;
+    if (!state) return;
+    const phase = state.session.pan?.phase;
+    if (state.mode === 'creek') {
+      const n = Number(key);
+      if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
+    } else if (state.mode === 'pan') {
+      if (key === 'r' && phase === 'working') this.on.reveal();
+      else if (key === 'c' && phase === 'revealed') this.on.collect(true);
+      else if (key === 'd' && phase === 'revealed') this.on.collect(false);
+      else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
+    } else if (state.mode === 'bank') {
+      if (key === 'p') this.on.shovel('pan');
+      else if (key === 't') this.on.shovel('spoil');
+      else if (key === 'b') this.on.pry();
+      else if (key === 'a') this.on.bail();
+      else if (key === 'escape') this.on.walkCreek();
+    }
   }
 
   private toggleInspect(): void {
@@ -102,22 +187,37 @@ export class Hud {
     this.inspect.hidden = !this.inspectOpen;
   }
 
-  private renderInspect(session: PanningSession, events: PanStepEvents | null): void {
-    const pan = session.pan;
-    const water = pan.turbidity > 0.3 ? 'muddy' : pan.turbidity > 0.08 ? 'cloudy' : 'clear';
-    const loss = this.lossRate > 0.004 ? 'heavy' : this.lossRate > 0.0008 ? 'some' : 'low';
+  private renderInspect(state: HudState): void {
+    const { mode, session, creek, spot, events } = state;
     const avg = session.pansWorked > 0 ? (session.vialMg / session.pansWorked).toFixed(1) : '–';
-    const rows: [string, string][] = [
-      ['Working', pan.phase === 'working' ? (events?.state ?? 'timid') : pan.phase],
-      ['Settled', pan.stratification > 0.7 ? 'well' : pan.stratification > 0.4 ? 'partly' : 'mixed'],
-      ['Water', water],
-      ['Loss over lip', loss],
-      ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+    const common: [string, string][] = [
       ['Pans worked', String(session.pansWorked)],
       ['Colour per pan', `${avg} mg`],
       ['Concentrate jar', `${Math.round(Math.min(1, session.jar.blackSand / JAR_CAPACITY) * 100)}% full`],
     ];
-    this.inspect.innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+    let rows: [string, string][] = [];
+    const pan = session.pan;
+    if (mode === 'pan' && pan) {
+      const water = pan.turbidity > 0.3 ? 'muddy' : pan.turbidity > 0.08 ? 'cloudy' : 'clear';
+      const loss = this.lossRate > 0.004 ? 'heavy' : this.lossRate > 0.0008 ? 'some' : 'low';
+      rows = [
+        ['Working', pan.phase === 'working' ? (events?.state ?? 'timid') : pan.phase],
+        ['Settled', pan.stratification > 0.7 ? 'well' : pan.stratification > 0.4 ? 'partly' : 'mixed'],
+        ['Water', water],
+        ['Loss over lip', loss],
+        ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+      ];
+    } else if (mode === 'bank' && spot) {
+      const layer = creek.currentLayer(spot);
+      const dug = spot.layers.reduce((n, l) => n + l.initialLoads - l.loads, 0);
+      rows = [
+        ['Digging', spot.slumped > 0 ? 'slumped bank' : layer ? LAYER_NAMES[layer.kind] : 'worked out'],
+        ['Shovelfuls dug', String(dug)],
+        ['Water in hole', spot.water >= 1 ? 'flooded' : spot.water > 0.5 ? 'deep' : spot.water > 0.1 ? 'seeping' : 'dry'],
+        ['Spoil pile', `${spot.spoil} shovelfuls`],
+      ];
+    }
+    this.inspect.innerHTML = [...rows, ...common].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   }
 }
 

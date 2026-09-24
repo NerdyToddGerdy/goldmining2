@@ -1,0 +1,171 @@
+import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
+import type { DigSpot, GroundSign, HomeCreek } from '../sim';
+
+/**
+ * Top-down view of the Home Creek stretch. Ground signs are drawn physically at each spot
+ * (gravel bars on inside bends, black-sand streaks, moss, exposed bedrock, trapping boulders).
+ * Hovering names what the player notices; it never reveals richness.
+ */
+
+export const SIGN_NAMES: Record<GroundSign, string> = {
+  insideBend: 'inside of a bend',
+  bedrockOutcrop: 'bedrock showing',
+  blackSandStreak: 'black-sand streaks',
+  mossLine: 'moss on the high-water rocks',
+  boulderTrap: 'gravel packed behind a boulder',
+};
+
+const BANK = 0x5d5a38;
+const WATER = 0x2f5a5e;
+
+export class CreekMapView extends Container {
+  private readonly g = new Graphics();
+  private readonly labels = new Container();
+  private readonly tooltip = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 14, fontFamily: 'system-ui, sans-serif', wordWrap: true, wordWrapWidth: 260 } });
+  private readonly tooltipBg = new Graphics();
+  private width_ = 800;
+  private height_ = 600;
+  private hovered: DigSpot | null = null;
+  private time = 0;
+
+  constructor(
+    private readonly creek: HomeCreek,
+    private readonly onPick: (spot: DigSpot) => void,
+  ) {
+    super();
+    this.addChild(this.g, this.labels, this.tooltipBg, this.tooltip);
+    this.eventMode = 'static';
+    this.on('globalpointermove', (e: FederatedPointerEvent) => (this.hovered = this.spotAt(e.global.x, e.global.y)));
+    this.on('pointertap', (e: FederatedPointerEvent) => {
+      const spot = this.spotAt(e.global.x, e.global.y);
+      if (spot) this.onPick(spot);
+    });
+  }
+
+  layout(width: number, height: number): void {
+    this.width_ = width;
+    this.height_ = height;
+    this.hitArea = new Rectangle(0, 0, width, height);
+    this.labels.removeChildren().forEach((c) => c.destroy());
+    this.creek.spots.forEach((spot, i) => {
+      const p = this.spotPos(spot);
+      const label = new Text({ text: String(i + 1), style: { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' } });
+      label.anchor.set(0.5);
+      label.position.set(p.x, p.y + 26);
+      this.labels.addChild(label);
+    });
+  }
+
+  update(dt: number): void {
+    this.time += dt;
+    const g = this.g.clear();
+    const W = this.width_;
+    const H = this.height_;
+    g.rect(0, 0, W, H).fill(BANK);
+    for (let i = 0; i < 80; i++) g.circle((i * 131.7) % W, (i * 71.3) % H, 2 + (i % 3)).fill(i % 2 ? 0x686440 : 0x4f4c2f);
+
+    // Creek channel.
+    const steps = 60;
+    const points: number[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const x = (i / steps) * W;
+      points.push(x, this.creekY(x));
+    }
+    g.poly([...points, W, this.creekY(W) + 34, ...reversePairs(points).map((v, j) => (j % 2 ? v + 34 : v))]).fill(WATER);
+    for (let i = 0; i < 12; i++) {
+      const x = ((this.time * 50 + i * 97) % (W + 60)) - 30;
+      const y = this.creekY(x) + 10 + (i % 3) * 7;
+      g.moveTo(x, y).lineTo(x + 22, this.creekY(x + 22) + 10 + (i % 3) * 7);
+    }
+    g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.4 });
+
+    for (const spot of this.creek.spots) this.drawSpot(g, spot);
+    this.drawTooltip();
+  }
+
+  private drawSpot(g: Graphics, spot: DigSpot): void {
+    const p = this.spotPos(spot);
+    const toward = Math.sign(this.creekY(p.x) + 17 - p.y);
+
+    for (const sign of spot.signs) {
+      switch (sign) {
+        case 'insideBend':
+          g.ellipse(p.x, p.y + toward * 18, 44, 12).fill(0xb7a57c);
+          break;
+        case 'blackSandStreak':
+          for (let i = 0; i < 3; i++) g.moveTo(p.x - 20 + i * 12, p.y + toward * 14).lineTo(p.x - 12 + i * 12, p.y + toward * 16).stroke({ width: 3, color: 0x15120f });
+          break;
+        case 'mossLine':
+          for (let i = 0; i < 6; i++) g.circle(p.x + 22 + i * 5, p.y - 8 + (i % 2) * 4, 3.5).fill(0x4f7a3a);
+          break;
+        case 'bedrockOutcrop':
+          g.poly([p.x - 36, p.y + 6, p.x - 28, p.y - 10, p.x - 16, p.y - 6, p.x - 14, p.y + 8]).fill(0x4d5560);
+          break;
+        case 'boulderTrap':
+          g.circle(p.x + 26, p.y + 10, 11).fill(0x7c786f);
+          for (let i = 0; i < 4; i++) g.circle(p.x + 14 - i * 4, p.y + 14, 2.5).fill(0xa9a393);
+          break;
+      }
+    }
+
+    const workedOut = this.creek.isWorkedOut(spot);
+    const dug = spot.layers.some((l) => l.loads < l.initialLoads) || spot.spoil > 0;
+    if (dug) {
+      g.circle(p.x - 16, p.y - 12, Math.min(14, 4 + spot.spoil)).fill(0x5e4a33);
+      g.circle(p.x, p.y, 10).fill(0x1b1712);
+      if (spot.water > 0) g.circle(p.x, p.y, 10 * spot.water).fill(0x3f7479);
+    }
+    if (workedOut) {
+      g.moveTo(p.x - 7, p.y - 7).lineTo(p.x + 7, p.y + 7).moveTo(p.x + 7, p.y - 7).lineTo(p.x - 7, p.y + 7).stroke({ width: 2, color: 0xcfc6ae });
+    } else if (!dug) {
+      // Stake marking a spot worth a look.
+      g.moveTo(p.x, p.y + 6).lineTo(p.x, p.y - 14).stroke({ width: 3, color: 0x8a6a45 });
+      g.poly([p.x, p.y - 14, p.x + 12, p.y - 10, p.x, p.y - 6]).fill(0xc9503b);
+    }
+    if (spot === this.hovered) g.circle(p.x, p.y, 30).stroke({ width: 2, color: 0xefe6cf, alpha: 0.6 });
+  }
+
+  private drawTooltip(): void {
+    const spot = this.hovered;
+    this.tooltip.visible = this.tooltipBg.visible = spot !== null;
+    if (!spot) return;
+    const index = this.creek.spots.indexOf(spot) + 1;
+    const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
+    const state = this.creek.isWorkedOut(spot) ? 'Worked out.' : spot.spoil > 0 || spot.layers.some((l) => l.loads < l.initialLoads) ? 'You have dug here.' : 'Undug.';
+    this.tooltip.text = `Spot ${index}: ${noticed}.\n${state} Click to dig.`;
+    const p = this.spotPos(spot);
+    const x = Math.min(p.x + 34, this.width_ - 280);
+    const y = Math.max(8, p.y - 70);
+    this.tooltip.position.set(x + 8, y + 6);
+    this.tooltipBg.clear().roundRect(x, y, this.tooltip.width + 16, this.tooltip.height + 12, 4).fill({ color: 0x0c100b, alpha: 0.85 });
+  }
+
+  private creekY(x: number): number {
+    return this.height_ * 0.48 + Math.sin((x / this.width_) * Math.PI * 2.2 + 0.4) * this.height_ * 0.15;
+  }
+
+  /** Spots sit on the bank beside the channel; inside-bend spots sit on the inside of the curve. */
+  private spotPos(spot: DigSpot): { x: number; y: number } {
+    const x = this.width_ * (0.08 + 0.84 * spot.position);
+    const k = (Math.PI * 2.2) / this.width_;
+    const curvatureDown = -Math.sin(x * k + 0.4) > 0;
+    const index = this.creek.spots.indexOf(spot);
+    const below = spot.signs.includes('insideBend') ? curvatureDown : index % 2 === 0;
+    const centre = this.creekY(x) + 17;
+    return { x, y: below ? centre + 62 : centre - 62 };
+  }
+
+  private spotAt(x: number, y: number): DigSpot | null {
+    for (const spot of this.creek.spots) {
+      const p = this.spotPos(spot);
+      if (Math.hypot(x - p.x, y - p.y) < 34) return spot;
+    }
+    return null;
+  }
+}
+
+function reversePairs(points: number[]): number[] {
+  const out: number[] = [];
+  for (let i = points.length - 2; i >= 0; i -= 2) out.push(points[i] ?? 0, points[i + 1] ?? 0);
+  return out;
+}

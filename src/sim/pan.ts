@@ -36,9 +36,9 @@ export interface PanControls {
 export type PanState = 'timid' | 'balanced' | 'aggressive';
 export type PanPhase = 'working' | 'revealed' | 'emptied';
 
-/** Physical character of the ground a load was dug from. */
-export interface DigSpot {
-  /** Expected milligrams of gold in one pan-sized load. */
+/** One shovelful of material in the pan, with the character of the layer it was dug from. */
+export interface PanLoad {
+  /** Expected milligrams of gold in this load. */
   readonly richness: number;
   /** 0..1 */
   readonly clayiness: number;
@@ -118,22 +118,22 @@ export class Pan {
 
   constructor(
     private readonly rng: Rng,
-    spot: DigSpot,
+    load: PanLoad,
   ) {
-    this.clay = spot.clayiness * rng.range(0.05, 0.18);
+    this.clay = load.clayiness * rng.range(0.05, 0.18);
     this.blackSand = rng.range(0.03, 0.07);
     this.lightSand = 0.85 - this.clay - this.blackSand;
     this.initialLightSand = this.lightSand;
     this.turbidity = this.clay * 2;
 
-    const rockCount = Math.round(spot.rockiness * rng.range(2, 7));
+    const rockCount = Math.round(load.rockiness * rng.range(2, 7));
     this.rocks = Array.from({ length: rockCount }, () => ({
       id: newId(),
       stuckPicker: rng.next() < PAN_TUNING.rockPickerChance ? makePiece(rng, 'picker') : null,
     }));
 
     this.gold = [];
-    let budget = spot.richness * rng.range(0.3, 1.8);
+    let budget = load.richness * rng.range(0.3, 1.8);
     while (budget > 0 && this.gold.length < 80) {
       const roll = rng.next();
       const size: GoldSize = roll < 0.7 ? 'fine' : roll < 0.97 ? 'flake' : 'picker';

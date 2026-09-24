@@ -4,3 +4,4 @@ export * from './rng';
 export * from './estimate';
 export * from './pan';
 export * from './panningSession';
+export * from './creek';
