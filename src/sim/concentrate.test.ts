@@ -7,10 +7,10 @@ const DT = 1 / 30;
 type Policy = (pan: Pan) => PanControls;
 
 /** Gentle: settle, then a light touch well inside the narrow concentrate limit. */
-const gentle: Policy = (pan) => (pan.stratification < 0.6 ? { tilt: 0, slosh: 0, shake: 1 } : { tilt: 0.3, slosh: 0.5, shake: 0 });
-/** The skilled gravel technique, which is too rough for concentrate. */
+const gentle: Policy = (pan) => (pan.stratification < 0.6 ? { tilt: 0, shake: 1 } : { tilt: 0.15, shake: 1 });
+/** A brisk gravel technique, which is too rough for heavy black sand. */
 const gravelTechnique: Policy = (pan) =>
-  pan.stratification < 0.5 ? { tilt: 0, slosh: 0, shake: 1 } : { tilt: 0.45, slosh: 0.7, shake: 0 };
+  pan.stratification < 0.5 ? { tilt: 0, shake: 1 } : { tilt: 0.5, shake: 1 };
 
 function jarGold(seed: number): GoldPiece[] {
   const rng = createRng(seed);
@@ -45,8 +45,8 @@ describe('concentrate pan', () => {
     const gravel = new Pan(createRng(2), { richness: 1, clayiness: 0, rockiness: 0 });
     const conc = new Pan(createRng(2), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.2, gold: [] });
     gravel.stratification = conc.stratification = 0.9;
-    expect(gravel.classify(0.35)).toBe('balanced');
-    expect(conc.classify(0.35)).toBe('aggressive');
+    expect(gravel.classify(0.45)).toBe('balanced');
+    expect(conc.classify(0.45)).toBe('aggressive');
   });
 
   it('rewards a light touch: gentle recovers most, gravel technique loses much more', () => {
@@ -60,7 +60,7 @@ describe('concentrate pan', () => {
     for (const amount of [0.02, 0.05, 0.1]) expect(recovery(gentle, amount)).toBeGreaterThan(0.75);
   });
 
-  it('loses gold gradually, not all at once, when sloshed past worked down', () => {
+  it('loses gold gradually, not all at once, when washed past worked down', () => {
     const gold = jarGold(9);
     const pan = new Pan(createRng(9), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.1, gold });
     for (let t = 0; t < 300 && !pan.workedDown; t += DT) pan.step(DT, gentle(pan));
@@ -101,6 +101,17 @@ describe('PanningSession concentrate jar', () => {
     session.collect(true);
     expect(session.jar.blackSand).toBeGreaterThan(0);
     expect(session.pansWorked).toBe(0);
+  });
+
+  it('tips out spent residue from a worked-down jar pan instead of saving it', () => {
+    const session = sessionWithJar(0.2, jarGold(10));
+    const pan = session.startConcentratePan();
+    for (let t = 0; t < 300 && !pan.workedDown; t += DT) pan.step(DT, gentle(pan));
+    expect(pan.residueSpent).toBe(true);
+    pan.reveal();
+    session.collect(true);
+    expect(session.jar.blackSand).toBe(0);
+    expect(session.canPanConcentrate).toBe(false);
   });
 
   it('refuses to pour while the pan is in use or the jar is empty', () => {

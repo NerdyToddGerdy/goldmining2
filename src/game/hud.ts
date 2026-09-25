@@ -1,6 +1,8 @@
 import {
   JAR_CAPACITY,
+  OUTFITTER,
   quoteSale,
+  type GearId,
   type DigSpot,
   type GoldPiece,
   type Creek,
@@ -38,6 +40,7 @@ export interface HudActions {
   // Town
   sell(): void;
   buyLead(leadId: number): void;
+  buyGear(id: GearId): void;
   // Region
   followLead(leadId: number): void;
 }
@@ -59,7 +62,7 @@ const HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
   town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
   region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
-  pan: 'Drag back and forth to slosh · W/S or wheel to tilt · hold Space to shake · click rocks to rake them out',
+  pan: 'Hold Space or the pan to shake · shake level until the water clears, then tip with W/S or the wheel to wash · click rocks to rake them out',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -68,7 +71,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan, or to the spoil pile. Tap a boulder to pry it; tap a flooded hole to bail.',
   town: 'The buyer pays spot less a cut. Bigger lots get a better rate.',
   region: 'Tap a place to walk there. Follow leads from your notebook.',
-  pan: 'Drag back and forth to slosh · Tilt slider tips the pan · hold Shake · tap rocks to rake them out',
+  pan: 'Hold the pan or Shake · shake level until the water clears, then tip with the slider to wash · tap rocks to rake them out',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -99,6 +102,8 @@ export class Hud {
   private panelKey = '';
   /** Small screens start with the notebook and claims board folded up. */
   private panelCollapsed = matchMedia('(max-width: 700px), (max-height: 500px)').matches;
+  /** Which tab of the town's side menu is open; remembered between visits. */
+  private townTab: 'outfitter' | 'claims' = 'outfitter';
   private buttonsKey = '';
   private resultKey = '';
   private inspectOpen = false;
@@ -135,6 +140,15 @@ export class Hud {
     this.cash = this.root.querySelector('.hud-cash') as HTMLElement;
     this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
     this.panel.addEventListener('click', (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
+      if (tab) {
+        // Picking a tab always opens the menu; picking the open tab again folds it away.
+        const same = tab.dataset.tab === this.townTab && !this.panelCollapsed;
+        this.townTab = tab.dataset.tab as 'outfitter' | 'claims';
+        this.panelCollapsed = same;
+        this.panelKey = '';
+        return;
+      }
       if ((e.target as HTMLElement).closest('h3')) {
         this.panelCollapsed = !this.panelCollapsed;
         this.panel.classList.toggle('collapsed', this.panelCollapsed);
@@ -144,6 +158,7 @@ export class Hud {
       if (!target) return;
       target.blur();
       const id = Number(target.dataset.lead);
+      if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
       if (target.dataset.action === 'buy') this.on.buyLead(id);
       if (target.dataset.action === 'follow') this.on.followLead(id);
     });
@@ -216,6 +231,9 @@ export class Hud {
     if (mode === 'pan') {
       const phase = session.pan?.phase;
       if (phase === 'working') return [['Stop & reveal (R)', () => this.on.reveal()]];
+      if (phase === 'revealed' && session.pan?.residueSpent) {
+        return [['Collect (C)', () => this.on.collect(false)]];
+      }
       if (phase === 'revealed') {
         return [
           ['Collect, save black sand (C)', () => this.on.collect(true)],
@@ -256,7 +274,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.panelCollapsed}:${session.cash}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${session.owns('sluice')}:${JSON.stringify(session.sluicePlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -268,7 +286,31 @@ export class Hud {
         const afford = session.cash >= price;
         return `<div class="lead">${leadHeader(lead)}<button type="button" data-action="buy" data-lead="${lead.id}" ${afford ? '' : 'disabled'}>Buy for $${price}</button></div>`;
       });
-      this.panel.innerHTML = `<h3>Claims board <span class="count">${region.offers.length}</span></h3>${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
+      const gear = OUTFITTER.map((item) => {
+        const place = session.sluicePlace;
+        const status = !session.owns(item.id)
+          ? `<button type="button" data-action="gear" data-gear="${item.id}" ${session.cash >= item.price ? '' : 'disabled'}>Buy for $${item.price}</button>`
+          : place
+            ? `<span class="found">Yours. Set up at ${region.creek(place.creekId).profile.name}.</span>`
+            : '<span class="found">Yours. Packed and ready to set up.</span>';
+        return `<div class="lead"><b>${item.name}</b><p class="small">${item.description}</p>${status}</div>`;
+      });
+      const tabs = `<div class="tabs" role="tablist">${(
+        [
+          ['outfitter', 'Outfitter', ''],
+          ['claims', 'Claims board', `<span class="count">${region.offers.length}</span>`],
+        ] as const
+      )
+        .map(
+          ([id, label, extra]) =>
+            `<button type="button" role="tab" data-tab="${id}" aria-selected="${this.townTab === id}" class="${this.townTab === id ? 'active' : ''}">${label}${extra}</button>`,
+        )
+        .join('')}</div>`;
+      const body =
+        this.townTab === 'outfitter'
+          ? gear.join('')
+          : `${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
+      this.panel.innerHTML = `${tabs}<div class="tab-body">${body}</div>`;
     } else {
       const leads = [...region.leads].reverse().map((lead) => {
         const action =

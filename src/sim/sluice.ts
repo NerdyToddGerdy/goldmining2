@@ -352,6 +352,18 @@ export class Sluice {
     return { volume: released, goldLost, blackLost: black - blackCaught };
   }
 
+  /**
+   * Tip out whatever gravel is still in the header, as when taking the sluice down. Its gold
+   * goes with it. Returns how many pieces were lost.
+   */
+  emptyHeader(): number {
+    const pickers = this.header.rocks.flatMap((r) => (r.stuckPicker ? [r.stuckPicker] : []));
+    const gold = [...this.header.gold, ...pickers];
+    this.lost.push(...gold);
+    this.header = { light: 0, black: 0, clay: 0, rocks: [], gold: [] };
+    return gold.length;
+  }
+
   private loseFromMoss(chance: (size: GoldSize) => number): number {
     const before = this.moss.gold.length;
     this.moss.gold = this.moss.gold.filter((piece) => {

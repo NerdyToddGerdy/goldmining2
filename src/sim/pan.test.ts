@@ -7,13 +7,11 @@ const DT = 1 / 30;
 
 type Policy = (pan: Pan) => PanControls;
 
-/** Shake level until settled and clay is gone, then wash moderately; re-shake when the layers mix. */
-const skilled: Policy = (pan) =>
-  pan.clay > 0.005 || pan.stratification < 0.5
-    ? { tilt: 0, slosh: 0, shake: 1 }
-    : { tilt: 0.45, slosh: 0.7, shake: 0 };
-const aggressive: Policy = () => ({ tilt: 0.9, slosh: 1, shake: 0 });
-const timid: Policy = () => ({ tilt: 0.15, slosh: 0.3, shake: 0 });
+const SETTLE = { tilt: 0, shake: 1 };
+/** Shake level until the clay is gone and the pan has settled, then shake with a moderate tip. */
+const skilled: Policy = (pan) => (pan.clay > 0 || pan.stratification < 0.5 ? SETTLE : { tilt: 0.4, shake: 1 });
+const aggressive: Policy = (pan) => (pan.clay > 0 ? SETTLE : { tilt: 0.9, shake: 1 });
+const timid: Policy = (pan) => (pan.clay > 0 ? SETTLE : { tilt: 0.12, shake: 1 });
 
 function workPan(seed: number, policy: Policy, rakeRocks = true): { pan: Pan; collected: number; initial: number } {
   const pan = new Pan(createRng(seed), SPOT);
@@ -81,13 +79,32 @@ describe('Pan', () => {
     expect(pan.classify(0.3)).toBe('aggressive');
   });
 
-  it('shaking restores stratification and sloshing mixes it', () => {
+  it('shaking level settles the pan, and washing hard churns it back up', () => {
     const pan = new Pan(createRng(6), SPOT);
-    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0, slosh: 0, shake: 1 });
+    for (let i = 0; i < 90; i++) pan.step(DT, SETTLE);
     const settled = pan.stratification;
     expect(settled).toBeGreaterThan(0.7);
-    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0.1, slosh: 1, shake: 0 });
+    pan.clay = 0;
+    for (let i = 0; i < 90; i++) pan.step(DT, { tilt: 0.9, shake: 1 });
     expect(pan.stratification).toBeLessThan(settled);
+  });
+
+  it('washes nothing until the shaking has broken up all the clay', () => {
+    const pan = new Pan(createRng(13), { ...SPOT, clayiness: 1, rockiness: 0 });
+    const sand = pan.lightSand;
+    while (pan.clay > 0) {
+      pan.step(DT, { tilt: 0.5, shake: 1 });
+      expect(pan.lightSand).toBe(sand);
+    }
+    for (let i = 0; i < 30; i++) pan.step(DT, { tilt: 0.5, shake: 1 });
+    expect(pan.lightSand).toBeLessThan(sand);
+  });
+
+  it('washes nothing without shaking, however far it is tipped', () => {
+    const pan = new Pan(createRng(14), { ...SPOT, clayiness: 0, rockiness: 0 });
+    const sand = pan.lightSand;
+    for (let i = 0; i < 60; i++) pan.step(DT, { tilt: 0.8, shake: 0 });
+    expect(pan.lightSand).toBe(sand);
   });
 
   it('hides gold under sand when revealed too early', () => {
@@ -108,7 +125,7 @@ describe('Pan', () => {
     expect(pan.clay).toBeGreaterThan(0.01);
     let seconds = 0;
     while (pan.clay > 0 && seconds < 20) {
-      pan.step(DT, { tilt: 0, slosh: 0, shake: 1 });
+      pan.step(DT, SETTLE);
       seconds += DT;
     }
     expect(pan.clay).toBe(0);
@@ -117,8 +134,9 @@ describe('Pan', () => {
 
   it('rocks slow washing until raked out', () => {
     const rocky = new Pan(createRng(2), { ...SPOT, rockiness: 1 });
+    rocky.clay = 0;
     expect(rocky.rocks.length).toBeGreaterThan(0);
-    const controls = { tilt: 0.5, slosh: 0.8, shake: 0 };
+    const controls = { tilt: 0.5, shake: 1 };
     const blocked = rocky.effectiveWash(controls);
     for (const rock of [...rocky.rocks]) rocky.rakeRock(rock.id);
     expect(rocky.effectiveWash(controls)).toBeGreaterThan(blocked);

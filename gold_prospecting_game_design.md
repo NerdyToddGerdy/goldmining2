@@ -356,7 +356,9 @@ Gold is sold at the assay office in town, reached from the creek. The buyer weig
 | 100 mg to 1 g | 80% |
 | 1 g and over | 88% |
 
-Pickers sell whole as specimens at 1.5× spot. Prices are grounded in reality (about $120 a gram), so the Home Creek pays modestly, as intended: a skilled day of panning is worth tens of dollars, not hundreds.
+Pickers sell whole as specimens at 1.5× spot. The spot price is a game price ($500 a gram), tuned so the Home Creek pays modestly but steadily. Careful panning through a whole spot averages about $1.70 a pan. Topsoil pays pennies and the pay streak and bedrock pay most, so digging down matters. The $40 sluice takes roughly 25 good pans.
+
+The outfitter in town sells the first piece of real equipment, a **hand sluice for $40**: roughly 25 good pans. Buying it doesn't unlock anywhere to use it. It sets up only at a sluice site on a creek bend, and taking it down washes its moss into the concentrate jar so nothing it caught is lost.
 
 The sliding rate creates a small decision: sell now, or keep panning to reach a better rate. Selling never costs anything, so it never blocks the recovery path. Black sand is not bought. It has to be panned to release its gold.
 
@@ -511,7 +513,7 @@ For each piece of gear, answer:
 
 | Gear | Player verb | Visual loop | Meaningful choice |
 |---|---|---|---|
-| Gold pan | Slosh and tilt | Water surges toward the lip; light sand spills; black sand and flakes remain | Wash speed versus retaining potential value |
+| Gold pan | Shake and tilt | Each shake throws water toward the lip; light sand spills; black sand and flakes remain | Wash speed versus retaining potential value |
 | Classifier | Shake and sort | Oversize rocks bounce away; sized material falls through | Screen size versus speed and suitability |
 | Shovel and bucket | Dig and carry | Ground lowers; bucket fills; pay dirt moves to processing | Which patch or depth deserves time |
 | Sluice | Feed, tune, clean out | Water flows; gravel enters; tailings exit; moss gathers concentrate | Flow, slope, feed rate, cleanout timing |
@@ -531,16 +533,15 @@ The pan is the first tool the player touches and the last one they can lose. It 
 
 ### Core fantasy
 
-The player crouches at the water's edge with a pan of raw creek gravel. They shake it to let the heavy material sink, pick out the rocks, then tilt it and slosh it back and forth so the light sand washes over the lip. The pan's contents shrink down to a streak of black sand, and a last slow turn shows whether there is gold in it.
+The player crouches at the water's edge with a pan of raw creek gravel. They shake it level to break up the clay and let the heavy material sink, pick out the rocks, then tip it toward the lip and keep shaking so the light sand washes over. The pan's contents shrink down to a streak of black sand, and a last slow turn shows whether there is gold in it.
 
 ### Pan material flow
 
 ```text
 Shovel load of gravel
-→ submerge and break up clay
-→ shake to stratify (heavies sink)
+→ submerge, then shake level: clay breaks up, heavies sink (stratify)
 → rake off and inspect large rocks
-→ slosh and tilt; light material washes over the lip
+→ tip toward the lip and keep shaking; light material washes over (nothing washes until the clay is gone)
 → black-sand concentrate
 → final reveal
 → pick flakes and pickers into the vial; save black sand to the concentrate jar
@@ -551,29 +552,28 @@ Shovel load of gravel
 - **Water clarity:** Muddy water means clay or fines remain unbroken; clear water means the load is working.
 - **Material layering:** Pale sand on top, darker material settling toward the bottom and the riffles.
 - **Lip spill:** What is going over the edge. Pale sand is fine. A dark streak means black sand, and possibly gold, is being lost.
-- **Glints:** Brief flashes during sloshing that hint at gold but never confirm the amount.
+- **Glints:** Brief flashes while shaking that hint at gold but never confirm the amount.
 - **Pan fill:** The pile visibly shrinks from a full load to a thin concentrate.
 
 ### Operating states
 
 | State | Visual signal | Mechanical result | Player response |
 |---|---|---|---|
-| Timid | Water stays cloudy; material barely moves; little spills over the lip | Very slow; nothing is lost but little is done | Tilt more, slosh faster |
+| Timid | Water stays cloudy; material barely moves; little spills over the lip | Very slow; nothing is lost but little is done | Tip it further |
 | Balanced | Light sand sheets off the lip; dark layer stays put | Good speed with minimal loss | Continue |
 | Aggressive | Dark streaks go over the lip; the pan empties quickly | Fast, but fine gold and black sand are lost | Level the pan and re-stratify |
 
-Stratification matters: shaking the load resets the layering and makes it safe to work faster again. A skilled player alternates between shaking and sloshing. A careless player just sloshes harder.
+Shaking does both jobs. Held level, it breaks up the clay and settles the heavies; tipped, it washes. Washing churns the layers back together, and the steeper the tip, the more it churns. The skill is finding how far to tip: a moderate tip washes quickly and stays settled, while a steep one outruns the settling and sends gold over the lip.
 
 ### Key player controls
 
-- Tilt angle.
-- Slosh speed: drag back and forth toward and away from the lip. Each stroke toward the lip surges water and light sand over the edge.
-- Shake (stratify) action.
+- Shake: hold the pan, Space, or the Shake button.
+- Tilt: how far the pan is tipped toward the lip. Level to settle, tipped to wash.
 - When to stop and reveal.
 
 ### Interruptions
 
-- **Clay balls:** Clay can trap gold and roll it out of the pan. The player must break the clay up underwater.
+- **Clay:** Clay holds the gravel together, so nothing washes out until it is broken up. The player shakes the pan level until the water clears.
 - **Oversize rocks:** Large rocks need to be raked out, and each one inspected before it is thrown away. There is a small chance of a nugget stuck to one.
 - **Poor panning water:** Shallow or muddy water makes stratification slower and the pan harder to read. The player can move to a better spot on the bank.
 
@@ -586,6 +586,8 @@ Stratification matters: shaking the load resets the layering and makes it safe t
 5. Choose whether to save the black sand to the concentrate jar or dump it.
 
 The concentrate jar is the tailings layer at the smallest scale. Saved black sand still holds fine gold that can be re-panned later, and it becomes worth more once better finishing equipment is available.
+
+Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the safe tip is shallower than for gravel. The game warns when gold is going over the lip. A jar pan worked all the way down leaves only spent residue, which is tipped out rather than saved. A jar pan revealed early puts its unfinished black sand back, with any gold still hidden in it.
 
 ### Compact inspection panel
 

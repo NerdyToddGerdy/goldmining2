@@ -11,7 +11,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region'] as const;
 
@@ -45,6 +45,7 @@ export interface LoadedGame {
  * v1 → v2: money arrived; v1 players had none.
  * v2 → v3: the single creek became the Home Creek in a region of creeks and leads.
  * v3 → v4: sluice sites. Existing creeks and leads predate them, so they have none.
+ * v4 → v5: owned gear. Nobody owned a sluice before the outfitter opened.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -94,6 +95,9 @@ function migrate(data: unknown): unknown {
       },
     };
   }
+  if (save.version === 4 && isObject(save.session)) {
+    save = { ...save, version: 5, session: { ...save.session, sluice: null } };
+  }
   return save;
 }
 
@@ -133,6 +137,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (!isObject(session) || !Array.isArray(session.vial) || !isObject(session.jar)) return false;
   if (typeof session.jar.blackSand !== 'number' || !Array.isArray(session.jar.gold)) return false;
   if (typeof session.cash !== 'number' || typeof session.earned !== 'number' || typeof session.soldMg !== 'number') return false;
+  if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
   return true;

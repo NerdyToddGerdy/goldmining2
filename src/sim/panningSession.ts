@@ -1,6 +1,8 @@
 import { Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
-import type { Concentrate } from './sluice';
+import type { DigSpot } from './creek';
+import type { GearId } from './outfitter';
+import { Sluice, type Concentrate, type SluiceSnapshot } from './sluice';
 import type { Rng } from './rng';
 
 /** Black sand (pan-volume units) the concentrate jar holds. */
@@ -19,7 +21,17 @@ export interface SessionSnapshot {
   readonly cash: number;
   readonly earned: number;
   readonly soldMg: number;
+  /** Null until a sluice is bought. */
+  readonly sluice: { readonly placedAt: SluicePlace | null; readonly state: SluiceSnapshot | null } | null;
 }
+
+/** Where a sluice is set up. */
+export interface SluicePlace {
+  readonly creekId: number;
+  readonly spotId: number;
+}
+
+export type SetUpResult = 'set' | 'notOwned' | 'noSite';
 
 /**
  * The player's panning: the pan (empty until a shovelful goes in), the vial of recovered gold,
@@ -36,6 +48,8 @@ export class PanningSession {
   /** Lifetime dollars from gold sales, and milligrams sold. */
   earned = 0;
   soldMg = 0;
+  /** The sluice, once owned: packed (placedAt null) or set up and running at a sluice site. */
+  private sluiceGear: { placedAt: SluicePlace | null; sluice: Sluice | null } | null = null;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -51,6 +65,10 @@ export class PanningSession {
     this.earned = saved.earned;
     this.soldMg = saved.soldMg;
     this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
+    if (saved.sluice) {
+      const state = saved.sluice.state;
+      this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state) : null };
+    }
   }
 
   snapshot(): SessionSnapshot {
@@ -62,7 +80,60 @@ export class PanningSession {
       cash: this.cash,
       earned: this.earned,
       soldMg: this.soldMg,
+      sluice: this.sluiceGear
+        ? { placedAt: this.sluiceGear.placedAt, state: this.sluiceGear.sluice?.snapshot() ?? null }
+        : null,
     });
+  }
+
+  owns(id: GearId): boolean {
+    return id === 'sluice' && this.sluiceGear !== null;
+  }
+
+  /** Take possession of bought gear (the outfitter handles the money). */
+  acquire(id: GearId): void {
+    if (id === 'sluice' && !this.sluiceGear) this.sluiceGear = { placedAt: null, sluice: null };
+  }
+
+  /** Where the sluice is set up, if it is. */
+  get sluicePlace(): SluicePlace | null {
+    return this.sluiceGear?.placedAt ?? null;
+  }
+
+  /** The running sluice at a spot, if that's where it is set up. */
+  sluiceAt(creekId: number, spotId: number): Sluice | null {
+    const gear = this.sluiceGear;
+    return gear?.placedAt?.creekId === creekId && gear.placedAt.spotId === spotId ? gear.sluice : null;
+  }
+
+  /**
+   * Set the sluice up in the creek beside a spot. Only works at a sluice site. If it is set up
+   * somewhere else it is taken down first, which washes its moss into the jar.
+   */
+  setUpSluice(creekId: number, spot: DigSpot): SetUpResult {
+    const gear = this.sluiceGear;
+    if (!gear) return 'notOwned';
+    if (!spot.sluiceSite) return 'noSite';
+    if (gear.placedAt?.creekId === creekId && gear.placedAt.spotId === spot.id) return 'set';
+    this.takeDownSluice();
+    gear.placedAt = { creekId, spotId: spot.id };
+    gear.sluice = new Sluice(this.rng, spot.sluiceSite);
+    return 'set';
+  }
+
+  /**
+   * Take the sluice down and pack it. The moss is lifted and washed into the jar so nothing it
+   * caught is lost; gravel still in the header is tipped out, gold and all.
+   */
+  takeDownSluice(): Concentrate | null {
+    const gear = this.sluiceGear;
+    if (!gear?.sluice) return null;
+    gear.sluice.emptyHeader();
+    const concentrate = gear.sluice.liftMat();
+    this.addConcentrate(concentrate);
+    gear.placedAt = null;
+    gear.sluice = null;
+    return concentrate;
   }
 
   /** True when the pan can take a new shovelful: none yet, or the last one is finished. */

@@ -5,6 +5,7 @@ import {
   createRng,
   createSave,
   loadSave,
+  buyGear,
   totalMg,
   type Creek,
   type DigSpot,
@@ -64,6 +65,10 @@ async function start(): Promise<void> {
   let creek: Creek = loaded ? region.creek(loaded.place.creekId) : region.home;
   let mode: Mode = 'creek';
   let spot: DigSpot | null = loaded?.place.spotId != null ? creek.spot(loaded.place.spotId) : null;
+  /** Topsoil pans in a row; after a few, a one-time tip to dig past it. */
+  let topsoilPans = 0;
+  let toldAboutTopsoil = false;
+  let panLayer: string | null = null;
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
@@ -102,6 +107,7 @@ async function start(): Promise<void> {
     if (result.load) {
       session.startPan(result.load);
       panSpot = spot;
+      panLayer = result.from;
       startPanning();
     }
   };
@@ -114,6 +120,12 @@ async function start(): Promise<void> {
     panSpot = null;
     if (pan.kind !== 'gravel' || !from) return;
     creek.recordPan(from.id, totalMg(collected));
+    // Topsoil barely pays: after a few pans of it, say once where the gold actually is.
+    topsoilPans = panLayer === 'overburden' ? topsoilPans + 1 : 0;
+    if (topsoilPans >= 3 && !toldAboutTopsoil) {
+      toldAboutTopsoil = true;
+      hud.toast('Topsoil rarely pays. Toss it onto the spoil pile to dig down to the gravel: gold settles low, near bedrock.');
+    }
     // Colour up a source gully: follow it to where it comes from.
     if (from.gully && collected.length > 0) {
       const traced = region.traceGully(from);
@@ -193,6 +205,11 @@ async function start(): Promise<void> {
       else hud.toast("You can't afford that yet.");
     },
     followLead: (leadId) => hud.toast(describeFollow(region.follow(leadId))),
+    buyGear: (id) => {
+      const result = buyGear(session, id);
+      if (result === 'bought') hud.toast('A hand sluice, riffles and moss and all. It only sets up where a creek has steady water and a drop: look for a creek bend.');
+      else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
+    },
     sell: () => {
       if (mode !== 'town' || session.vial.length === 0) return;
       const sale = session.sellVial();
@@ -208,7 +225,7 @@ async function start(): Promise<void> {
       if (!session.canPanConcentrate || mode === 'creek') return;
       session.startConcentratePan();
       startPanning();
-      hud.toast('Black sand is heavy and holds fine gold. Settle it, then slosh gently: a light touch keeps the gold in the pan.');
+      hud.toast('Black sand is heavy and holds fine gold. Settle it, then shake with only a slight tip: a light touch keeps the gold in the pan.');
     },
     digSelected: () => {
       if (mode === 'creek' && creekMap.selected) pickSpot(creekMap.selected);
@@ -223,7 +240,6 @@ async function start(): Promise<void> {
 
   const input = new PanInput(
     app.canvas,
-    () => panView.panRadius,
     (x, y) => {
       const rockId = panView.rockAt(x, y);
       if (rockId === null) return;
@@ -261,7 +277,7 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap },
+      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, panView },
     });
   }
 
@@ -276,7 +292,6 @@ async function start(): Promise<void> {
       accumulator += dt;
       let darkSpilled = 0;
       let lightSpilled = 0;
-      let clayRolledOut = 0;
       let glints = 0;
       let goldLost = 0;
       while (accumulator >= SIM_DT) {
@@ -284,14 +299,13 @@ async function start(): Promise<void> {
         const e = pan.step(SIM_DT, controls);
         darkSpilled += e.darkSpilled;
         lightSpilled += e.lightSpilled;
-        clayRolledOut += e.clayRolledOut;
         glints += e.glints;
         goldLost += e.goldLost;
-        events = { ...e, darkSpilled, lightSpilled, clayRolledOut, glints, goldLost };
+        events = { ...e, darkSpilled, lightSpilled, glints, goldLost };
       }
-      coach.update(dt, pan, controls);
+      coach.update(dt, pan, controls, events);
       scene.update(dt);
-      panView.update(dt, session, controls, input.sloshOffset, events);
+      panView.update(dt, session, controls, events);
     } else if (mode === 'bank') {
       bankView.update(dt);
     } else if (mode === 'region') {

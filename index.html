@@ -54,7 +54,16 @@
       .hud-panel.collapsed { width: auto; }
       .hud-panel.collapsed h3 { margin: 0; }
       .hud-panel.collapsed h3::after { content: ' ▸'; }
-      .hud-panel.collapsed > :not(h3) { display: none; }
+      .hud-panel.collapsed > :not(h3):not(.tabs) { display: none; }
+      .hud-panel .tabs { display: flex; gap: 4px; margin: -2px 0 8px; border-bottom: 1px solid rgba(239, 230, 207, 0.2); }
+      .hud-panel.collapsed .tabs { margin-bottom: 0; border-bottom: none; }
+      .hud-panel .tabs button {
+        background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+        padding: 4px 8px 6px; min-height: 0; font: 600 15px Georgia, serif; color: rgba(239, 230, 207, 0.65);
+      }
+      .hud-panel .tabs button.active { color: #f3d77a; border-bottom-color: #f3d77a; }
+      .hud-panel .tab-body > .lead:first-child { border-top: none; padding-top: 2px; }
+      .hud-panel .tabs .count { font: 12px system-ui, sans-serif; margin-left: 5px; opacity: 0.75; }
       .hud-panel p { margin: 2px 0 6px; }
       .hud-panel .small { font-size: 12px; opacity: 0.75; }
       .hud-panel .lead { border-top: 1px solid rgba(239, 230, 207, 0.15); padding: 8px 0; }

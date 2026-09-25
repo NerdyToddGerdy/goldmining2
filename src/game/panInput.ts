@@ -1,36 +1,29 @@
 import type { PanControls } from '../sim';
-import { SloshTracker } from './sloshTracker';
 
 const TILT_KEY_RATE = 0.9;
 
 /**
  * Turns mouse, touch, and keyboard into pan controls.
- * Slosh: drag back and forth toward and away from the lip. Tilt: W/S, arrow keys, mouse wheel,
- * or the slider. Shake: hold Space or the shake button.
+ * Shake: hold the pan (mouse or finger), Space, or the Shake button. Tilt: W/S, arrow keys, mouse
+ * wheel, or the slider. A quick tap on a rock rakes it out instead.
  */
 export class PanInput {
   tilt = 0;
-  slosh = 0;
-  /** Where the water is being pushed: -1 away from the lip, +1 toward it. For drawing the surge. */
-  sloshOffset = 0;
   shakeHeld = false;
   /** Only the pan screen listens; other screens handle their own pointer input. */
   enabled = false;
 
-  private readonly tracker = new SloshTracker();
-  /** The finger or mouse doing the sloshing; a second finger on the slider or Shake is ignored here. */
+  /** The finger or mouse holding the pan; a second finger on the slider or Shake is ignored here. */
   private pointerId: number | null = null;
   private downAt: { x: number; y: number } | null = null;
   private readonly keys = new Set<string>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly panRadius: () => number,
     private readonly onTap: (x: number, y: number) => void,
   ) {
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', this.handleDown);
-    window.addEventListener('pointermove', this.handleMove);
     window.addEventListener('pointerup', this.handleUp);
     window.addEventListener('pointercancel', this.handleUp);
     canvas.addEventListener('wheel', this.handleWheel, { passive: false });
@@ -39,31 +32,23 @@ export class PanInput {
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.shakeHeld = false;
+      this.pointerId = null;
     });
   }
 
-  /** Advance smoothing and return this frame's controls. */
+  /** Advance key-driven tilt and return this frame's controls. */
   sample(dt: number): PanControls {
     if (this.keys.has('w') || this.keys.has('arrowup')) this.tilt += TILT_KEY_RATE * dt;
     if (this.keys.has('s') || this.keys.has('arrowdown')) this.tilt -= TILT_KEY_RATE * dt;
     this.tilt = clamp01(this.tilt);
-
-    const { slosh, offset } = this.tracker.sample(dt, this.panRadius());
-    this.slosh = slosh;
-    this.sloshOffset = offset;
-    return { tilt: this.tilt, slosh, shake: this.shakeHeld || this.keys.has(' ') ? 1 : 0 };
+    const shaking = this.shakeHeld || this.keys.has(' ') || this.pointerId !== null;
+    return { tilt: this.tilt, shake: shaking ? 1 : 0 };
   }
 
   private readonly handleDown = (e: PointerEvent): void => {
     if (!this.enabled || this.pointerId !== null) return;
     this.pointerId = e.pointerId;
     this.downAt = { x: e.clientX, y: e.clientY };
-    this.tracker.start(e.clientX);
-  };
-
-  private readonly handleMove = (e: PointerEvent): void => {
-    if (e.pointerId !== this.pointerId) return;
-    this.tracker.move(e.clientX, this.panRadius());
   };
 
   private readonly handleUp = (e: PointerEvent): void => {
@@ -74,7 +59,6 @@ export class PanInput {
     }
     this.pointerId = null;
     this.downAt = null;
-    this.tracker.end();
   };
 
   private readonly handleWheel = (e: WheelEvent): void => {

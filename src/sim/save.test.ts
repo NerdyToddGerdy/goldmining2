@@ -20,7 +20,7 @@ function playedGame() {
     const result = creek.shovel(spot.id, i % 3 === 0 ? 'pan' : 'spoil');
     if (result.ok && result.load && session.panIsFree) {
       const pan = session.startPan(result.load);
-      for (let t = 0; t < 20; t += DT) pan.step(DT, { tilt: 0.4, slosh: 0.6, shake: 0 });
+      for (let t = 0; t < 20; t += DT) pan.step(DT, { tilt: 0.4, shake: 1 });
       pan.reveal();
       session.collect(true);
     }
@@ -28,7 +28,7 @@ function playedGame() {
   region.restockOffers(session.pansWorked);
   region.clueFound();
   const pan = session.startPan({ richness: 5, clayiness: 0.3, rockiness: 0.5 });
-  for (let t = 0; t < 3; t += DT) pan.step(DT, { tilt: 0.3, slosh: 0.5, shake: 0 });
+  for (let t = 0; t < 3; t += DT) pan.step(DT, { tilt: 0.3, shake: 1 });
   return { region, session, creekId: creek.id, spotId: spot.id };
 }
 
@@ -53,7 +53,7 @@ describe('save and load', () => {
     const loaded = loadSave(throughJson(createSave(region, session, place('pan', creekId, spotId), 0)), createRng(5))!;
     const pan = loaded.session.pan!;
     const before = totalMg(pan.gold);
-    for (let t = 0; t < 60 && !pan.workedDown; t += DT) pan.step(DT, { tilt: 0.4, slosh: 0.6, shake: 0 });
+    for (let t = 0; t < 60 && !pan.workedDown; t += DT) pan.step(DT, { tilt: 0.4, shake: 1 });
     pan.reveal();
     loaded.session.collect(true);
     expect(totalMg(pan.visible) + totalMg(pan.hidden) + totalMg(pan.lost)).toBeCloseTo(before);

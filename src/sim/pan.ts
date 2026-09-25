@@ -4,9 +4,11 @@ import type { Rng } from './rng';
  * Gold pan simulation (see "Pan UX Specification" in the design doc).
  *
  * The pan holds a load of creek gravel: light sand, black sand, unbroken clay, oversize rocks,
- * and discrete gold pieces. The player controls tilt, slosh, and shake. Washing removes light
+ * and discrete gold pieces. The player shakes the pan and chooses how far to tip it. Held level,
+ * shaking breaks up clay and settles the heavies to the bottom (stratifies). Once the clay is gone,
+ * shaking with the pan tipped washes light material over the lip. Washing removes light
  * sand over the lip; washing harder than the current stratification can hold also loses black
- * sand and gold. Shaking re-stratifies (heavies sink) and breaks clay; sloshing slowly mixes the
+ * sand and gold. Washing slowly churns the
  * layers again. Gold stays hidden until the player chooses to stop and reveal.
  */
 
@@ -27,9 +29,7 @@ export interface Rock {
 export interface PanControls {
   /** 0 = level, 1 = tipped hard toward the lip. */
   readonly tilt: number;
-  /** 0 = still, 1 = fastest slosh. */
-  readonly slosh: number;
-  /** 0 = none, 1 = full side-to-side shake. */
+  /** 0 = none, 1 = full shake. Level, it settles the pan; tipped (and with the clay gone), it washes. */
   readonly shake: number;
 }
 
@@ -55,7 +55,6 @@ export interface PanStepEvents {
   readonly lightSpilled: number;
   /** Black sand washed over the lip this step. The dark streak that signals loss. */
   readonly darkSpilled: number;
-  readonly clayRolledOut: number;
   readonly glints: number;
   /** Gold pieces washed out this step. */
   readonly goldLost: number;
@@ -92,11 +91,8 @@ export const PAN_TUNING = {
   shakeClayBreakRate: 0.8,
   /** Below this, the last of the clay counts as broken up: otherwise it would only ever halve. */
   clayGone: 0.004,
-  sloshMixRate: 0.08,
-  /** Clay balls roll out in proportion to wash squared: gentle water barely moves them. */
-  clayRollRate: 0.8,
-  /** Share of the gold in a clay ball's share of the pan that leaves with it. */
-  clayGoldCarry: 0.5,
+  /** How fast washing churns the settled layers back together. */
+  washMixRate: 0.08,
   /** Fraction of blocked wash per rock left in the pan. */
   rockBlock: 0.08,
   maxRockBlock: 0.6,
@@ -111,7 +107,7 @@ export const PAN_TUNING = {
   /** Concentrate is heavy: it washes off slowly... */
   concentrateWashScale: 0.45,
   /** ...and tolerates much less wash before gold goes with it. */
-  concentrateSafeScale: 0.55,
+  concentrateSafeScale: 0.7,
   /** Share of poured concentrate that is the finest, heaviest sand, left when worked down. */
   concentrateResidue: 0.15,
 } as const;
@@ -232,6 +228,14 @@ export class Pan {
     return pan;
   }
 
+  /**
+   * A concentrate pan worked all the way down leaves only the finest residue, visibly spent:
+   * it is tipped out rather than saved, so the jar doesn't fill with sand that holds nothing.
+   */
+  get residueSpent(): boolean {
+    return this.kind === 'concentrate' && this.workedDown;
+  }
+
   get workedDown(): boolean {
     return this.lightSand <= this.initialLightSand * PAN_TUNING.workedDownFraction;
   }
@@ -244,7 +248,9 @@ export class Pan {
 
   effectiveWash(controls: PanControls): number {
     const block = Math.min(PAN_TUNING.maxRockBlock, this.rocks.length * PAN_TUNING.rockBlock);
-    return clamp01(controls.slosh) * clamp01(controls.tilt) * (1 - block);
+    // Clay holds everything together: nothing washes out until the shaking has broken it all up.
+    if (this.clay > 0) return 0;
+    return clamp01(controls.shake) * clamp01(controls.tilt) * (1 - block);
   }
 
   classify(wash: number): PanState {
@@ -256,24 +262,24 @@ export class Pan {
   step(dt: number, controls: PanControls): PanStepEvents {
     const T = PAN_TUNING;
     if (this.phase !== 'working') {
-      return { state: 'timid', lightSpilled: 0, darkSpilled: 0, clayRolledOut: 0, glints: 0, goldLost: 0 };
+      return { state: 'timid', lightSpilled: 0, darkSpilled: 0, glints: 0, goldLost: 0 };
     }
     this.elapsed += dt;
     const tilt = clamp01(controls.tilt);
-    const slosh = clamp01(controls.slosh);
+    const shake = clamp01(controls.shake);
     const wash = this.effectiveWash(controls);
     const state = this.classify(wash);
 
-    // Shaking works best with the pan held level.
-    const shake = clamp01(controls.shake) * (1 - tilt);
     if (shake > 0) {
-      this.stratification += shake * T.shakeStratRate * dt * (1 - this.stratification);
+      // Any shaking breaks up clay. Settling works best with the pan held level.
       let broken = Math.min(this.clay, this.clay * shake * T.shakeClayBreakRate * dt);
       if (this.clay - broken < T.clayGone) broken = this.clay;
       this.clay -= broken;
       this.turbidity += broken * 4;
+      this.stratification += shake * (1 - tilt) * T.shakeStratRate * dt * (1 - this.stratification);
     }
-    this.stratification -= slosh * T.sloshMixRate * dt * this.stratification;
+    // Water rushing over the lip churns the layers back together.
+    this.stratification -= wash * T.washMixRate * dt * this.stratification;
 
     this.turbidity = Math.max(0, this.turbidity - this.turbidity * (T.turbidityDecay + wash) * dt);
     const murk = 1 - Math.min(0.5, this.turbidity * 0.5);
@@ -293,25 +299,15 @@ export class Pan {
     const darkSpilled = this.blackSand * Math.min(1, heavyLossRate * dt);
     this.blackSand -= darkSpilled;
     this.lostBlackSand += darkSpilled;
-    let goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
-
-    // Unbroken clay rolls out when sloshed, carrying trapped gold with it.
-    let clayRolledOut = 0;
-    if (this.clay > 0 && wash > 0) {
-      clayRolledOut = Math.min(this.clay, this.clay * wash * wash * T.clayRollRate * dt);
-      const share = clayRolledOut / (this.clay + this.lightSand + this.blackSand);
-      this.clay -= clayRolledOut;
-      if (this.clay < T.clayGone) this.clay = 0;
-      goldLost += this.loseGold(() => share * T.clayGoldCarry);
-    }
+    const goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
 
     // Glints hint at gold as the light layer thins; they never say how much.
     const visibility = 1 - Math.min(1, this.lightSand / 0.35);
     const goldPresence = this.gold.reduce((sum, p) => sum + (p.size === 'fine' ? 0.2 : p.size === 'flake' ? 1 : 3), 0);
-    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * slosh * T.glintRate * dt;
+    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * shake * T.glintRate * dt;
     const glints = this.rng.next() < glintChance ? 1 : 0;
 
-    return { state, lightSpilled, darkSpilled, clayRolledOut, glints, goldLost };
+    return { state, lightSpilled, darkSpilled, glints, goldLost };
   }
 
   /** Rake out and inspect one oversize rock. Returns a picker if one was stuck to it. */
@@ -344,7 +340,7 @@ export class Pan {
     if (this.phase !== 'revealed') return { collected: [], toJar: [], blackSand: 0 };
     this.phase = 'emptied';
     const collected = this.visible;
-    if (saveBlackSand) return { collected, toJar: this.hidden, blackSand: this.blackSand };
+    if (saveBlackSand && !this.residueSpent) return { collected, toJar: this.hidden, blackSand: this.blackSand };
     this.lost.push(...this.hidden);
     this.lostBlackSand += this.blackSand;
     return { collected, toJar: [], blackSand: 0 };

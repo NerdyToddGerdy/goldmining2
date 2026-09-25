@@ -6,8 +6,12 @@ import type { GoldPiece, GoldSize } from './pan';
  * speck. Pickers sell as specimens, at a premium over their weight.
  */
 export const MARKET = {
-  /** Dollars per milligram of placer gold at spot (about $120 a gram). */
-  spotPerMg: 0.12,
+  /**
+   * Dollars per milligram of placer gold at spot ($500 a gram). A game price, set so careful
+   * panning through a Home Creek spot averages about $1.70 a pan and the $40 sluice takes
+   * roughly 25 good pans.
+   */
+  spotPerMg: 0.5,
   /** Share of spot the buyer pays, by lot weight (mg of by-weight gold). */
   tiers: [
     { fromMg: 0, rate: 0.7 },

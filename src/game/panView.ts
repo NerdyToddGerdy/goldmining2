@@ -75,6 +75,8 @@ export class PanView extends Container {
   private ry = 48;
   private time = 0;
   private shakeOffset = 0;
+  /** Phase of the shake: the pan rocks toward and away from the lip a few times a second. */
+  private shakePhase = 0;
 
   private pan: Pan | null = null;
   private light: Grain[] = [];
@@ -88,7 +90,7 @@ export class PanView extends Container {
   private glints: Glint[] = [];
   private revealed: RevealedPiece[] = [];
   private darkSpillCarry = 0;
-  /** How far the slosh is pushing the water: -1 away from the lip, +1 toward it. */
+  /** How far each shake throws the water: -1 away from the lip, +1 toward it. */
   private surge = 0;
   /** Material the sim has washed out, held back until a stroke toward the lip carries it over. */
   private pendingSpill: { color: number; size: number }[] = [];
@@ -99,10 +101,6 @@ export class PanView extends Container {
     super();
     this.body.addChild(this.contents);
     this.addChild(this.body, this.spray, this.vialGraphics, this.vialLabel);
-  }
-
-  get panRadius(): number {
-    return this.radius;
   }
 
   layout(width: number, height: number, centerX: number, centerY: number): void {
@@ -147,18 +145,21 @@ export class PanView extends Container {
     return null;
   }
 
-  update(dt: number, session: PanningSession, controls: PanControls, sloshOffset: number, events: PanStepEvents | null): void {
+  update(dt: number, session: PanningSession, controls: PanControls, events: PanStepEvents | null): void {
     const pan = session.pan;
     if (!pan) return;
     if (pan !== this.pan) this.setPan(pan);
     this.time += dt;
 
     // Tip the whole pan toward the lip (right side), and jitter it while shaking.
-    this.shakeOffset = controls.shake > 0 && pan.phase === 'working' ? Math.sin(this.time * 45) * 6 : this.shakeOffset * 0.8;
+    // Shaking rocks the pan toward and away from the lip; tipped, each rock throws water over it.
+    const shaking = controls.shake > 0 && pan.phase === 'working';
+    if (shaking) this.shakePhase += dt * Math.PI * 2 * 3;
+    this.shakeOffset = shaking ? Math.sin(this.shakePhase) * 7 : this.shakeOffset * 0.8;
     this.body.rotation = controls.tilt * 0.22;
     this.body.pivot.x = -this.shakeOffset;
 
-    this.surge = pan.phase === 'working' ? sloshOffset : 0;
+    this.surge = shaking ? Math.max(-1, Math.min(1, Math.sin(this.shakePhase) * (0.4 + controls.tilt))) : this.surge * 0.8;
     if (pan.phase === 'working') this.animateWorking(dt, pan, controls, events);
     else if (pan.phase === 'revealed' && this.revealed.length === 0) this.fanOut(pan);
     this.releaseSpill(pan.phase !== 'working');
@@ -169,8 +170,8 @@ export class PanView extends Container {
   }
 
   private animateWorking(dt: number, pan: Pan, controls: PanControls, events: PanStepEvents | null): void {
-    // Sloshing and shaking both jostle the loose sand; the surge itself is drawn as a shift toward the lip.
-    const jostle = Math.max(controls.shake, controls.slosh * 0.5) * 0.02;
+    // Shaking jostles the loose sand; the surge itself is drawn as a shift toward the lip.
+    const jostle = controls.shake * 0.02;
     if (jostle > 0) {
       for (const g of this.light) {
         g.r = Math.min(0.92, Math.max(0.05, g.r + (Math.random() - 0.5) * jostle));
@@ -195,17 +196,14 @@ export class PanView extends Container {
     // halves what's shown, and rounding up keeps one blob forever.
     const clayTarget = Math.ceil((pan.clay / this.initialClay) * this.initialClayBlobs);
     while (this.clayBlobs.length > clayTarget && pan.clay < this.initialClay) {
-      const blob = this.removeNearestLip(this.clayBlobs, controls.tilt);
-      if (blob) {
-        // Broken clay clouds the water; rolled-out clay leaves over the lip.
-        if (events && events.clayRolledOut > 0) this.spill(blob);
-      }
+      // Clay that breaks up just clouds the water (drawn as murk), so the blob simply goes.
+      this.removeNearestLip(this.clayBlobs, controls.tilt);
     }
     for (const id of [...this.rockGrains.keys()]) if (!pan.rocks.some((r) => r.id === id)) this.rockGrains.delete(id);
 
     if (events?.state === 'aggressive') {
       // Whitewater only breaks over the lip on a stroke toward it.
-      const wash = controls.slosh * controls.tilt;
+      const wash = controls.shake * controls.tilt;
       if (this.surge > 0.2) for (let i = 0; i < Math.ceil(wash * 4); i++) this.spillAtLip(COLORS.spray, 1.5, true);
     }
     // Gold going over the lip flashes as it goes: the clearest sign of washing too hard.
@@ -240,7 +238,7 @@ export class PanView extends Container {
     g.ellipse(0, 0, R, R * 0.62).fill(COLORS.panBody).stroke({ width: R * 0.06, color: COLORS.panRim });
     g.ellipse(0, 0, this.rx, this.ry).fill(COLORS.panFloor);
 
-    // Tilt pools material toward the lip; each slosh stroke surges the loose light sand most,
+    // Tilt pools material toward the lip; each shake surges the loose light sand most,
     // settled heavies less, and rocks and clay hardly at all.
     const working = pan.phase === 'working';
     const lightShift = working ? controls.tilt * 0.28 + this.surge * 0.25 : 0;
