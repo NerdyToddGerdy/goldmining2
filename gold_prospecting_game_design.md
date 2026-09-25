@@ -567,7 +567,7 @@ Shaking does both jobs. Held level, it breaks up the clay and settles the heavie
 
 ### Key player controls
 
-- Shake: hold the pan, Space, or the Shake button.
+- Sift (shake the pan): hold the pan, Space, or the Sift button. Once the sand left reads 0% there is nothing more to sift, so sifting stops, and nothing more can wash out. After the reveal, Sift and Tilt go away until the next pan.
 - Tilt: how far the pan is tipped toward the lip. Level to settle, tipped to wash.
 - When to stop and reveal.
 

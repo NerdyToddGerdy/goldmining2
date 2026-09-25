@@ -78,7 +78,7 @@ const HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan to fill it, or to the spoil pile to toss it aside. Click a boulder to pry it loose; click a flooded hole to bail it.',
   town: 'The buyer weighs your gold and pays spot less a cut. Bigger lots get a better rate; pickers sell as specimens.',
   region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
-  pan: 'Hold Space or the pan to shake · shake level until the water clears, then tip with W/S or the wheel to wash · click rocks to rake them out',
+  pan: 'Hold Space or the pan to sift · sift level until the water clears, then tip with W/S or the wheel to wash · click rocks to rake them out',
   sluice: 'Set the intake with the Water slider · feed it from the hole · click the header to rake a clog · clean out before the moss fills',
 };
 
@@ -88,7 +88,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   bank: 'Drag from the hole to the pan, or to the spoil pile. Tap a boulder to pry it; tap a flooded hole to bail.',
   town: 'The buyer pays spot less a cut. Bigger lots get a better rate.',
   region: 'Tap a place to walk there. Follow leads from your notebook.',
-  pan: 'Hold the pan or Shake · shake level until the water clears, then tip with the slider to wash · tap rocks to rake them out',
+  pan: 'Hold the pan or Sift · sift level until the water clears, then tip with the slider to wash · tap rocks to rake them out',
   sluice: 'Water slider sets the intake · tap the header to rake a clog · clean out before the moss fills',
 };
 
@@ -104,13 +104,14 @@ const LAYER_NAMES = { overburden: 'topsoil', gravel: 'gravel', payStreak: 'pay s
 
 /**
  * DOM controls around the canvas. Buttons and hints change with the mode; the tilt slider and
- * shake button (for touch) only show while panning. The inspection panel is off by default.
+ * Sift button (for touch) only show while panning. The inspection panel is off by default.
  */
 export class Hud {
   private readonly root: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly panControls: HTMLElement;
   private readonly tilt: HTMLInputElement;
+  private readonly sift: HTMLButtonElement;
   private readonly water: HTMLElement;
   private readonly waterInput: HTMLInputElement;
   private readonly actions: HTMLElement;
@@ -143,7 +144,7 @@ export class Hud {
       <div class="hud-bar">
         <span class="hud-pan-controls">
           <label class="hud-tilt">Tilt <input type="range" min="0" max="1" step="0.01" value="0" /></label>
-          <button type="button" class="hud-shake">Shake</button>
+          <button type="button" class="hud-shake">Sift</button>
         </span>
         <label class="hud-tilt hud-water" hidden>Water <input type="range" min="0" max="1" step="0.01" value="0.6" /></label>
         <span class="hud-actions"></span>
@@ -188,7 +189,8 @@ export class Hud {
     });
 
     this.tilt.addEventListener('input', () => on.setTilt(Number(this.tilt.value)));
-    const shake = this.root.querySelector('.hud-shake') as HTMLElement;
+    const shake = this.root.querySelector('.hud-shake') as HTMLButtonElement;
+    this.sift = shake;
     shake.addEventListener('pointerdown', () => on.setShake(true));
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
     (this.root.querySelector('.hud-inspect-toggle') as HTMLElement).addEventListener('click', () => this.toggleInspect());
@@ -218,10 +220,15 @@ export class Hud {
     if (this.hint.textContent !== hint) this.hint.textContent = hint;
     const cash = `$${session.cash.toFixed(2)}`;
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
-    this.panControls.hidden = mode !== 'pan';
+    // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
+    this.panControls.hidden = mode !== 'pan' || pan?.phase !== 'working';
     this.water.hidden = !(state.sluice && (mode === 'bank' || mode === 'sluice'));
     if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(state.sluiceFlow);
     if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
+    // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
+    const siftedOut = pan?.phase === 'working' && pan.siftedOut;
+    if (siftedOut && !this.sift.disabled) this.on.setShake(false);
+    this.sift.disabled = siftedOut;
 
     const buttons = this.buttonsFor(state).map(([label, action]): [string, () => void] => [forInput(label), action]);
     const key = buttons.map(([label]) => label).join('|');
@@ -522,7 +529,7 @@ function button(label: string, onClick: () => void): HTMLElement {
   (b as HTMLButtonElement).type = 'button';
   b.textContent = label;
   b.addEventListener('click', () => {
-    // Drop focus so Space (shake) cannot re-trigger the button.
+    // Drop focus so Space (sift) cannot re-trigger the button.
     b.blur();
     onClick();
   });

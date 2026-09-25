@@ -4,7 +4,7 @@ const TILT_KEY_RATE = 0.9;
 
 /**
  * Turns mouse, touch, and keyboard into pan controls.
- * Shake: hold the pan (mouse or finger), Space, or the Shake button. Tilt: W/S, arrow keys, mouse
+ * Sift (shake): hold the pan (mouse or finger), Space, or the Sift button. Tilt: W/S, arrow keys, mouse
  * wheel, or the slider. A quick tap on a rock rakes it out instead.
  */
 export class PanInput {
@@ -13,7 +13,7 @@ export class PanInput {
   /** Only the pan screen listens; other screens handle their own pointer input. */
   enabled = false;
 
-  /** The finger or mouse holding the pan; a second finger on the slider or Shake is ignored here. */
+  /** The finger or mouse holding the pan; a second finger on the slider or Sift is ignored here. */
   private pointerId: number | null = null;
   private downAt: { x: number; y: number } | null = null;
   private readonly keys = new Set<string>();

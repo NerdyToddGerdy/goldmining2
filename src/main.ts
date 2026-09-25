@@ -101,6 +101,7 @@ async function start(): Promise<void> {
   /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
   const startPanning = (): void => {
     input.tilt = 0;
+    input.shakeHeld = false;
     setMode('pan');
   };
 
@@ -314,7 +315,7 @@ async function start(): Promise<void> {
       if (!session.canPanConcentrate || mode === 'creek') return;
       session.startConcentratePan();
       startPanning();
-      hud.toast('Black sand is heavy and holds fine gold. Settle it, then shake with only a slight tip: a light touch keeps the gold in the pan.');
+      hud.toast('Black sand is heavy and holds fine gold. Settle it, then sift with only a slight tip: a light touch keeps the gold in the pan.');
     },
     digSelected: () => {
       if (mode === 'creek' && creekMap.selected) pickSpot(creekMap.selected);

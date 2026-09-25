@@ -100,6 +100,8 @@ export const PAN_TUNING = {
   glintRate: 0.8,
   /** Worked down once this fraction of the starting light material is left. */
   workedDownFraction: 0.04,
+  /** Sifted out: the sand left rounds to 0%. Nothing more can wash out, so sifting stops. */
+  siftedOutFraction: 0.005,
   mobility: { fine: 1.6, flake: 0.8, picker: 0.15 } as Record<GoldSize, number>,
   /** How easily remaining light sand hides a piece at reveal. */
   hideFactor: { fine: 1, flake: 0.5, picker: 0.1 } as Record<GoldSize, number>,
@@ -232,6 +234,11 @@ export class Pan {
    * A concentrate pan worked all the way down leaves only the finest residue, visibly spent:
    * it is tipped out rather than saved, so the jar doesn't fill with sand that holds nothing.
    */
+  /** All the sand is gone (it reads 0%): sifting does nothing more, so the pan can't be overworked past here. */
+  get siftedOut(): boolean {
+    return this.lightSand <= this.initialLightSand * PAN_TUNING.siftedOutFraction;
+  }
+
   get residueSpent(): boolean {
     return this.kind === 'concentrate' && this.workedDown;
   }
@@ -249,7 +256,7 @@ export class Pan {
   effectiveWash(controls: PanControls): number {
     const block = Math.min(PAN_TUNING.maxRockBlock, this.rocks.length * PAN_TUNING.rockBlock);
     // Clay holds everything together: nothing washes out until the shaking has broken it all up.
-    if (this.clay > 0) return 0;
+    if (this.clay > 0 || this.siftedOut) return 0;
     return clamp01(controls.shake) * clamp01(controls.tilt) * (1 - block);
   }
 
@@ -266,7 +273,8 @@ export class Pan {
     }
     this.elapsed += dt;
     const tilt = clamp01(controls.tilt);
-    const shake = clamp01(controls.shake);
+    // Once sifted out there is nothing left to sift: the control has no effect.
+    const shake = this.siftedOut ? 0 : clamp01(controls.shake);
     const wash = this.effectiveWash(controls);
     const state = this.classify(wash);
 

@@ -50,16 +50,16 @@ export class PanCoach {
       this.recentGoldLost = 0;
       this.nudge(
         pan.kind === 'concentrate'
-          ? 'Gold is going over the lip. Black sand is heavy: tip the pan only slightly, and shake level now and then to settle it.'
-          : 'Gold is going over the lip. Tip the pan less, or shake it level for a moment to settle it.',
+          ? 'Gold is going over the lip. Black sand is heavy: tip the pan only slightly, and sift level now and then to settle it.'
+          : 'Gold is going over the lip. Tip the pan less, or sift it level for a moment to settle it.',
       );
     } else if (!this.toldAboutClay && this.tippedWithClay > 2) {
       this.toldAboutClay = true;
-      this.nudge('Nothing washes out while there is clay holding the gravel together. Keep shaking until the water clears.');
+      this.nudge('Nothing washes out while there is clay holding the gravel together. Keep sifting until the water clears.');
     } else if (!this.hasWashed && this.levelShaking > 3) {
-      this.nudge(`The water's clear. Tip the pan toward the lip with ${tip} while you shake, and the light sand will wash over.`);
+      this.nudge(`The water's clear. Tip the pan toward the lip with ${tip} while you sift, and the light sand will wash over.`);
     } else if (!this.hasShaken && this.tippedStill > 3) {
-      this.nudge(usingTouch() ? 'Hold the pan, or the Shake button, to shake it.' : 'Hold Space, or hold the pan with the mouse, to shake it.');
+      this.nudge(usingTouch() ? 'Hold the pan, or the Sift button, to sift it.' : 'Hold Space, or hold the pan with the mouse, to sift it.');
     }
   }
 

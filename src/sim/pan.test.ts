@@ -100,6 +100,20 @@ describe('Pan', () => {
     expect(pan.lightSand).toBeLessThan(sand);
   });
 
+  it('stops sifting once the sand reads 0%: nothing more washes out or is lost', () => {
+    const pan = new Pan(createRng(15), { ...SPOT, clayiness: 0, rockiness: 0 });
+    for (let t = 0; t < 300 && !pan.siftedOut; t += DT) pan.step(DT, skilled(pan));
+    expect(pan.siftedOut).toBe(true);
+    expect(Math.round((pan.lightSand / pan.initialLightSand) * 100)).toBe(0);
+    const gold = pan.gold.length;
+    const black = pan.blackSand;
+    const strat = pan.stratification;
+    for (let i = 0; i < 300; i++) pan.step(DT, { tilt: 1, shake: 1 });
+    expect(pan.gold.length).toBe(gold);
+    expect(pan.blackSand).toBe(black);
+    expect(pan.stratification).toBe(strat);
+  });
+
   it('washes nothing without shaking, however far it is tipped', () => {
     const pan = new Pan(createRng(14), { ...SPOT, clayiness: 0, rockiness: 0 });
     const sand = pan.lightSand;
