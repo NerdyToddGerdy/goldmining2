@@ -1,4 +1,5 @@
-import { Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
+import { Classifier, type ClassifierSnapshot } from './classifier';
+import { PAN_VOLUME, Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
 import type { DigSpot } from './creek';
 import type { GearId } from './outfitter';
@@ -26,8 +27,10 @@ export interface SessionSnapshot {
   readonly cash: number;
   readonly earned: number;
   readonly soldMg: number;
-  /** Gear owned other than the sluice (which has its own state below). */
+  /** Gear owned other than the sluice and classifier (which have their own state). */
   readonly gear: readonly GearId[];
+  /** Null until a classifier is bought. */
+  readonly classifier: ClassifierSnapshot | null;
   /** Null until a sluice is bought. */
   readonly sluice: { readonly placedAt: SluicePlace | null; readonly state: SluiceSnapshot | null } | null;
 }
@@ -59,6 +62,8 @@ export class PanningSession {
   private sluiceGear: { placedAt: SluicePlace | null; sluice: Sluice | null } | null = null;
   /** Simple owned gear, such as the big jar. */
   private readonly gear = new Set<GearId>();
+  /** The hand classifier, once bought: its screen, what's on it, and its bucket travel with the player. */
+  classifier: Classifier | null = null;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -75,6 +80,7 @@ export class PanningSession {
     this.soldMg = saved.soldMg;
     this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
     for (const id of saved.gear) this.gear.add(id);
+    if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.sluice) {
       const state = saved.sluice.state;
       this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state) : null };
@@ -91,6 +97,7 @@ export class PanningSession {
       earned: this.earned,
       soldMg: this.soldMg,
       gear: [...this.gear],
+      classifier: this.classifier?.snapshot() ?? null,
       sluice: this.sluiceGear
         ? { placedAt: this.sluiceGear.placedAt, state: this.sluiceGear.sluice?.snapshot() ?? null }
         : null,
@@ -98,13 +105,17 @@ export class PanningSession {
   }
 
   owns(id: GearId): boolean {
-    return id === 'sluice' ? this.sluiceGear !== null : this.gear.has(id);
+    if (id === 'sluice') return this.sluiceGear !== null;
+    if (id === 'classifier') return this.classifier !== null;
+    return this.gear.has(id);
   }
 
   /** Take possession of bought gear (the outfitter handles the money). */
   acquire(id: GearId): void {
     if (id === 'sluice') {
       if (!this.sluiceGear) this.sluiceGear = { placedAt: null, sluice: null };
+    } else if (id === 'classifier') {
+      if (!this.classifier) this.classifier = new Classifier(this.rng);
     } else {
       this.gear.add(id);
     }
@@ -183,6 +194,15 @@ export class PanningSession {
   startPan(load: PanLoad): Pan {
     if (!this.panIsFree) throw new Error('The pan is still in use');
     this.pan = new Pan(this.rng, load);
+    return this.pan;
+  }
+
+  /** Pan a pan-sized share of the classifier's bucket. */
+  startScreenedPan(): Pan | null {
+    if (!this.panIsFree || !this.classifier) return null;
+    const material = this.classifier.pour(PAN_VOLUME);
+    if (!material) return null;
+    this.pan = Pan.fromScreened(this.rng, material);
     return this.pan;
   }
 

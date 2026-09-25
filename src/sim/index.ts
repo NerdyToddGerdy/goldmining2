@@ -10,3 +10,4 @@ export * from './market';
 export * from './region';
 export * from './sluice';
 export * from './outfitter';
+export * from './classifier';

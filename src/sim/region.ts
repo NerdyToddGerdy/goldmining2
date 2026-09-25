@@ -131,6 +131,14 @@ export class Region {
     return this.creeks[0]!;
   }
 
+  /**
+   * Whether hand gear beyond the shovel and pan (the classifier) can be used at a creek. Every
+   * found stretch has room; the Home Creek is a micro-site and stays shovel-and-pan only, forever.
+   */
+  allowsHandGear(creek: Creek): boolean {
+    return creek !== this.home;
+  }
+
   creek(id: number): Creek {
     const creek = this.creeks.find((c) => c.id === id);
     if (!creek) throw new Error(`No creek ${id}`);

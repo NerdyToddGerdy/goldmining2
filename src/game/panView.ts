@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
+import { PAN_VOLUME, type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
 
 /**
  * Draws the pan and everything in it. The pan's condition is communicated physically:
@@ -69,6 +69,10 @@ export class PanView extends Container {
   private readonly spray = new Graphics();
   private readonly vialGraphics = new Graphics();
   private readonly vialLabel = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 14, fontFamily: 'Georgia, serif' } });
+  /** Under the concentrate jar: how full it is. */
+  private readonly jarLabel = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif', align: 'center' } });
+  /** Under the classifier's bucket, when there is one here: how many pans are left in it. */
+  private readonly bucketLabel = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif', align: 'center' } });
 
   private radius = 100;
   private rx = 78;
@@ -100,7 +104,9 @@ export class PanView extends Container {
   constructor() {
     super();
     this.body.addChild(this.contents);
-    this.addChild(this.body, this.spray, this.vialGraphics, this.vialLabel);
+    this.bucketLabel.anchor.set(0.5, 0);
+    this.jarLabel.anchor.set(0.5, 0);
+    this.addChild(this.body, this.spray, this.vialGraphics, this.vialLabel, this.jarLabel, this.bucketLabel);
   }
 
   layout(width: number, height: number, centerX: number, centerY: number): void {
@@ -112,6 +118,8 @@ export class PanView extends Container {
     // Below the HUD's cash readout in the top-right corner.
     this.vialGraphics.position.set(width - 90, 48);
     this.vialLabel.position.set(width - 96, 170);
+    this.bucketLabel.position.set(width - 90 - 98, 170);
+    this.jarLabel.position.set(width - 90 - 38, 170);
   }
 
   setPan(pan: Pan): void {
@@ -145,7 +153,17 @@ export class PanView extends Container {
     return null;
   }
 
-  update(dt: number, session: PanningSession, controls: PanControls, events: PanStepEvents | null): void {
+  /**
+   * `bucket` is the classifier's bucket when one is in use here (volume and capacity), so the
+   * player can see what's left to pan without walking back to it.
+   */
+  update(
+    dt: number,
+    session: PanningSession,
+    controls: PanControls,
+    events: PanStepEvents | null,
+    bucket: { volume: number; capacity: number } | null = null,
+  ): void {
     const pan = session.pan;
     if (!pan) return;
     if (pan !== this.pan) this.setPan(pan);
@@ -166,7 +184,7 @@ export class PanView extends Container {
 
     this.updateParticles(dt);
     this.draw(pan, controls);
-    this.drawVial(session);
+    this.drawVial(session, bucket);
   }
 
   private animateWorking(dt: number, pan: Pan, controls: PanControls, events: PanStepEvents | null): void {
@@ -282,7 +300,7 @@ export class PanView extends Container {
     for (const p of this.particles) spray.circle(p.x, p.y, p.size).fill({ color: p.color, alpha: Math.min(1, p.life / p.maxLife + 0.2) });
   }
 
-  private drawVial(session: PanningSession): void {
+  private drawVial(session: PanningSession, bucket: { volume: number; capacity: number } | null): void {
     const v = this.vialGraphics.clear();
     const mg = session.vialMg;
     const fill = Math.min(1, mg / 60);
@@ -295,6 +313,20 @@ export class PanView extends Container {
     if (jarFill > 0) v.roundRect(-55, 107 - 54 * jarFill, 34, 54 * jarFill, 4).fill(COLORS.dark[1]);
 
     this.vialLabel.text = `${mg.toFixed(1)} mg`;
+    this.jarLabel.text = `${Math.round(jarFill * 100)}%`;
+
+    // The classifier's bucket, filling with screened dirt: what's left to pan from it.
+    this.bucketLabel.visible = bucket !== null;
+    if (!bucket) return;
+    const bFill = Math.min(1, bucket.volume / bucket.capacity);
+    v.poly([-126, 58, -70, 58, -76, 110, -120, 110]).fill({ color: 0x7a7f86, alpha: 0.35 }).stroke({ width: 2, color: 0xdfe8e6, alpha: 0.4 });
+    if (bFill > 0.002) {
+      const top = 108 - 48 * bFill;
+      const inset = 6 * (1 - bFill);
+      v.poly([-123 + inset, top, -73 - inset, top, -78, 107, -118, 107]).fill(0x8b7a5a);
+    }
+    const pans = Math.ceil(bucket.volume / PAN_VOLUME - 0.05);
+    this.bucketLabel.text = bucket.volume < 0.005 ? 'bucket empty' : `${pans} pan${pans === 1 ? '' : 's'} left`;
   }
 
   private updateParticles(dt: number): void {

@@ -224,14 +224,33 @@ export class Sluice {
   feed(load: PanLoad): boolean {
     if (this.feedBlocked) return false;
     const shovelful = rollShovelful(this.rng, load);
-    this.header.light += shovelful.lightSand;
-    this.header.black += shovelful.blackSand;
-    this.header.clay += shovelful.clay;
-    this.header.rocks.push(...shovelful.rocks);
-    this.header.gold.push(...shovelful.gold);
-    this.fedMg += totalMg(shovelful.gold) + totalMg(shovelful.rocks.flatMap((r) => (r.stuckPicker ? [r.stuckPicker] : [])));
+    this.addToHeader(shovelful.lightSand, shovelful.blackSand, shovelful.clay, shovelful.rocks, shovelful.gold);
     this.shovelfulsFed += 1;
     return true;
+  }
+
+  /**
+   * Pour screened material from the classifier's bucket into the header: no rocks to jam the
+   * intake or carry pickers off the end. Refused while jammed or brim full.
+   */
+  feedScreened(material: { light: number; black: number; clay: number; gold: readonly GoldPiece[] }): boolean {
+    if (this.feedBlocked) return false;
+    this.addToHeader(material.light, material.black, material.clay, [], material.gold);
+    return true;
+  }
+
+  /** Room left in the header before it is brim full. */
+  get headerRoom(): number {
+    return Math.max(0, SLUICE_TUNING.headerMax - this.headerVolume);
+  }
+
+  private addToHeader(light: number, black: number, clay: number, rocks: readonly Rock[], gold: readonly GoldPiece[]): void {
+    this.header.light += light;
+    this.header.black += black;
+    this.header.clay += clay;
+    this.header.rocks.push(...rocks);
+    this.header.gold.push(...gold);
+    this.fedMg += totalMg(gold) + totalMg(rocks.flatMap((r) => (r.stuckPicker ? [r.stuckPicker] : [])));
   }
 
   step(dt: number, controls: SluiceControls): SluiceStepEvents {

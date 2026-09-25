@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import type { DigSpot, Creek, LayerKind, Sluice, SluiceStepEvents } from '../sim';
+import { CLASSIFIER_TUNING, type Classifier, type DigSpot, type Creek, type LayerKind, type Sluice, type SluiceStepEvents } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
@@ -10,13 +10,14 @@ import type { DigSpot, Creek, LayerKind, Sluice, SluiceStepEvents } from '../sim
  * it. Click a boulder to pry it; click a flooded hole to bail; tap the sluice for a close look.
  */
 
-export type ShovelTarget = 'pan' | 'spoil' | 'sluice';
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier';
 
 export interface BankActions {
   shovel(into: ShovelTarget): void;
   pry(): void;
   bail(): void;
   openSluice(): void;
+  openClassifier(): void;
 }
 
 const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
@@ -62,6 +63,8 @@ export class BankView extends Container {
   /** The sluice running in the creek beside this spot, if there is one, and its last step. */
   private sluice: Sluice | null = null;
   private sluiceEvents: SluiceStepEvents | null = null;
+  /** The classifier on its bucket beside the hole, when the player has one and the ground allows it. */
+  private classifier: Classifier | null = null;
 
   constructor(
     private creek: Creek,
@@ -108,6 +111,10 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setClassifier(classifier: Classifier | null): void {
+    this.classifier = classifier;
   }
 
   setSluice(sluice: Sluice | null, events: SluiceStepEvents | null): void {
@@ -167,6 +174,16 @@ export class BankView extends Container {
     return { x: this.width_ * 0.66, y: this.surfaceY - 26, w: 110, h: 26 };
   }
 
+  /** The classifier: a screen on a bucket, standing on the bank between the hole and the pan. */
+  private classifierRect(): { x: number; y: number; w: number; h: number } {
+    return { x: this.width_ * 0.555, y: this.surfaceY - 46, w: 58, h: 46 };
+  }
+
+  private overClassifier(x: number, y: number): boolean {
+    const r = this.classifierRect();
+    return x > r.x - 10 && x < r.x + r.w + 10 && y > r.y - 16 && y < r.y + r.h + 6;
+  }
+
   /** The compact sluice in the creek: header box at the bank edge, running down into the water. */
   private sluiceRect(): { x: number; y: number; w: number; h: number } {
     return { x: this.width_ * 0.81, y: this.surfaceY - 34, w: this.width_ * 0.17, h: 70 };
@@ -197,6 +214,10 @@ export class BankView extends Container {
       this.actions.openSluice();
       return;
     }
+    if (this.classifier && this.overClassifier(x, y)) {
+      this.actions.openClassifier();
+      return;
+    }
     if (!this.inHole(x, y, spot)) return;
     const blocked = this.creek.blockedBy(spot);
     if (blocked === 'boulder') {
@@ -220,8 +241,10 @@ export class BankView extends Container {
     const { x } = e.global;
     const pan = this.panRect();
     const spoil = this.spoilRect();
+    const cr = this.classifierRect();
     if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
     else if (x > pan.x - 40) this.actions.shovel('pan');
+    else if (this.classifier && x > cr.x - 14 && x < cr.x + cr.w + 14) this.actions.shovel('classifier');
     else if (x < spoil.x + spoil.w + 30) this.actions.shovel('spoil');
     // Released over the hole: the shovelful drops back in.
   }
@@ -254,6 +277,7 @@ export class BankView extends Container {
     this.drawHole(g, spot);
     this.drawSpoil(g, spot);
     this.drawPan(g);
+    if (this.classifier) this.drawClassifier(g, this.classifier);
     if (this.sluice) this.drawSluice(g, this.sluice);
     this.drawShovel(g);
 
@@ -356,6 +380,29 @@ export class BankView extends Container {
     }
   }
 
+  /** The classifier in miniature: gravel heaped on the screen, the bucket filling beneath. */
+  private drawClassifier(g: Graphics, classifier: Classifier): void {
+    const r = this.classifierRect();
+    const hot = this.carrying !== null && this.pointer.x > r.x - 14 && this.pointer.x < r.x + r.w + 14 && this.pointer.x < this.panRect().x - 40;
+    const top = r.y + 12;
+    // Bucket, with what it holds showing as a fill line.
+    g.poly([r.x + 6, top, r.x + r.w - 6, top, r.x + r.w - 12, r.y + r.h, r.x + 12, r.y + r.h]).fill(0x7a7f86).stroke({ width: 2, color: 0x4d5258 });
+    const fill = Math.min(1, classifier.bucketVolume / CLASSIFIER_TUNING.bucketCapacity);
+    if (fill > 0) {
+      const y = r.y + r.h - (r.h - 14) * fill;
+      g.poly([r.x + 12 + 5 * (1 - fill), y, r.x + r.w - 12 - 5 * (1 - fill), y, r.x + r.w - 12, r.y + r.h - 2, r.x + 12, r.y + r.h - 2]).fill(0x8b7a5a);
+    }
+    // Screen frame and mesh across the top.
+    g.rect(r.x, r.y + 4, r.w, 9).fill(0x6b5033).stroke({ width: hot ? 3 : 1.5, color: hot ? 0xe6b940 : 0x3d2c1c });
+    const step = classifier.screen === 'fine' ? 4 : 8;
+    for (let x = r.x + step; x < r.x + r.w; x += step) g.moveTo(x, r.y + 5).lineTo(x, r.y + 12);
+    g.stroke({ width: 1, color: 0x2c2a26, alpha: 0.7 });
+    if (classifier.hasLoad) {
+      g.poly([r.x + 6, r.y + 5, r.x + r.w - 6, r.y + 5, r.x + r.w * 0.62, r.y - 8, r.x + r.w * 0.35, r.y - 6]).fill(0x8b8578);
+      for (let i = 0; i < Math.min(5, classifier.rocks.length); i++) g.circle(r.x + 12 + i * 9, r.y - 2 - (i % 2) * 4, 4).fill(0x7c786f);
+    }
+  }
+
   /**
    * The sluice in miniature, readable at a glance: a trickle, a smooth sheet, or whitewater over
    * the riffles; gravel heaped in the header; the moss darkening as it loads.
@@ -406,8 +453,9 @@ export class BankView extends Container {
   private drawShovel(g: Graphics): void {
     const at = this.carrying
       ? this.pointer
-      : { x: this.holeX + this.holeWidth / 2 + 36, y: this.surfaceY + 6 };
-    const handleTop = { x: at.x + 40, y: at.y - 120 };
+      : { x: this.holeX - this.holeWidth / 2 - 30, y: this.surfaceY + 6 };
+    // Resting, it stands left of the hole leaning away from it; carried, it leans with the swing.
+    const handleTop = { x: at.x + (this.carrying ? 40 : -40), y: at.y - 120 };
     g.moveTo(at.x, at.y - 10).lineTo(handleTop.x, handleTop.y).stroke({ width: 5, color: 0x8a6a45 });
     g.moveTo(handleTop.x - 10, handleTop.y).lineTo(handleTop.x + 10, handleTop.y).stroke({ width: 5, color: 0x8a6a45 });
     g.poly([at.x - 14, at.y - 12, at.x + 12, at.y - 8, at.x + 6, at.y + 14, at.x - 10, at.y + 12]).fill(0x5f646a);

@@ -210,6 +210,28 @@ export class Pan {
     };
   }
 
+  /**
+   * A pan of screened material from the classifier's bucket: no rocks to rake, and with a fine
+   * screen, less light material for the same gold.
+   */
+  static fromScreened(rng: Rng, material: { light: number; black: number; clay: number; gold: readonly GoldPiece[] }): Pan {
+    return Pan.restore(rng, {
+      kind: 'gravel',
+      initialLightSand: Math.max(material.light, 1e-6),
+      lightSand: material.light,
+      blackSand: material.black,
+      clay: material.clay,
+      stratification: 0.1,
+      turbidity: material.clay * 2,
+      rocks: [],
+      gold: material.gold,
+      phase: 'working',
+      elapsed: 0,
+      visible: [],
+      hidden: [],
+    });
+  }
+
   static restore(rng: Rng, snap: PanSnapshot): Pan {
     const pan = new Pan(rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0, gold: [] });
     // kind and initialLightSand are fixed for a pan's life; restoring is the one place they are set after construction.
@@ -368,6 +390,9 @@ export class Pan {
   }
 }
 
+/** A shovelful, and a full pan: the unit everything else is measured in. */
+export const PAN_VOLUME = 0.85;
+
 /** What one shovelful actually holds, in pan-volume units. Pans and sluices both start from this. */
 export interface Shovelful {
   readonly lightSand: number;
@@ -381,7 +406,7 @@ export interface Shovelful {
 export function rollShovelful(rng: Rng, load: PanLoad): Shovelful {
   const clay = load.clayiness * rng.range(0.05, 0.18);
   const blackSand = rng.range(0.03, 0.07);
-  const lightSand = 0.85 - clay - blackSand;
+  const lightSand = PAN_VOLUME - clay - blackSand;
 
   const rockCount = Math.round(load.rockiness * rng.range(2, 7));
   const rocks = Array.from({ length: rockCount }, () => ({

@@ -5,7 +5,7 @@ import type { PanningSession } from './panningSession';
  * where the ground has a sluice site. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice' | 'bigJar';
+export type GearId = 'sluice' | 'bigJar' | 'classifier';
 
 export interface GearItem {
   readonly id: GearId;
@@ -15,6 +15,12 @@ export interface GearItem {
 }
 
 export const OUTFITTER: readonly GearItem[] = [
+  {
+    id: 'classifier',
+    name: 'Hand classifier',
+    price: 15,
+    description: 'A screen over a bucket, with coarse and fine mesh. Shake your gravel through it: rocks stay on top to be checked for wedged pickers, and clean, even material goes to the pan or sluice. Too much for the narrow Home Creek; use it on the stretches you find.',
+  },
   {
     id: 'sluice',
     name: 'Hand sluice',

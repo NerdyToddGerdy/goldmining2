@@ -6,7 +6,10 @@ import {
   createSave,
   loadSave,
   buyGear,
+  CLASSIFIER_TUNING,
+  rollShovelful,
   totalMg,
+  type Classifier,
   type Creek,
   type DigSpot,
   type FollowResult,
@@ -23,6 +26,7 @@ import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
 import { RegionMapView } from './game/regionMapView';
+import { ClassifierView } from './game/classifierView';
 import { SluiceView } from './game/sluiceView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
@@ -83,6 +87,8 @@ async function start(): Promise<void> {
   let cleaningOut = false;
   let sluiceEvents: SluiceStepEvents | null = null;
   const sluiceHere = (): Sluice | null => (spot ? session.sluiceAt(creek.id, spot.id) : null);
+  /** The classifier travels with the player, but the Home Creek has no room for it. */
+  const classifierHere = (): Classifier | null => (session.classifier && region.allowsHandGear(creek) ? session.classifier : null);
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
@@ -93,9 +99,10 @@ async function start(): Promise<void> {
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
     sluiceView.visible = mode === 'sluice';
+    classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
     scene.visible = panView.visible = mode === 'pan';
-    input.enabled = mode === 'pan';
+    input.enabled = mode === 'pan' || mode === 'classifier';
   };
 
   /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
@@ -106,8 +113,23 @@ async function start(): Promise<void> {
   };
 
   const shovel = (into: ShovelTarget): void => {
-    if (!spot || mode !== 'bank') return;
+    // Dig from the bank, or straight from the close-up of the machine being fed, so feeding a run
+    // doesn't mean walking back and forth.
+    const fromCloseUp = (into === 'classifier' && mode === 'classifier') || (into === 'sluice' && mode === 'sluice');
+    if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const sluice = into === 'sluice' ? sluiceHere() : null;
+    const classifier = into === 'classifier' ? classifierHere() : null;
+    if (into === 'classifier') {
+      if (!classifier) return;
+      if (classifier.hasLoad) {
+        openClassifier();
+        return hud.toast("There's still a load on the screen. Sift it through and tip off the oversize first.");
+      }
+      if (classifier.bucketFull) {
+        openClassifier();
+        return hud.toast('The bucket is full. Pan from the bucket, or pour it into the sluice.');
+      }
+    }
     if (into === 'sluice') {
       if (!sluice) return;
       if (cleaningOut) return hud.toast('Finish the cleanout before feeding the sluice again.');
@@ -128,7 +150,10 @@ async function start(): Promise<void> {
       const lead = region.clueFound();
       hud.toast(`Your shovel turns something up. ${lead.note} It points to ${lead.name}. Noted in your notebook (M).`);
     }
-    if (result.load && sluice) {
+    if (result.load && classifier) {
+      classifier.load(rollShovelful(rng, result.load));
+      openClassifier();
+    } else if (result.load && sluice) {
       sluice.feed(result.load);
     } else if (result.load) {
       session.startPan(result.load);
@@ -206,12 +231,27 @@ async function start(): Promise<void> {
     if (!sluice || sluice.clog <= 0) return;
     if (sluice.rake()) hud.toast('The jam breaks loose and the water runs again.');
   };
-  const bankView = new BankView(creek, { shovel, pry, bail, openSluice });
+  const openClassifier = (): void => {
+    if (!classifierHere()) return;
+    input.tilt = 0;
+    input.shakeHeld = false;
+    setMode('classifier');
+  };
+  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier });
+  const classifierView = new ClassifierView({
+    inspectRock: (rockId) => {
+      const picker = classifierHere()?.inspectRock(rockId);
+      if (picker) {
+        session.vial.push(picker);
+        hud.toast(`A picker was wedged in that rock! ${picker.mg.toFixed(1)} mg into the vial.`);
+      }
+    },
+  });
   const sluiceView = new SluiceView({ rake: rakeSluice });
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, townView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, classifierView, townView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -219,6 +259,7 @@ async function start(): Promise<void> {
     creekMap.layout(width, height);
     bankView.layout(width, height);
     sluiceView.layout(width, height);
+    classifierView.layout(width, height);
     townView.layout(width, height);
     scene.resize(width, height);
     panView.layout(width, height, width / 2, scene.waterTop + (height - scene.waterTop) * 0.45);
@@ -235,6 +276,44 @@ async function start(): Promise<void> {
     backToHole: () => setMode('bank'),
     openSluice,
     rakeSluice,
+    openClassifier,
+    swapScreen: () => {
+      const c = classifierHere();
+      if (c) c.setScreen(c.screen === 'coarse' ? 'fine' : 'coarse');
+    },
+    tipOff: () => {
+      const c = classifierHere();
+      if (!c?.hasLoad) return;
+      const rocks = c.rocks.length;
+      const unsifted = !c.screened;
+      c.tipOff();
+      // Say what was tipped, never what it held: a picker left in a rock stays unknown.
+      hud.toast(
+        unsifted
+          ? 'You tip the whole load off, unsifted gravel and all.'
+          : rocks > 0
+            ? `You tip ${rocks} rock${rocks === 1 ? '' : 's'} onto the spoil pile.`
+            : 'The screen is clear.',
+      );
+    },
+    panBucket: () => {
+      if (!classifierHere() || !session.panIsFree) return;
+      if (!session.startScreenedPan()) return;
+      panSpot = spot;
+      panLayer = null;
+      startPanning();
+    },
+    pourIntoSluice: (): void => {
+      const c = classifierHere();
+      const sluice = sluiceHere();
+      if (!c || !sluice || cleaningOut) return;
+      if (sluice.feedBlocked) {
+        hud.toast(sluice.feedBlocked === 'jammed' ? 'The intake is jammed. Rake it clear first.' : 'The header is brim full. Give the water a moment.');
+        return;
+      }
+      const material = c.pour(sluice.headerRoom);
+      if (material) sluice.feedScreened(material);
+    },
     setWater: (flow) => (sluiceFlow = flow),
     setUpSluice: () => {
       if (!spot || mode !== 'bank') return;
@@ -345,7 +424,8 @@ async function start(): Promise<void> {
   else if (screen === 'town') walkToTown();
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
-  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice') && spot) setMode('bank');
+  else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier') && spot) setMode('bank');
   else setMode('creek');
   if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
 
@@ -368,7 +448,7 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, panView },
+      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, panView, classifierView },
     });
   }
 
@@ -376,6 +456,9 @@ async function start(): Promise<void> {
 
   let accumulator = 0;
   let sluiceAccumulator = 0;
+  let classifierAccumulator = 0;
+  /** Said once per fill: sifting into a full bucket does nothing, and tipping off would lose the load. */
+  let toldBucketFull = false;
   app.ticker.add((ticker) => {
     const dt = Math.min(ticker.deltaMS / 1000, 0.1);
     const controls = input.sample(dt);
@@ -405,6 +488,9 @@ async function start(): Promise<void> {
       if (mode === 'sluice') setMode('bank');
     }
     bankView.setSluice(sluice, stepped);
+    const classifier = classifierHere();
+    bankView.setClassifier(classifier);
+    if (mode === 'classifier' && !classifier) setMode('bank');
 
     let events: PanStepEvents | null = null;
     const pan = session.pan;
@@ -425,9 +511,23 @@ async function start(): Promise<void> {
       }
       coach.update(dt, pan, controls, events);
       scene.update(dt);
-      panView.update(dt, session, controls, events);
+      const bucketHere = classifierHere();
+      panView.update(dt, session, controls, events, bucketHere ? { volume: bucketHere.bucketVolume, capacity: CLASSIFIER_TUNING.bucketCapacity } : null);
     } else if (mode === 'bank') {
       bankView.update(dt);
+    } else if (mode === 'classifier' && classifier) {
+      classifierAccumulator += dt;
+      let passed = 0;
+      while (classifierAccumulator >= SIM_DT) {
+        classifierAccumulator -= SIM_DT;
+        passed += classifier.step(SIM_DT, controls.shake);
+      }
+      classifierView.update(dt, classifier, controls.shake > 0, passed);
+      if (!classifier.bucketFull) toldBucketFull = false;
+      else if (!toldBucketFull && controls.shake > 0 && classifier.passable > 0.005) {
+        toldBucketFull = true;
+        hud.toast(`The bucket is full, so nothing more can fall through. Pan from the bucket${sluiceHere() ? ' or pour it into the sluice' : ''} to make room; tipping off now would lose the unsifted gravel.`);
+      }
     } else if (mode === 'sluice' && sluice) {
       sluiceView.update(dt, sluice, stepped, sluiceFlow);
     } else if (mode === 'region') {
@@ -450,6 +550,7 @@ async function start(): Promise<void> {
       sluiceEvents,
       sluiceFlow,
       cleaningOut,
+      classifier,
     });
 
     sinceSave += dt;

@@ -11,9 +11,9 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
-const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice'] as const;
+const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier'] as const;
 
 /** Where the player was standing, so a reload puts them back there. */
 export interface SavedPlace {
@@ -47,6 +47,7 @@ export interface LoadedGame {
  * v3 → v4: sluice sites. Existing creeks and leads predate them, so they have none.
  * v4 → v5: owned gear. Nobody owned a sluice before the outfitter opened.
  * v5 → v6: other gear (the big jar). Nobody had any.
+ * v6 → v7: the hand classifier. Nobody had one.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -102,6 +103,9 @@ function migrate(data: unknown): unknown {
   if (save.version === 5 && isObject(save.session)) {
     save = { ...save, version: 6, session: { ...save.session, gear: [] } };
   }
+  if (save.version === 6 && isObject(save.session)) {
+    save = { ...save, version: 7, session: { ...save.session, classifier: null } };
+  }
   return save;
 }
 
@@ -142,6 +146,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (typeof session.jar.blackSand !== 'number' || !Array.isArray(session.jar.gold)) return false;
   if (typeof session.cash !== 'number' || typeof session.earned !== 'number' || typeof session.soldMg !== 'number') return false;
   if (!Array.isArray(session.gear)) return false;
+  if (session.classifier !== null && !(isObject(session.classifier) && 'bucket' in session.classifier)) return false;
   if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;

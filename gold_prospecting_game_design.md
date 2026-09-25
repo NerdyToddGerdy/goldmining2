@@ -724,6 +724,13 @@ Questions answered at each step:
 - Is enough concentrate in the mat to justify cleanout?
 - What value was actually recovered?
 
+In the game, the **hand classifier** ($15 at the outfitter) is a screen sitting on a bucket:
+- **Screening:** a shovelful goes on the screen, and holding Sift shakes it through. Sized material rains into the bucket; rocks stay on top.
+- **Rocks:** tapping a rock picks it off and checks it for a wedged picker. Tipping the oversize off unexamined sends any pickers with it, and the game never says whether there were any.
+- **Screens:** the coarse screen is fast. The fine screen also holds back pebbles, so less volume reaches the bucket for the same gold, but it passes slowly, and the oversize blinds the mesh.
+- **The bucket:** it holds about three shovelfuls. It pours into the sluice header, where there are no rocks to jam the intake or carry pickers off the end, or into the pan a pan-sized share at a time, with no rocks to rake.
+- **Where it works:** every found stretch, but never the Home Creek, which stays shovel-and-pan only.
+
 ### Dry-wash chain
 
 ```text

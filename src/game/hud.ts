@@ -11,12 +11,13 @@ import {
   type Lead,
   type LeadSource,
   type Region,
+  type Classifier,
   type Sluice,
   type SluiceStepEvents,
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier';
 
 export interface HudActions {
   // Pan
@@ -31,7 +32,13 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice'): void;
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier'): void;
+  openClassifier(): void;
+  // Classifier
+  swapScreen(): void;
+  tipOff(): void;
+  panBucket(): void;
+  pourIntoSluice(): void;
   setUpSluice(): void;
   openSluice(): void;
   // Sluice
@@ -71,6 +78,8 @@ export interface HudState {
   readonly sluiceFlow: number;
   /** A cleanout is under way: feeding stopped, clean water rinsing the riffles. */
   readonly cleaningOut: boolean;
+  /** The classifier, when the player has one and this creek allows it (never the Home Creek). */
+  readonly classifier: Classifier | null;
 }
 
 const HINTS: Record<Mode, string> = {
@@ -80,6 +89,7 @@ const HINTS: Record<Mode, string> = {
   region: 'Your known creeks and the town. Click a place to walk there. Follow leads from your notebook to find new stretches.',
   pan: 'Hold Space or the pan to sift · sift level until the water clears, then tip with W/S or the wheel to wash · click rocks to rake them out',
   sluice: 'Set the intake with the Water slider · feed it from the hole · click the header to rake a clog · clean out before the moss fills',
+  classifier: 'Hold Space or the screen to sift · click a rock to check it for a wedged picker · tip off the oversize when only rocks are left',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -90,6 +100,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   region: 'Tap a place to walk there. Follow leads from your notebook.',
   pan: 'Hold the pan or Sift · sift level until the water clears, then tip with the slider to wash · tap rocks to rake them out',
   sluice: 'Water slider sets the intake · tap the header to rake a clog · clean out before the moss fills',
+  classifier: 'Hold the screen or Sift · tap a rock to check it for a picker · tip off the oversize when only rocks are left',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -112,6 +123,8 @@ export class Hud {
   private readonly panControls: HTMLElement;
   private readonly tilt: HTMLInputElement;
   private readonly sift: HTMLButtonElement;
+  private readonly inspectToggle: HTMLElement;
+  private readonly tiltLabel: HTMLElement;
   private readonly water: HTMLElement;
   private readonly waterInput: HTMLInputElement;
   private readonly actions: HTMLElement;
@@ -127,7 +140,7 @@ export class Hud {
   private townTab: 'outfitter' | 'claims' = 'outfitter';
   private buttonsKey = '';
   private resultKey = '';
-  private inspectOpen = false;
+  private inspectOpen = true;
   private lossRate = 0;
   private toastTimer = 0;
   private state: HudState | null = null;
@@ -138,7 +151,7 @@ export class Hud {
       <div class="hud-hint"></div>
       <div class="hud-cash"></div>
       <div class="hud-result" hidden></div>
-      <div class="hud-inspect" hidden></div>
+      <div class="hud-inspect"></div>
       <div class="hud-toast" hidden></div>
       <div class="hud-panel" hidden></div>
       <div class="hud-bar">
@@ -148,13 +161,14 @@ export class Hud {
         </span>
         <label class="hud-tilt hud-water" hidden>Water <input type="range" min="0" max="1" step="0.01" value="0.6" /></label>
         <span class="hud-actions"></span>
-        <button type="button" class="hud-inspect-toggle" title="Inspection panel (I)">Inspect</button>
+        <button type="button" class="hud-inspect-toggle" title="Inspection panel (I)">Inspect (I)</button>
       </div>`;
     document.body.appendChild(this.root);
 
     this.hint = this.root.querySelector('.hud-hint') as HTMLElement;
     this.panControls = this.root.querySelector('.hud-pan-controls') as HTMLElement;
     this.tilt = this.root.querySelector('input') as HTMLInputElement;
+    this.tiltLabel = this.tilt.closest('label') as HTMLElement;
     this.water = this.root.querySelector('.hud-water') as HTMLElement;
     this.waterInput = this.water.querySelector('input') as HTMLInputElement;
     this.waterInput.addEventListener('input', () => on.setWater(Number(this.waterInput.value)));
@@ -193,7 +207,8 @@ export class Hud {
     this.sift = shake;
     shake.addEventListener('pointerdown', () => on.setShake(true));
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
-    (this.root.querySelector('.hud-inspect-toggle') as HTMLElement).addEventListener('click', () => this.toggleInspect());
+    this.inspectToggle = this.root.querySelector('.hud-inspect-toggle') as HTMLElement;
+    this.inspectToggle.addEventListener('click', () => this.toggleInspect());
     window.addEventListener('keydown', (e) => this.handleKey(e.key.toLowerCase()));
   }
 
@@ -209,8 +224,14 @@ export class Hud {
     const { mode, session, controls, events } = state;
     const pan = session.pan;
 
+    const inspectLabel = forInput('Inspect (I)');
+    if (this.inspectToggle.textContent !== inspectLabel) this.inspectToggle.textContent = inspectLabel;
     const hint =
-      mode === 'bank' && state.sluice
+      mode === 'bank' && state.classifier && !state.sluice
+        ? usingTouch()
+          ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
+          : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (T). Click the classifier for a close look.'
+        : mode === 'bank' && state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the sluice in the creek, the pan, or the spoil pile. Tap the sluice for a close look.'
           : 'Drag shovelfuls to the sluice in the creek (F), the pan (P), or the spoil pile (T). Click the sluice for a close look.'
@@ -221,12 +242,17 @@ export class Hud {
     const cash = `$${session.cash.toFixed(2)}`;
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
-    this.panControls.hidden = mode !== 'pan' || pan?.phase !== 'working';
+    // The classifier is sifted too, but has nothing to tilt.
+    const classifying = mode === 'classifier' && state.classifier !== null;
+    this.panControls.hidden = !classifying && (mode !== 'pan' || pan?.phase !== 'working');
+    this.tiltLabel.hidden = classifying;
     this.water.hidden = !(state.sluice && (mode === 'bank' || mode === 'sluice'));
     if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(state.sluiceFlow);
     if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
     // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
-    const siftedOut = pan?.phase === 'working' && pan.siftedOut;
+    const siftedOut = classifying
+      ? !state.classifier!.hasLoad || state.classifier!.screened
+      : pan?.phase === 'working' && pan.siftedOut;
     if (siftedOut && !this.sift.disabled) this.on.setShake(false);
     this.sift.disabled = siftedOut;
 
@@ -281,7 +307,10 @@ export class Hud {
           ['Collect, dump black sand (D)', () => this.on.collect(false)],
         ];
       }
-      return [['Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
+      // Keep panning from the classifier's bucket without walking back to it.
+      const bucket: [string, () => void][] =
+        state.classifier && state.classifier.bucketVolume > 0.005 ? [['Pan from the bucket (B)', () => this.on.panBucket()]] : [];
+      return [...bucket, ['Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
     }
     if (mode === 'bank' && spot) {
       const blocked = creek.blockedBy(spot);
@@ -291,6 +320,10 @@ export class Hud {
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
+      if (state.classifier) {
+        if (blocked === null) list.push(['Shovel onto the classifier (K)', () => this.on.shovel('classifier')]);
+        list.push(['Classifier (C)', () => this.on.openClassifier()]);
+      }
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
@@ -299,6 +332,19 @@ export class Hud {
       }
       list.push(...this.jarButton(session));
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
+      return list;
+    }
+    if (mode === 'classifier' && state.classifier) {
+      const c = state.classifier;
+      const list: [string, () => void][] = [];
+      if (!c.hasLoad) list.push([c.screen === 'coarse' ? 'Swap to the fine screen' : 'Swap to the coarse screen', () => this.on.swapScreen()]);
+      if (!c.hasLoad && state.spot && state.creek.blockedBy(state.spot) === null) {
+        list.push(['Shovel onto the screen (K)', () => this.on.shovel('classifier')]);
+      }
+      if (c.hasLoad) list.push([c.screened ? 'Tip off the oversize (T)' : 'Tip it all off (T)', () => this.on.tipOff()]);
+      if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (P)', () => this.on.panBucket()]);
+      if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (F)', () => this.on.pourIntoSluice()]);
+      list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
     if (mode === 'sluice' && state.sluice) {
@@ -311,6 +357,7 @@ export class Hud {
       }
       const list: [string, () => void][] = [];
       if (state.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.rakeSluice()]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
       list.push(['Clean out the moss (C)', () => this.on.startCleanout()]);
       list.push(...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the sluice', () => this.on.takeDownSluice()]);
@@ -413,14 +460,24 @@ export class Hud {
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
       else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
       else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();
+      else if (key === 'b' && phase === 'emptied' && state.classifier) this.on.panBucket();
     } else if (state.mode === 'sluice') {
       if (key === 'r') this.on.rakeSluice();
+      else if (key === 'f' && !state.cleaningOut) this.on.shovel('sluice');
       else if (key === 'c' && !state.cleaningOut) this.on.startCleanout();
       else if (key === 'l' && state.cleaningOut) this.on.liftMat();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'classifier' && state.classifier) {
+      if (key === 't' && state.classifier.hasLoad) this.on.tipOff();
+      else if (key === 'k' && !state.classifier.hasLoad) this.on.shovel('classifier');
+      else if (key === 'p') this.on.panBucket();
+      else if (key === 'f' && state.sluice) this.on.pourIntoSluice();
+      else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
-      if (key === 'f' && state.sluice) this.on.shovel('sluice');
+      if (key === 'k' && state.classifier) this.on.shovel('classifier');
+      else if (key === 'c' && state.classifier) this.on.openClassifier();
+      else if (key === 'f' && state.sluice) this.on.shovel('sluice');
       else if (key === 'v' && state.sluice) this.on.openSluice();
       else if (key === 'p') this.on.shovel('pan');
       else if (key === 't') this.on.shovel('spoil');
@@ -442,7 +499,6 @@ export class Hud {
     const common: [string, string][] = [
       ['Pans worked', String(session.pansWorked)],
       ['Colour per pan', `${avg} mg`],
-      ['Concentrate jar', `${Math.round(Math.min(1, session.jar.blackSand / session.jarCapacity) * 100)}% full`],
     ];
     let rows: [string, string][] = [];
     const pan = session.pan;
@@ -455,6 +511,15 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+      ];
+    } else if (mode === 'classifier' && state.classifier) {
+      const c = state.classifier;
+      const bucket = c.bucketVolume / 2.2;
+      rows = [
+        ['Screen', c.screen],
+        ['On the screen', !c.hasLoad ? 'nothing' : c.screened ? 'only oversize left' : c.blinding > 0.4 ? 'sifting, mesh blinded' : 'sifting'],
+        ['Rocks', String(c.rocks.length)],
+        ['Bucket', bucket >= 0.99 ? 'full' : bucket > 0.66 ? 'nearly full' : bucket > 0.33 ? 'half full' : bucket > 0.005 ? 'some' : 'empty'],
       ];
     } else if (mode === 'sluice' && state.sluice) {
       // Words, not numbers: the moss and header are read by eye, and stay approximate.
