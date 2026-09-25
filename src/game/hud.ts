@@ -448,7 +448,7 @@ export class Hud {
       const n = Number(key);
       if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
       else if (key === 't') this.on.walkToTown();
-      else if (key === 'm') this.on.openRegion();
+      else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
     } else if (state.mode === 'town') {
@@ -461,6 +461,7 @@ export class Hud {
       else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
       else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();
       else if (key === 'b' && phase === 'emptied' && state.classifier) this.on.panBucket();
+      else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'sluice') {
       if (key === 'r') this.on.rakeSluice();
       else if (key === 'f' && !state.cleaningOut) this.on.shovel('sluice');
