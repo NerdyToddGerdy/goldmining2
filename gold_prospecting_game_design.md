@@ -358,7 +358,7 @@ Gold is sold at the assay office in town, reached from the creek. The buyer weig
 
 Pickers sell whole as specimens at 1.5× spot. The spot price is a game price ($500 a gram), tuned so the Home Creek pays modestly but steadily. Careful panning through a whole spot averages about $1.70 a pan. Topsoil pays pennies and the pay streak and bedrock pay most, so digging down matters. The $40 sluice takes roughly 25 good pans.
 
-The outfitter in town sells the first piece of real equipment, a **hand sluice for $40**: roughly 25 good pans. Buying it doesn't unlock anywhere to use it. It sets up only at a sluice site on a creek bend, and taking it down washes its moss into the concentrate jar so nothing it caught is lost.
+The outfitter in town sells the first piece of real equipment, a **hand sluice for $40**: roughly 25 good pans. The outfitter also sells a **big concentrate jar for $10**, holding three times as much. Buying the sluice doesn't unlock anywhere to use it. It sets up only at a sluice site on a creek bend, and taking it down washes its moss into the concentrate jar so nothing it caught is lost.
 
 The sliding rate creates a small decision: sell now, or keep panning to reach a better rate. Selling never costs anything, so it never blocks the recovery path. Black sand is not bought. It has to be panned to release its gold.
 
@@ -587,6 +587,8 @@ Shaking does both jobs. Held level, it breaks up the clay and settles the heavie
 
 The concentrate jar is the tailings layer at the smallest scale. Saved black sand still holds fine gold that can be re-panned later, and it becomes worth more once better finishing equipment is available.
 
+The jar has a real limit: about fifteen pans' black sand, or one sluice cleanout. A full jar refuses more rather than spilling it, so nothing is ever lost to it. Saving is refused, lifting a sluice mat waits, and the sluice can't come down, until some of the jar is panned. The standard jar always holds a full sluice mat, so a cleanout can always finish once the jar is emptied.
+
 Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the safe tip is shallower than for gravel. The game warns when gold is going over the lip. A jar pan worked all the way down leaves only spent residue, which is tipped out rather than saved. A jar pan revealed early puts its unfinished black sand back, with any gold still hidden in it.
 
 ### Compact inspection panel
@@ -687,6 +689,16 @@ The world view should be primary. An optional inspection panel can provide optim
 Early game values should remain approximate. Better equipment, trained operators, sensors, and foremen can improve confidence without removing all uncertainty.
 
 ---
+
+### In the game
+
+- **Setting up:** a bought sluice sets up only at a sluice site on a creek bend, in the creek beside a dig spot. Moving it or taking it down washes its moss into the concentrate jar.
+- **Feeding:** shovelfuls go straight from the hole into the header. Feed rate is simply how fast the player shovels, and a brim-full or jammed header refuses more.
+- **Water:** a Water slider sets the intake. Each site's slope and flow decide what power that gives, so the balanced setting differs from site to site.
+- **Reading it:** the bank view shows a small sluice for reading at a glance. The close-up shows the header heap, the water sheet, eddies, whitewater, moss darkening, tailings and escaping gold. The inspection panel reports only in words (fresh, loading, heavy, full), never numbers.
+- **Clogs:** tapping the header rakes a clog. Raking out a full jam costs a little of the moss.
+- **Cleanout:** "Clean out" stops feeding while clean water rinses the riffles. The player chooses when to lift the mat: early brings more gravel to pan, late strips fines. The mat washes into the concentrate jar, and panning the jar gives the delayed reveal.
+- **When it runs:** the sluice only runs while the player is at its spot.
 
 ## Material Chains
 

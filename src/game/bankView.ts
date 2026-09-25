@@ -1,18 +1,22 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import type { DigSpot, Creek, LayerKind } from '../sim';
+import type { DigSpot, Creek, LayerKind, Sluice, SluiceStepEvents } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
  * layers as they are exposed; ground below the hole floor stays unknown until dug.
  *
- * Shovel gesture: press in the hole, drag the shovelful to the pan (right) to pan it, or to
- * the spoil pile (left) to toss it. Click a boulder to pry it; click a flooded hole to bail.
+ * Shovel gesture: press in the hole, drag the shovelful to the pan (right) to pan it, to the
+ * sluice in the creek (far right) when one is set up here, or to the spoil pile (left) to toss
+ * it. Click a boulder to pry it; click a flooded hole to bail; tap the sluice for a close look.
  */
 
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice';
+
 export interface BankActions {
-  shovel(into: 'pan' | 'spoil'): void;
+  shovel(into: ShovelTarget): void;
   pry(): void;
   bail(): void;
+  openSluice(): void;
 }
 
 const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
@@ -23,6 +27,15 @@ const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
   slump: 0x76603f,
 };
 const UNKNOWN_GROUND = 0x3a2e20;
+
+function lerp(a: number, b: number, t: number): number {
+  const ch = (shift: number): number => {
+    const ca = (a >> shift) & 0xff;
+    const cb = (b >> shift) & 0xff;
+    return Math.round(ca + (cb - ca) * Math.min(1, Math.max(0, t))) << shift;
+  };
+  return ch(16) | ch(8) | ch(0);
+}
 const SKY_BANK = 0x5b5236;
 const WATER = 0x2f5a5e;
 
@@ -46,6 +59,9 @@ export class BankView extends Container {
   private boulderWiggle = 0;
   private clods: Clod[] = [];
   private time = 0;
+  /** The sluice running in the creek beside this spot, if there is one, and its last step. */
+  private sluice: Sluice | null = null;
+  private sluiceEvents: SluiceStepEvents | null = null;
 
   constructor(
     private creek: Creek,
@@ -77,9 +93,10 @@ export class BankView extends Container {
     this.boulderWiggle = 0.3;
   }
 
-  landed(into: 'pan' | 'spoil', from: LayerKind | 'slump'): void {
-    // A shovelful into the pan switches straight to panning, so only the spoil pile gets flying dirt.
-    if (into === 'pan') return;
+  landed(into: ShovelTarget, from: LayerKind | 'slump'): void {
+    // A shovelful into the pan switches straight to panning, and the sluice shows its own feed,
+    // so only the spoil pile gets flying dirt.
+    if (into !== 'spoil') return;
     const target = this.spoilRect();
     for (let i = 0; i < 14; i++) {
       this.clods.push({
@@ -91,6 +108,12 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setSluice(sluice: Sluice | null, events: SluiceStepEvents | null): void {
+    this.sluice = sluice;
+    if (events) this.sluiceEvents = events;
+    if (!sluice) this.sluiceEvents = null;
   }
 
   update(dt: number): void {
@@ -144,8 +167,18 @@ export class BankView extends Container {
     return { x: this.width_ * 0.66, y: this.surfaceY - 26, w: 110, h: 26 };
   }
 
+  /** The compact sluice in the creek: header box at the bank edge, running down into the water. */
+  private sluiceRect(): { x: number; y: number; w: number; h: number } {
+    return { x: this.width_ * 0.81, y: this.surfaceY - 34, w: this.width_ * 0.17, h: 70 };
+  }
+
   private spoilRect(): { x: number; y: number; w: number; h: number } {
     return { x: this.width_ * 0.06, y: this.surfaceY - 60, w: this.width_ * 0.2, h: 60 };
+  }
+
+  private overSluice(x: number, y: number): boolean {
+    const r = this.sluiceRect();
+    return x > r.x - 8 && x < r.x + r.w + 8 && y > r.y - 20 && y < r.y + r.h + 10;
   }
 
   private inHole(x: number, y: number, spot: DigSpot): boolean {
@@ -160,6 +193,10 @@ export class BankView extends Container {
     if (!spot) return;
     const { x, y } = e.global;
     this.pointer = { x, y };
+    if (this.sluice && this.overSluice(x, y)) {
+      this.actions.openSluice();
+      return;
+    }
     if (!this.inHole(x, y, spot)) return;
     const blocked = this.creek.blockedBy(spot);
     if (blocked === 'boulder') {
@@ -183,7 +220,8 @@ export class BankView extends Container {
     const { x } = e.global;
     const pan = this.panRect();
     const spoil = this.spoilRect();
-    if (x > pan.x - 40) this.actions.shovel('pan');
+    if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
+    else if (x > pan.x - 40) this.actions.shovel('pan');
     else if (x < spoil.x + spoil.w + 30) this.actions.shovel('spoil');
     // Released over the hole: the shovelful drops back in.
   }
@@ -216,6 +254,7 @@ export class BankView extends Container {
     this.drawHole(g, spot);
     this.drawSpoil(g, spot);
     this.drawPan(g);
+    if (this.sluice) this.drawSluice(g, this.sluice);
     this.drawShovel(g);
 
     const fx = this.fx.clear();
@@ -308,11 +347,59 @@ export class BankView extends Container {
 
   private drawPan(g: Graphics): void {
     const p = this.panRect();
-    const hot = this.carrying && this.pointer.x > p.x - 40;
+    const toSluice = this.sluice !== null && this.pointer.x > this.sluiceRect().x - 12;
+    const hot = this.carrying && this.pointer.x > p.x - 40 && !toSluice;
     g.poly([p.x, p.y, p.x + p.w, p.y, p.x + p.w - 18, p.y + p.h, p.x + 18, p.y + p.h]).fill(0x2c2b29).stroke({ width: 3, color: hot ? 0xe6b940 : 0x4b4944 });
     const s = this.spoilRect();
     if (this.carrying && this.pointer.x < s.x + s.w + 30) {
       g.rect(s.x, this.surfaceY - 3, s.w, 3).fill(0xe6b940);
+    }
+  }
+
+  /**
+   * The sluice in miniature, readable at a glance: a trickle, a smooth sheet, or whitewater over
+   * the riffles; gravel heaped in the header; the moss darkening as it loads.
+   */
+  private drawSluice(g: Graphics, sluice: Sluice): void {
+    const r = this.sluiceRect();
+    const events = this.sluiceEvents;
+    const power = events?.power ?? 0;
+    const hot = this.carrying !== null && this.pointer.x > r.x - 12;
+    const x0 = r.x;
+    const y0 = r.y + 22;
+    const x1 = r.x + r.w;
+    const y1 = r.y + r.h;
+    // Box and moss.
+    g.poly([x0, y0 - 8, x1, y1 - 8, x1, y1 + 4, x0, y0 + 4]).fill(0x6b5033).stroke({ width: hot ? 3 : 1.5, color: hot ? 0xe6b940 : 0x3d2c1c });
+    const moss = sluice.mossLoading;
+    g.poly([x0 + 18, y0 - 4 + (y1 - y0) * 0.1, x1 - 4, y1 - 5, x1 - 4, y1 + 1, x0 + 18, y0 + 1 + (y1 - y0) * 0.1])
+      .fill(lerp(0x5f7a3c, 0x1d1a14, moss));
+    // Riffles.
+    for (let i = 1; i <= 6; i++) {
+      const t = i / 7;
+      const x = x0 + (x1 - x0) * t;
+      const y = y0 + (y1 - y0) * t;
+      g.moveTo(x, y - 7).lineTo(x + 2, y + 2).stroke({ width: 2, color: 0x3d2c1c });
+    }
+    // Water sheet: thickness and colour show the operating state.
+    if (power > 0.02) {
+      const depth = 2 + power * 7;
+      const white = events?.state === 'overpowered';
+      g.poly([x0 + 8, y0 - 8 - depth, x1, y1 - 8 - depth * 0.6, x1, y1 - 7, x0 + 8, y0 - 7])
+        .fill({ color: white ? 0xdfeee9 : 0x4f8a8c, alpha: white ? 0.75 : 0.6 });
+      if (white) {
+        for (let i = 0; i < 5; i++) {
+          const t = (this.time * 1.7 + i / 5) % 1;
+          g.circle(x0 + (x1 - x0) * t, y0 - 12 + (y1 - y0) * t - Math.random() * 6, 1.8).fill({ color: 0xffffff, alpha: 0.8 });
+        }
+      }
+    }
+    // Header box with its heap of gravel; overflowing water when jammed.
+    const heap = Math.min(1, sluice.headerVolume / 2);
+    g.rect(x0 - 4, r.y - 2, 26, 28).fill(0x5a4128).stroke({ width: 1.5, color: 0x3d2c1c });
+    if (heap > 0) g.poly([x0 - 2, r.y + 24, x0 + 20, r.y + 24, x0 + 16, r.y + 24 - heap * 26, x0 + 2, r.y + 24 - heap * 22]).fill(0x8b8578);
+    if (sluice.jammed || sluice.clog > 0.5) {
+      for (let i = 0; i < 4; i++) g.circle(x0 - 6 + Math.random() * 34, r.y - 4 - Math.random() * 10, 2).fill({ color: 0xdfeee9, alpha: 0.8 });
     }
   }
 

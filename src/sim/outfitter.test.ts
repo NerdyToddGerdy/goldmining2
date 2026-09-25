@@ -74,7 +74,7 @@ describe('setting up the sluice', () => {
     sluice.feed(LOAD); // Gravel left in the header when it comes down.
     const inMoss = sluice.mossGoldCount;
     expect(inMoss).toBeGreaterThan(0);
-    const concentrate = session.takeDownSluice()!;
+    const concentrate = session.takeDownSluice() as { gold: readonly unknown[] };
     expect(concentrate.gold).toHaveLength(inMoss);
     expect(session.jar.gold).toHaveLength(inMoss);
     expect(session.sluicePlace).toBeNull();

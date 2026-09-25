@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { JAR_CAPACITY, type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
+import { type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
 
 /**
  * Draws the pan and everything in it. The pan's condition is communicated physically:
@@ -290,7 +290,7 @@ export class PanView extends Container {
     if (fill > 0) v.roundRect(3, 107 - 104 * fill, 20, 104 * fill, 8).fill(COLORS.gold);
     v.rect(4, -6, 18, 8).fill(0x6b4f35);
 
-    const jarFill = Math.min(1, session.jar.blackSand / JAR_CAPACITY);
+    const jarFill = Math.min(1, session.jar.blackSand / session.jarCapacity);
     v.roundRect(-58, 50, 40, 60, 6).fill({ color: 0xdfe8e6, alpha: 0.1 }).stroke({ width: 2, color: 0xdfe8e6, alpha: 0.4 });
     if (jarFill > 0) v.roundRect(-55, 107 - 54 * jarFill, 34, 54 * jarFill, 4).fill(COLORS.dark[1]);
 

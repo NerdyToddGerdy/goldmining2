@@ -5,7 +5,7 @@ import type { PanningSession } from './panningSession';
  * where the ground has a sluice site. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice';
+export type GearId = 'sluice' | 'bigJar';
 
 export interface GearItem {
   readonly id: GearId;
@@ -20,6 +20,12 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Hand sluice',
     price: 40,
     description: 'A four-foot box with riffles and miner’s moss. It only sets up where a creek has steady water and a drop: look for creek bends.',
+  },
+  {
+    id: 'bigJar',
+    name: 'Big concentrate jar',
+    price: 10,
+    description: 'Holds three times as much black sand as your jar, so you can save more pans and sluice cleanouts before stopping to pan it down.',
   },
 ];
 

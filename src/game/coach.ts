@@ -1,4 +1,4 @@
-import type { Pan, PanControls, PanStepEvents } from '../sim';
+import type { Pan, PanControls, PanStepEvents, Sluice, SluiceStepEvents } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -73,6 +73,46 @@ export class PanCoach {
     this.revealWarnedAt = this.time;
     this.say(`About ${Math.round(sandLeft * 100)}% of the sand is still in the pan and will hide the gold. Keep washing, or ${usingTouch() ? 'tap Stop & reveal' : 'press R'} again to reveal anyway.`);
     return false;
+  }
+
+  private nudge(message: string): void {
+    this.say(message);
+    this.cooldown = 8;
+  }
+}
+
+/**
+ * Nudges for running the sluice: the machine shows each of these physically first (gravel
+ * heaping at the header, whitewater, a dark heavy mat); the nudge names what the player is seeing.
+ */
+export class SluiceCoach {
+  private backingUp = 0;
+  private recentGoldLost = 0;
+  private toldAboutMoss = false;
+  private cooldown = 0;
+
+  constructor(private readonly say: (message: string) => void) {}
+
+  update(dt: number, sluice: Sluice, events: SluiceStepEvents | null): void {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    this.recentGoldLost = this.recentGoldLost * Math.exp(-dt / 2) + (events?.goldLost ?? 0);
+    this.backingUp = events?.state === 'underpowered' && sluice.headerVolume > 0.6 ? this.backingUp + dt : 0;
+    // A fresh mat after cleanout earns a fresh reminder.
+    if (sluice.mossLoading < 0.3) this.toldAboutMoss = false;
+    if (this.cooldown > 0) return;
+    const water = 'the Water slider';
+    if (sluice.jammed) {
+      this.nudge(usingTouch() ? 'The intake is jammed. Tap the header to rake it clear.' : 'The intake is jammed. Click the header, or press R, to rake it clear.');
+    } else if (events?.state === 'overpowered' && this.recentGoldLost >= 2) {
+      this.recentGoldLost = 0;
+      this.nudge(`Whitewater is sweeping fine gold past the riffles. Close the intake a little with ${water}.`);
+    } else if (this.backingUp > 3) {
+      this.backingUp = 0;
+      this.nudge(`Too little water for this much gravel: it's heaping at the header. Open the intake with ${water}, or shovel slower.`);
+    } else if (!this.toldAboutMoss && sluice.mossLoading > 0.8) {
+      this.toldAboutMoss = true;
+      this.nudge('The moss is dark and heavy with concentrate. Clean it out soon: a full mat lets gold through.');
+    }
   }
 
   private nudge(message: string): void {

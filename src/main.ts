@@ -12,15 +12,18 @@ import {
   type FollowResult,
   type PanStepEvents,
   type ShovelResult,
+  type Sluice,
+  type SluiceStepEvents,
 } from './sim';
-import { BankView } from './game/bankView';
+import { BankView, type ShovelTarget } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
-import { PanCoach } from './game/coach';
+import { PanCoach, SluiceCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
 import { RegionMapView } from './game/regionMapView';
+import { SluiceView } from './game/sluiceView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
 
@@ -69,6 +72,11 @@ async function start(): Promise<void> {
   let topsoilPans = 0;
   let toldAboutTopsoil = false;
   let panLayer: string | null = null;
+  /** The sluice: its intake setting, whether a cleanout is under way, and its last step. */
+  let sluiceFlow = 0.75;
+  let cleaningOut = false;
+  let sluiceEvents: SluiceStepEvents | null = null;
+  const sluiceHere = (): Sluice | null => (spot ? session.sluiceAt(creek.id, spot.id) : null);
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
@@ -78,6 +86,7 @@ async function start(): Promise<void> {
     regionMap.visible = mode === 'region';
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
+    sluiceView.visible = mode === 'sluice';
     townView.visible = mode === 'town';
     scene.visible = panView.visible = mode === 'pan';
     input.enabled = mode === 'pan';
@@ -89,10 +98,18 @@ async function start(): Promise<void> {
     setMode('pan');
   };
 
-  const shovel = (into: 'pan' | 'spoil'): void => {
+  const shovel = (into: ShovelTarget): void => {
     if (!spot || mode !== 'bank') return;
+    const sluice = into === 'sluice' ? sluiceHere() : null;
+    if (into === 'sluice') {
+      if (!sluice) return;
+      if (cleaningOut) return hud.toast('Finish the cleanout before feeding the sluice again.');
+      if (sluice.feedBlocked === 'jammed') return hud.toast('The intake is jammed. Rake it clear first: tap the sluice for a close look.');
+      if (sluice.feedBlocked === 'full') return hud.toast('The header is brim full. Give the water a moment to carry it down.');
+    }
     const highWaterBefore = creek.highWaterEvents;
-    const result: ShovelResult = creek.shovel(spot.id, into);
+    // A shovelful for the sluice is dug just like one for the pan; it just lands in the header.
+    const result: ShovelResult = creek.shovel(spot.id, into === 'spoil' ? 'spoil' : 'pan');
     if (!result.ok) {
       hud.toast(BLOCKED_MESSAGES[result.blocked]);
       return;
@@ -104,7 +121,9 @@ async function start(): Promise<void> {
       const lead = region.clueFound();
       hud.toast(`Your shovel turns something up. ${lead.note} It points to ${lead.name}. Noted in your notebook (M).`);
     }
-    if (result.load) {
+    if (result.load && sluice) {
+      sluice.feed(result.load);
+    } else if (result.load) {
       session.startPan(result.load);
       panSpot = spot;
       panLayer = result.from;
@@ -116,6 +135,10 @@ async function start(): Promise<void> {
     const pan = session.pan;
     if (!pan || pan.phase !== 'revealed') return;
     const collected = session.collect(saveBlackSand);
+    if (collected === null) {
+      hud.toast("Your jar is full. Dump this pan's black sand, then pan the jar down before saving more (a bigger jar is sold in town).");
+      return;
+    }
     const from = panSpot;
     panSpot = null;
     if (pan.kind !== 'gravel' || !from) return;
@@ -166,17 +189,29 @@ async function start(): Promise<void> {
   };
   const regionMap = new RegionMapView(region, (place) => (place.kind === 'town' ? walkToTown() : goToCreek(place.creek)));
   const creekMap = new CreekMapView(creek, pickSpot);
-  const bankView = new BankView(creek, { shovel, pry, bail });
+  const openSluice = (): void => {
+    if (!sluiceHere()) return;
+    sluiceView.reset();
+    setMode('sluice');
+  };
+  const rakeSluice = (): void => {
+    const sluice = sluiceHere();
+    if (!sluice || sluice.clog <= 0) return;
+    if (sluice.rake()) hud.toast('The jam breaks loose and the water runs again.');
+  };
+  const bankView = new BankView(creek, { shovel, pry, bail, openSluice });
+  const sluiceView = new SluiceView({ rake: rakeSluice });
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, townView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, townView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
     regionMap.layout(width, height);
     creekMap.layout(width, height);
     bankView.layout(width, height);
+    sluiceView.layout(width, height);
     townView.layout(width, height);
     scene.resize(width, height);
     panView.layout(width, height, width / 2, scene.waterTop + (height - scene.waterTop) * 0.45);
@@ -191,6 +226,53 @@ async function start(): Promise<void> {
     },
     collect,
     backToHole: () => setMode('bank'),
+    openSluice,
+    rakeSluice,
+    setWater: (flow) => (sluiceFlow = flow),
+    setUpSluice: () => {
+      if (!spot || mode !== 'bank') return;
+      const before = session.sluicePlace;
+      const result = session.setUpSluice(creek.id, spot);
+      if (result === 'jarFull') {
+        hud.toast("Your jar can't hold the sluice's moss, so it can't come down yet. Pan some of the jar first.");
+        return;
+      }
+      if (result !== 'set') return;
+      cleaningOut = false;
+      const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
+      hud.toast(
+        `${moved ? `You take the sluice down at ${region.creek(before.creekId).profile.name}, wash its moss into your jar, and carry it here. ` : ''}` +
+          'The sluice is set in the creek beside this spot. Drag shovelfuls into its header (F), or tap it for a close look.',
+      );
+    },
+    takeDownSluice: () => {
+      if (!sluiceHere()) return;
+      if (session.takeDownSluice() === 'jarFull') {
+        hud.toast("Your jar can't hold the sluice's moss, so it can't come down yet. Pan some of the jar first.");
+        return;
+      }
+      cleaningOut = false;
+      setMode('bank');
+      hud.toast('You take the sluice down and pack it. Its moss is washed into your jar; gravel left in the header is tipped out.');
+    },
+    startCleanout: () => {
+      if (!sluiceHere()) return;
+      cleaningOut = true;
+      hud.toast('Feeding stopped. Let clean water rinse the gravel off the riffles, then lift the mat. Too short leaves gravel to pan; too long strips fines.');
+    },
+    cancelCleanout: () => (cleaningOut = false),
+    liftMat: () => {
+      const sluice = sluiceHere();
+      if (!sluice || !cleaningOut) return;
+      if (!session.fitsInJar(sluice.matVolume)) {
+        hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J); the mat can wait in the rinse.');
+        return;
+      }
+      session.addConcentrate(sluice.liftMat());
+      cleaningOut = false;
+      sluiceView.reset();
+      hud.toast('The mat comes up dark and heavy. You wash it into your jar: pan the concentrate to see what the sluice caught.');
+    },
     setTilt: (tilt) => (input.tilt = tilt),
     setShake: (held) => (input.shakeHeld = held),
     shovel,
@@ -207,7 +289,8 @@ async function start(): Promise<void> {
     followLead: (leadId) => hud.toast(describeFollow(region.follow(leadId))),
     buyGear: (id) => {
       const result = buyGear(session, id);
-      if (result === 'bought') hud.toast('A hand sluice, riffles and moss and all. It only sets up where a creek has steady water and a drop: look for a creek bend.');
+      if (result === 'bought' && id === 'sluice') hud.toast('A hand sluice, riffles and moss and all. It only sets up where a creek has steady water and a drop: look for a creek bend.');
+      else if (result === 'bought') hud.toast('A big concentrate jar: three times the room for black sand.');
       else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
     },
     sell: () => {
@@ -254,7 +337,8 @@ async function start(): Promise<void> {
   if (pan && pan.phase !== 'emptied') setMode('pan');
   else if (screen === 'town') walkToTown();
   else if (screen === 'region') setMode('region');
-  else if ((screen === 'bank' || screen === 'pan') && spot) setMode('bank');
+  else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice') && spot) setMode('bank');
   else setMode('creek');
   if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
 
@@ -281,10 +365,39 @@ async function start(): Promise<void> {
     });
   }
 
+  const sluiceCoach = new SluiceCoach((message) => hud.toast(message));
+
   let accumulator = 0;
+  let sluiceAccumulator = 0;
   app.ticker.add((ticker) => {
     const dt = Math.min(ticker.deltaMS / 1000, 0.1);
     const controls = input.sample(dt);
+
+    // The sluice runs whenever the player is at its spot (digging, watching it, or panning beside it).
+    const sluice = sluiceHere();
+    let stepped: SluiceStepEvents | null = null;
+    if (sluice && (mode === 'bank' || mode === 'sluice' || mode === 'pan')) {
+      sluiceAccumulator += dt;
+      let released = 0;
+      let goldLost = 0;
+      let blackLost = 0;
+      let glints = 0;
+      while (sluiceAccumulator >= SIM_DT) {
+        sluiceAccumulator -= SIM_DT;
+        const e = sluice.step(SIM_DT, { flow: sluiceFlow });
+        released += e.released;
+        goldLost += e.goldLost;
+        blackLost += e.blackLost;
+        glints += e.glints;
+        stepped = { ...e, released, goldLost, blackLost, glints };
+      }
+      if (stepped) sluiceEvents = stepped;
+      if (mode !== 'pan') sluiceCoach.update(dt, sluice, stepped);
+    } else if (!sluice) {
+      sluiceEvents = null;
+      if (mode === 'sluice') setMode('bank');
+    }
+    bankView.setSluice(sluice, stepped);
 
     let events: PanStepEvents | null = null;
     const pan = session.pan;
@@ -308,6 +421,8 @@ async function start(): Promise<void> {
       panView.update(dt, session, controls, events);
     } else if (mode === 'bank') {
       bankView.update(dt);
+    } else if (mode === 'sluice' && sluice) {
+      sluiceView.update(dt, sluice, stepped, sluiceFlow);
     } else if (mode === 'region') {
       regionMap.update(creek);
     } else if (mode === 'town') {
@@ -315,7 +430,20 @@ async function start(): Promise<void> {
     } else {
       creekMap.update(dt);
     }
-    hud.update(dt, { mode, session, region, creek, spot, selectedSpot: creekMap.selected, controls, events });
+    hud.update(dt, {
+      mode,
+      session,
+      region,
+      creek,
+      spot,
+      selectedSpot: creekMap.selected,
+      controls,
+      events,
+      sluice,
+      sluiceEvents,
+      sluiceFlow,
+      cleaningOut,
+    });
 
     sinceSave += dt;
     if (sinceSave >= AUTOSAVE_SECONDS) {

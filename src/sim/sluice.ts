@@ -74,6 +74,8 @@ export const SLUICE_TUNING = {
   lightTrap: 0.03,
   /** Moss volume; loading is (black + light held) / capacity. */
   mossCapacity: 0.5,
+  /** An overloaded mat holds at most this multiple of its capacity; past that, sand washes straight through. */
+  mossOverfill: 1.2,
   /** Above this loading the moss starts letting material through... */
   mossFullFrom: 0.6,
   /** ...until, full, it misses this share of what it would have caught. */
@@ -99,6 +101,9 @@ export const SLUICE_TUNING = {
   clayGoldCarry: 0.6,
   /** How fast water clears material off the riffles. */
   bedClear: 1.5,
+  /** Most gravel the riffles can hold; lifting the mat brings up this share of what's there. */
+  bedHold: 0.5,
+  bedLift: 0.3,
   glintRate: 0.6,
 } as const;
 
@@ -283,15 +288,18 @@ export class Sluice {
     return wasJammed && !this.jammed;
   }
 
+  /** How much the mat would bring up if lifted now: the moss, what it holds, and gravel still on the riffles. */
+  get matVolume(): number {
+    const T = SLUICE_TUNING;
+    return this.moss.black + this.moss.light + Math.min(this.bedLoad, T.bedHold) * T.bedLift;
+  }
+
   /**
    * Lift the moss and wash it into a tub. Whatever is still on the riffles comes with it, so a
    * short rinse means more gravel to pan. The moss goes back in fresh.
    */
   liftMat(): Concentrate {
-    const concentrate = {
-      blackSand: this.moss.black + this.moss.light + this.bedLoad * 0.3,
-      gold: this.moss.gold,
-    };
+    const concentrate = { blackSand: this.matVolume, gold: this.moss.gold };
     this.moss = { black: 0, light: 0, gold: [] };
     this.bedLoad = 0;
     return concentrate;
@@ -344,9 +352,11 @@ export class Sluice {
       return false;
     });
 
-    const blackCaught = black * T.blackCapture * (1 - 0.8 * over) * (1 - fullness);
+    // An overloaded mat can't hold any more sand: the excess washes on through.
+    const room = Math.max(0, T.mossCapacity * T.mossOverfill - this.moss.black - this.moss.light);
+    const blackCaught = Math.min(room, black * T.blackCapture * (1 - 0.8 * over) * (1 - fullness));
     this.moss.black += blackCaught;
-    this.moss.light += light * T.lightTrap * (1 - fullness);
+    this.moss.light += Math.min(room - blackCaught, light * T.lightTrap * (1 - fullness));
     this.lostBlack += black - blackCaught;
     this.bedLoad += released;
     return { volume: released, goldLost, blackLost: black - blackCaught };
