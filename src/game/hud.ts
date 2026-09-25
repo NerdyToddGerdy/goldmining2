@@ -525,10 +525,21 @@ export class Hud {
       // Words, not numbers: the moss and header are read by eye, and stay approximate.
       const sl = state.sluice;
       const moss = sl.mossLoading;
+      const elapsed = sl.elapsed;
+      const runLabel =
+        moss >= 0.85 && elapsed > 120 ? 'overdue cleanout' :
+        elapsed < 60 ? 'short run' :
+        elapsed < 300 ? 'good run' :
+        elapsed < 600 ? 'long run' :
+        'overdue cleanout';
+      const tailings = sl.tailingsLossRate;
+      const tailingsLabel = tailings > 0.65 ? 'high' : tailings > 0.4 ? 'some' : 'low';
       rows = [
         ['Running', state.cleaningOut ? 'rinsing' : (state.sluiceEvents?.state ?? 'still')],
         ['Header', sl.jammed ? 'jammed' : sl.clog > 0.3 ? 'clogging' : sl.headerVolume > 1 ? 'backing up' : sl.headerVolume > 0.05 ? 'feeding' : 'empty'],
         ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
+        ['Run duration', runLabel],
+        ['Tailings loss', tailingsLabel],
       ];
     } else if (mode === 'bank' && spot) {
       const layer = creek.currentLayer(spot);

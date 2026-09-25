@@ -202,6 +202,12 @@ export class Sluice {
     return this.moss.gold.length;
   }
 
+  /** Fraction of processed black sand lost to tailings. 0 if nothing has run through yet. */
+  get tailingsLossRate(): number {
+    const total = this.lostBlack + this.moss.black + this.moss.light;
+    return total > 0 ? this.lostBlack / total : 0;
+  }
+
   power(controls: SluiceControls): number {
     const T = SLUICE_TUNING;
     return clamp01(controls.flow) * clamp01(this.site.flow) * (T.slopeBase + T.slopePerSlope * clamp01(this.site.slope));
