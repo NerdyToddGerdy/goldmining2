@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Browser game that will be hosted on GitHub Pages (https://nerdytoddgerdy.github.io/goldmining2/) and published on itch.io (HTML5 zip upload). Pages is not set up yet: the repo is private, and Pages on a private repo needs a paid GitHub plan. Stack: **TypeScript + Vite + PixiJS v8**, tests with **Vitest**. Pinned to Vite 6 because the local Node is 20.17; Vite 7+ needs Node ≥20.19.
+Browser game, live on GitHub Pages at https://nerdytoddgerdy.github.io/goldmining2/ and planned for itch.io (HTML5 zip upload). `.github/workflows/deploy.yml` tests, builds, and deploys on every push to `main`, so a failing test blocks the deploy. The repo is public; commits use the GitHub no-reply email (set in this repo's git config). Stack: **TypeScript + Vite + PixiJS v8**, tests with **Vitest**. Pinned to Vite 6 because the local Node is 20.17; Vite 7+ needs Node ≥20.19.
 
 | Command | Does |
 |---|---|
