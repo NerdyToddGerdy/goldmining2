@@ -48,6 +48,12 @@ async function start(): Promise<void> {
   const host = document.getElementById('game');
   if (!host) throw new Error('Missing #game element');
 
+  // The first click is also the user gesture browsers require before audio can play. Listen right
+  // away, before the renderer loads, so a quick click on a slow connection isn't lost.
+  const overlay = document.getElementById('start');
+  if (overlay && matchMedia('(pointer: coarse)').matches) overlay.textContent = 'Tap to start at the creek';
+  overlay?.addEventListener('click', () => overlay.remove(), { once: true });
+
   const app = new Application();
   // Render at the screen's real pixel density so phones and tablets are sharp; cap at 2x for speed.
   await app.init({
@@ -452,10 +458,6 @@ async function start(): Promise<void> {
     }
   });
 
-  // The first click is also the user gesture browsers require before audio can play.
-  const overlay = document.getElementById('start');
-  if (overlay && matchMedia('(pointer: coarse)').matches) overlay.textContent = 'Tap to start at the creek';
-  overlay?.addEventListener('click', () => overlay.remove(), { once: true });
 
   const fullscreen = document.getElementById('fullscreen');
   if (fullscreen) {
