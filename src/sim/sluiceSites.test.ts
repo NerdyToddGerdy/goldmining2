@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Creek, HOME_CREEK_PROFILE } from './creek';
 import { PanningSession } from './panningSession';
+import { needsPump } from './sluice';
 import { LEAD_SOURCES, Region, REGION_TUNING, type Lead, type LeadSource } from './region';
 import { createRng } from './rng';
 import { createSave, loadSave } from './save';
@@ -22,7 +23,8 @@ describe('sluice sites', () => {
     const region = new Region(createRng(2));
     let bends = 0;
     let narrows = 0;
-    for (let i = 0; i < 200; i++) {
+    let thin = 0;
+    for (let i = 0; i < 400; i++) {
       const result = region.follow(region.clueFound().id);
       if (!result.found) continue;
       const sites = result.creek.sluiceSpots;
@@ -34,14 +36,19 @@ describe('sluice sites', () => {
           expect(spot.gully).toBeNull();
           expect(spot.sluiceSite!.slope).toBeGreaterThan(0);
           expect(spot.sluiceSite!.flow).toBeGreaterThan(0.5);
+          expect(needsPump(spot.sluiceSite!)).toBe(false);
         }
       } else {
         narrows++;
-        expect(sites).toHaveLength(0);
+        // At most a thin-water bench, which needs a pump.
+        expect(sites.length).toBeLessThanOrEqual(1);
+        for (const spot of sites) expect(needsPump(spot.sluiceSite!)).toBe(true);
+        if (sites.length) thin++;
       }
     }
     expect(bends).toBeGreaterThan(20);
     expect(narrows).toBeGreaterThan(bends);
+    expect(thin / narrows).toBeCloseTo(REGION_TUNING.pumpSiteChance, 1);
   });
 
   it('are hinted at by leads: better sources mention real bars more and invent them less', () => {
@@ -97,9 +104,12 @@ describe('sluice sites', () => {
     region.restockOffers(0);
     const session = new PanningSession(rng);
     const v4 = JSON.parse(JSON.stringify(createSave(region, session, { screen: 'creek', creekId: region.home.id, spotId: null }, 0)));
+    delete v4.session.pumpFuel;
+    delete v4.session.fuelCans;
     // What version 3 wrote: no sluice fields anywhere.
     for (const creek of v4.region.creeks) {
       delete creek.profile.sluiceSites;
+      delete creek.profile.pumpSites;
       for (const spot of creek.spots) delete spot.sluiceSite;
     }
     for (const lead of [...v4.region.leads, ...v4.region.offers.map((o: { lead: unknown }) => o.lead)]) {

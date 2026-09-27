@@ -1,5 +1,7 @@
 import {
+  FUEL_CAN,
   OUTFITTER,
+  SLUICE_TUNING,
   quoteSale,
   type GearId,
   type DigSpot,
@@ -43,6 +45,8 @@ export interface HudActions {
   openSluice(): void;
   // Sluice
   setWater(flow: number): void;
+  setSlope(slope: number): void;
+  refuelPump(): void;
   rakeSluice(): void;
   startCleanout(): void;
   liftMat(): void;
@@ -58,6 +62,7 @@ export interface HudActions {
   sell(): void;
   buyLead(leadId: number): void;
   buyGear(id: GearId): void;
+  buyFuel(): void;
   // Region
   followLead(leadId: number): void;
 }
@@ -111,6 +116,8 @@ const SOURCE_NAMES: Record<LeadSource, string> = {
   mapFragment: 'Map fragment',
 };
 
+const SLOPE_WORDS = { shallow: 'too shallow', good: 'good', steep: 'too steep' } as const;
+
 const LAYER_NAMES = { overburden: 'topsoil', gravel: 'gravel', payStreak: 'pay streak', bedrock: 'bedrock cracks' } as const;
 
 /**
@@ -127,6 +134,8 @@ export class Hud {
   private readonly tiltLabel: HTMLElement;
   private readonly water: HTMLElement;
   private readonly waterInput: HTMLInputElement;
+  private readonly slope: HTMLElement;
+  private readonly slopeInput: HTMLInputElement;
   private readonly actions: HTMLElement;
   private readonly result: HTMLElement;
   private readonly inspect: HTMLElement;
@@ -160,6 +169,7 @@ export class Hud {
           <button type="button" class="hud-shake">Sift</button>
         </span>
         <label class="hud-tilt hud-water" hidden>Water <input type="range" min="0" max="1" step="0.01" value="0.6" /></label>
+        <label class="hud-tilt hud-slope" hidden>Slope <input type="range" min="0" max="1" step="0.01" value="0.5" /></label>
         <span class="hud-actions"></span>
         <button type="button" class="hud-inspect-toggle" title="Inspection panel (I)">Inspect (I)</button>
       </div>`;
@@ -172,6 +182,9 @@ export class Hud {
     this.water = this.root.querySelector('.hud-water') as HTMLElement;
     this.waterInput = this.water.querySelector('input') as HTMLInputElement;
     this.waterInput.addEventListener('input', () => on.setWater(Number(this.waterInput.value)));
+    this.slope = this.root.querySelector('.hud-slope') as HTMLElement;
+    this.slopeInput = this.slope.querySelector('input') as HTMLInputElement;
+    this.slopeInput.addEventListener('input', () => on.setSlope(Number(this.slopeInput.value)));
     this.actions = this.root.querySelector('.hud-actions') as HTMLElement;
     this.result = this.root.querySelector('.hud-result') as HTMLElement;
     this.inspect = this.root.querySelector('.hud-inspect') as HTMLElement;
@@ -198,6 +211,7 @@ export class Hud {
       target.blur();
       const id = Number(target.dataset.lead);
       if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
+      if (target.dataset.action === 'fuel') this.on.buyFuel();
       if (target.dataset.action === 'buy') this.on.buyLead(id);
       if (target.dataset.action === 'follow') this.on.followLead(id);
     });
@@ -248,6 +262,14 @@ export class Hud {
     this.tiltLabel.hidden = classifying;
     this.water.hidden = !(state.sluice && (mode === 'bank' || mode === 'sluice'));
     if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(state.sluiceFlow);
+    // Adjustable legs: the slider covers only as far as the legs reach at this site.
+    this.slope.hidden = this.water.hidden || !state.sluice?.kit.legs;
+    if (!this.slope.hidden && state.sluice && document.activeElement !== this.slopeInput) {
+      const { min, max } = state.sluice.slopeRange;
+      this.slopeInput.min = String(min);
+      this.slopeInput.max = String(max);
+      this.slopeInput.value = String(state.sluice.slope);
+    }
     if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
     // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
     const siftedOut = classifying
@@ -327,6 +349,7 @@ export class Hud {
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
+        list.push(...this.refuelButton(state));
       } else if (spot.sluiceSite && session.owns('sluice')) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
@@ -357,6 +380,7 @@ export class Hud {
       }
       const list: [string, () => void][] = [];
       if (state.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.rakeSluice()]);
+      list.push(...this.refuelButton(state));
       if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
       list.push(['Clean out the moss (C)', () => this.on.startCleanout()]);
       list.push(...this.jarButton(session));
@@ -383,7 +407,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${session.owns('sluice')}:${session.owns('bigJar')}:${JSON.stringify(session.sluicePlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -397,7 +421,10 @@ export class Hud {
       });
       const gear = OUTFITTER.map((item) => {
         const place = session.sluicePlace;
-        const status = !session.owns(item.id)
+        const base = item.requires ? OUTFITTER.find((g) => g.id === item.requires)! : null;
+        const status = base && !session.owns(base.id)
+          ? `<span class="small">Fits the ${base.name.toLowerCase()}: buy that first.</span>`
+          : !session.owns(item.id)
           ? `<button type="button" data-action="gear" data-gear="${item.id}" ${session.cash >= item.price ? '' : 'disabled'}>Buy for $${item.price}</button>`
           : item.id !== 'sluice'
             ? '<span class="found">Yours.</span>'
@@ -406,6 +433,13 @@ export class Hud {
               : '<span class="found">Yours. Packed and ready to set up.</span>';
         return `<div class="lead"><b>${item.name}</b><p class="small">${item.description}</p>${status}</div>`;
       });
+      if (session.owns('pump')) {
+        const full = session.fuelCans >= FUEL_CAN.carryLimit;
+        gear.push(
+          `<div class="lead"><b>${FUEL_CAN.name}</b><p class="small">One can fills the pump's tank. You're carrying ${session.fuelCans} of ${FUEL_CAN.carryLimit}.</p>` +
+            `<button type="button" data-action="fuel" ${session.cash >= FUEL_CAN.price && !full ? '' : 'disabled'}>${full ? 'Can’t carry more' : `Buy for $${FUEL_CAN.price}`}</button></div>`,
+        );
+      }
       const tabs = `<div class="tabs" role="tablist">${(
         [
           ['outfitter', 'Outfitter', ''],
@@ -433,6 +467,13 @@ export class Hud {
       const open = region.leads.filter((l) => l.status === 'open').length;
       this.panel.innerHTML = `<h3>Notebook <span class="count">${open ? `${open} to follow` : region.leads.length}</span></h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
     }
+  }
+
+  /** Offered once the tank is low enough for a can to be worth pouring in. */
+  private refuelButton(state: HudState): [string, () => void][] {
+    const pump = state.sluice?.usesPump ? state.sluice.kit.pump : null;
+    if (!pump || state.session.fuelCans <= 0 || pump.fuel > SLUICE_TUNING.pumpTank * 0.75) return [];
+    return [[`Refuel the pump (G) · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`, () => this.on.refuelPump()]];
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {
@@ -464,6 +505,7 @@ export class Hud {
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'sluice') {
       if (key === 'r') this.on.rakeSluice();
+      else if (key === 'g') this.on.refuelPump();
       else if (key === 'f' && !state.cleaningOut) this.on.shovel('sluice');
       else if (key === 'c' && !state.cleaningOut) this.on.startCleanout();
       else if (key === 'l' && state.cleaningOut) this.on.liftMat();
@@ -480,6 +522,7 @@ export class Hud {
       else if (key === 'c' && state.classifier) this.on.openClassifier();
       else if (key === 'f' && state.sluice) this.on.shovel('sluice');
       else if (key === 'v' && state.sluice) this.on.openSluice();
+      else if (key === 'g' && state.sluice) this.on.refuelPump();
       else if (key === 'p') this.on.shovel('pan');
       else if (key === 't') this.on.shovel('spoil');
       else if (key === 'b') this.on.pry();
@@ -539,9 +582,15 @@ export class Hud {
         ['Running', state.cleaningOut ? 'rinsing' : (state.sluiceEvents?.state ?? 'still')],
         ['Header', sl.jammed ? 'jammed' : sl.clog > 0.3 ? 'clogging' : sl.headerVolume > 1 ? 'backing up' : sl.headerVolume > 0.05 ? 'feeding' : 'empty'],
         ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
+        ['Slope', SLOPE_WORDS[sl.slopeState()]],
         ['Run duration', runLabel],
         ['Tailings loss', tailingsLabel],
       ];
+      const pump = sl.usesPump ? sl.kit.pump : null;
+      if (pump) {
+        const fuel = pump.fuel / SLUICE_TUNING.pumpTank;
+        rows.push(['Pump', fuel <= 0 ? 'out of fuel' : fuel < 0.15 ? 'sputtering' : fuel < 0.5 ? 'running, tank half' : 'running'], ['Fuel cans', String(session.fuelCans)]);
+      }
     } else if (mode === 'bank' && spot) {
       const layer = creek.currentLayer(spot);
       const dug = spot.layers.reduce((n, l) => n + l.initialLoads - l.loads, 0);

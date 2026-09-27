@@ -1,12 +1,13 @@
 import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
-import type { DigSpot, GroundSign, Creek } from '../sim';
+import { needsPump, type DigSpot, type FieldNotes, type GroundSign, type Creek } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
  * Top-down view of a creek stretch. Ground signs are drawn physically at each spot (gravel bars
  * on inside bends, black-sand streaks, moss, exposed bedrock, trapping boulders), and dry side
  * gullies join the creek. Hovering names what the player notices and shows their own field
- * notes (pans and colour kept); it never reveals richness.
+ * notes (pans and colour kept, in words); it never reveals richness. Flecks of gold by a spot's
+ * stake show the notes at a glance, so a trail of colour along the creek can be read off the map.
  */
 
 export const SIGN_NAMES: Record<GroundSign, string> = {
@@ -16,6 +17,37 @@ export const SIGN_NAMES: Record<GroundSign, string> = {
   mossLine: 'moss on the high-water rocks',
   boulderTrap: 'gravel packed behind a boulder',
 };
+
+/** Colour per pan, in words, with how many flecks to draw for it. Thresholds in mg a pan. */
+const COLOUR_WORDS: readonly [number, string, number][] = [
+  [0.01, 'no colour', 0],
+  [1, 'a few specks', 1],
+  [3, 'poor colour', 1],
+  [7, 'fair colour', 2],
+  [15, 'good colour', 3],
+  [Infinity, 'rich colour', 4],
+];
+
+function colourOf(mgPerPan: number): { word: string; flecks: number } {
+  const [, word, flecks] = COLOUR_WORDS.find(([below]) => mgPerPan < below)!;
+  return { word, flecks };
+}
+
+/** The field notes as a prospector would jot them: pans, colour in words, and how it changes with depth. */
+export function describeNotes(notes: FieldNotes): string {
+  const pans = `${notes.pans} pan${notes.pans === 1 ? '' : 's'}`;
+  const colour = colourOf(notes.mg / notes.pans).word;
+  const { shallow, deep } = notes;
+  let trend = '';
+  if (shallow && deep) {
+    const s = shallow.mg / shallow.pans;
+    const d = deep.mg / deep.pans;
+    trend = d > s * 1.5 + 0.3 ? ' Richer deeper down.' : d < s * 0.67 ? ' Thinner deeper down.' : ' About the same deep as shallow.';
+  } else if (shallow) {
+    trend = ' Not panned deep yet.';
+  }
+  return `Your notes: ${pans}, ${colour}.${trend}`;
+}
 
 const BANK = 0x5d5a38;
 const WATER = 0x2f5a5e;
@@ -137,12 +169,20 @@ export class CreekMapView extends Container {
       }
     }
 
-    // A sluice site: a steady riffle drop in the channel beside the spot.
+    // A sluice site: a steady riffle drop in the channel beside the spot. A thin-water one shows
+    // a single faint ripple over a dry bench.
     if (spot.sluiceSite) {
       const waterY = this.creekY(p.x) + 17;
-      for (let i = 0; i < 3; i++) {
-        g.moveTo(p.x - 14 + i * 9, waterY - 8).lineTo(p.x - 8 + i * 9, waterY + 8).stroke({ width: 2, color: 0xdfeee9, alpha: 0.7 });
+      const thin = needsPump(spot.sluiceSite);
+      for (let i = 0; i < (thin ? 1 : 3); i++) {
+        g.moveTo(p.x - 14 + i * 9, waterY - 8).lineTo(p.x - 8 + i * 9, waterY + 8).stroke({ width: 2, color: 0xdfeee9, alpha: thin ? 0.35 : 0.7 });
       }
+    }
+
+    // Gold flecks by the stake: the field notes, read at a glance.
+    if (spot.notes && spot.notes.pans > 0) {
+      const { flecks } = colourOf(spot.notes.mg / spot.notes.pans);
+      for (let i = 0; i < flecks; i++) g.circle(p.x + 12 + i * 5, p.y - 20 + (i % 2) * 4, 2).fill(0xf3d77a);
     }
 
     const workedOut = this.creek.isWorkedOut(spot);
@@ -179,14 +219,18 @@ export class CreekMapView extends Container {
     this.tooltip.visible = this.tooltipBg.visible = spot !== null;
     if (!spot) return;
     const state = this.creek.isWorkedOut(spot) ? 'Worked out.' : spot.spoil > 0 || spot.layers.some((l) => l.loads < l.initialLoads) ? 'You have dug here.' : 'Undug.';
-    const notes = spot.notes ? `\nYour notes: ${spot.notes.pans} pan${spot.notes.pans === 1 ? '' : 's'}, ${(spot.notes.mg / spot.notes.pans).toFixed(1)} mg a pan.` : '';
+    const notes = spot.notes && spot.notes.pans > 0 ? `\n${describeNotes(spot.notes)}` : '';
     if (spot.gully) {
       const traced = spot.gully.traced ? '\nYou traced its colour upstream.' : '';
       this.tooltip.text = `Side gully: a dry wash comes down here. Test-pan its floor to see if colour comes from up there.${notes}${traced}\n${state} ${action}`;
     } else {
       const index = this.creek.creekSpots.indexOf(spot) + 1;
       const noticed = spot.signs.length ? spot.signs.map((s) => SIGN_NAMES[s]).join(', ') : 'nothing stands out';
-      const sluice = spot.sluiceSite ? '\nSteady water and a good drop here: room for a sluice.' : '';
+      const sluice = !spot.sluiceSite
+        ? ''
+        : needsPump(spot.sluiceSite)
+          ? '\nRoom and a drop for a sluice, but the creek runs thin here: it would need a pump.'
+          : '\nSteady water and a good drop here: room for a sluice.';
       this.tooltip.text = `Spot ${index}: ${noticed}.${sluice}${notes}\n${state} ${action}`;
     }
     const p = this.screenPosition(spot);

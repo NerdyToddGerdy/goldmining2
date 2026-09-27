@@ -188,3 +188,58 @@ describe('cleanout into the concentrate jar', () => {
     expect(session.canPanConcentrate).toBe(true);
   });
 });
+
+describe('sluice upgrades and slope', () => {
+  const kitted = (improvedMat: boolean, slope = 0.5) =>
+    (seed: number): Run => {
+      const site = { slope, flow: 1 };
+      const sluice = new Sluice(createRng(seed), site, undefined, { improvedMat, legs: false, pump: null });
+      const caught: GoldPiece[] = [];
+      for (let i = 0; i < 16; i++) {
+        sluice.feed(LOAD);
+        for (let t = 0; t < 2.5; t += DT) sluice.step(DT, { flow: 0.75 });
+        if (i % 8 === 7) {
+          for (let t = 0; t < 3; t += DT) sluice.step(DT, { flow: 0.75 });
+          caught.push(...sluice.liftMat().gold);
+        }
+      }
+      return { sluice, caught, jams: 0, seconds: 0 };
+    };
+
+  it('a riffle insert catches more fine gold', () => {
+    const fines = (improved: boolean) => {
+      let caught = 0;
+      let fed = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        const r = kitted(improved)(seed);
+        caught += r.caught.filter((p) => p.size === 'fine').length;
+        fed += r.caught.filter((p) => p.size === 'fine').length + r.sluice.lost.filter((p) => p.size === 'fine').length;
+      }
+      return caught / fed;
+    };
+    expect(fines(true)).toBeGreaterThan(fines(false) + 0.04);
+  });
+
+  it('loses gold on a box set too flat or too steep', () => {
+    const good = average(kitted(false, 0.5));
+    const flat = average(kitted(false, 0.05));
+    const steep = average(kitted(false, 0.98));
+    expect(flat.recovery).toBeLessThan(good.recovery - 0.05);
+    expect(steep.recovery).toBeLessThan(good.recovery - 0.05);
+  });
+
+  it('names the slope, and only legs change it, within reach of the site', () => {
+    const plain = new Sluice(createRng(1), { slope: 0.9, flow: 1 });
+    expect(plain.slopeState()).toBe('steep');
+    plain.setSlope(0.5);
+    expect(plain.slope).toBe(0.9);
+    const legged = new Sluice(createRng(1), { slope: 0.9, flow: 1 }, undefined, { improvedMat: false, legs: true, pump: null });
+    legged.setSlope(0.5);
+    expect(legged.slope).toBe(0.5);
+    expect(legged.slopeState()).toBe('good');
+    legged.setSlope(0);
+    expect(legged.slope).toBeCloseTo(0.9 - SLUICE_TUNING.legsReach);
+    const flat = new Sluice(createRng(1), { slope: 0.1, flow: 1 });
+    expect(flat.slopeState()).toBe('shallow');
+  });
+});

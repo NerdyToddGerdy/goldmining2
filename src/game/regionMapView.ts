@@ -4,21 +4,13 @@ import type { Creek, Region } from '../sim';
 /**
  * The region as a hand-drawn drainage map: the river, the Home Creek, each stretch found by
  * following a lead, and the town. Click a place to walk there.
+ *
+ * Found stretches are tributaries spaced evenly along the river, in the order found, in staggered
+ * rows upstream. The spacing tightens and the labels shrink as more are found, so there is no
+ * fixed limit on how many fit. (Claim fees, not the map, are what should keep the count sensible.)
  */
 
 export type RegionPlace = { readonly kind: 'creek'; readonly creek: Creek } | { readonly kind: 'town' };
-
-/** Map positions (fractions of the view) for found stretches, in the order they are found. */
-const CREEK_SLOTS: readonly (readonly [number, number])[] = [
-  [0.28, 0.3],
-  [0.52, 0.24],
-  [0.12, 0.34],
-  [0.4, 0.14],
-  [0.6, 0.42],
-  [0.22, 0.48],
-  [0.64, 0.12],
-  [0.08, 0.16],
-];
 
 const PAPER = 0xd9c9a3;
 const INK = 0x4a3a28;
@@ -31,6 +23,9 @@ export class RegionMapView extends Container {
   private height_ = 600;
   private hovered: RegionPlace | null = null;
   private labelKey = '';
+  /** Screen positions of each creek, recomputed when the size or the creek count changes. */
+  private positions = new Map<Creek, { x: number; y: number }>();
+  private positionKey = '';
 
   constructor(
     private readonly region: Region,
@@ -89,10 +84,14 @@ export class RegionMapView extends Container {
     if (key === this.labelKey) return;
     this.labelKey = key;
     this.labels.removeChildren().forEach((c) => c.destroy());
-    const style = { fill: INK, fontSize: 15, fontFamily: 'Georgia, serif' };
+    const found = this.region.creeks.length - 1;
+    const size = found > 14 ? 11 : found > 8 ? 13 : 15;
+    const style = { fill: INK, fontSize: this.small ? Math.min(12, size) : size, fontFamily: 'Georgia, serif', align: 'center' as const };
     for (const creek of this.region.creeks) {
       const p = this.creekPos(creek);
-      const label = new Text({ text: creek.profile.name, style });
+      // Crowded maps put names on two lines so neighbours don't run into each other.
+      const name = found > 6 && creek !== this.region.home ? creek.profile.name.replace(' ', '\n') : creek.profile.name;
+      const label = new Text({ text: name, style });
       label.anchor.set(0.5, 0);
       label.position.set(p.x, p.y + 14);
       this.labels.addChild(label);
@@ -105,15 +104,55 @@ export class RegionMapView extends Container {
   }
 
   /**
-   * Home Creek sits low in the middle; found stretches take slots upstream in the order found,
-   * kept left of the notebook panel on the right.
+   * Home Creek sits low in the middle. Found stretches are spread evenly across the map in the
+   * order found, alternating between rows upstream (a third row once there are many), and kept
+   * left of the notebook panel on the right.
    */
   private creekPos(creek: Creek): { x: number; y: number } {
-    const index = this.region.creeks.indexOf(creek);
-    if (index <= 0) return { x: this.width_ * 0.4, y: this.height_ * 0.6 };
-    const slot = CREEK_SLOTS[(index - 1) % CREEK_SLOTS.length]!;
-    const lap = Math.floor((index - 1) / CREEK_SLOTS.length);
-    return { x: this.width_ * slot[0] + lap * 24, y: this.height_ * slot[1] + lap * 18 };
+    this.placeCreeks();
+    return this.positions.get(creek) ?? { x: this.width_ * 0.4, y: this.height_ * 0.6 };
+  }
+
+  private placeCreeks(): void {
+    const W = this.width_;
+    const H = this.height_;
+    const creeks = this.region.creeks;
+    const key = `${W}x${H}:${creeks.length}`;
+    if (key === this.positionKey) return;
+    this.positionKey = key;
+    this.positions = new Map([[this.region.home, { x: W * 0.4, y: H * 0.6 }]]);
+    const found = creeks.slice(1);
+    const left = W * 0.1;
+    const right = this.rightEdge;
+    const rows = found.length > 8 ? 3 : 2;
+    // Clear of the hint and the inspect panel in the top-left; the leftmost stretch takes the
+    // lowest row, furthest from that panel.
+    const top = Math.max(H * 0.17, 96);
+    const rowGap = Math.max(28, (H * 0.52 - top) / rows);
+    found.forEach((creek, i) => {
+      const x = found.length === 1 ? (left + right) / 2 : left + ((right - left) * i) / (found.length - 1);
+      this.positions.set(creek, { x, y: top + (rows - 1 - (i % rows)) * rowGap });
+    });
+  }
+
+  /** Phones held sideways and small tablets: the notebook starts folded, and type is smaller. */
+  private get small(): boolean {
+    return this.height_ < 520 || this.width_ < 760;
+  }
+
+  /**
+   * Where found stretches stop: left of the notebook panel (up to 340px wide, plus half a label),
+   * or nearly the full width on small screens, where the notebook starts folded into a button.
+   */
+  private get rightEdge(): number {
+    return this.small ? this.width_ * 0.88 : Math.max(this.width_ * 0.55, this.width_ - 440);
+  }
+
+  /** How close a tap must be to pick a creek: tighter when they are packed together. */
+  private get pickRadius(): number {
+    const found = Math.max(1, this.region.creeks.length - 1);
+    const spacing = (this.rightEdge - this.width_ * 0.1) / found;
+    return Math.max(14, Math.min(26, spacing));
   }
 
   private townPos(): { x: number; y: number } {
@@ -125,7 +164,7 @@ export class RegionMapView extends Container {
     if (Math.hypot(x - t.x, y - t.y) < 30) return { kind: 'town' };
     for (const creek of this.region.creeks) {
       const p = this.creekPos(creek);
-      if (Math.hypot(x - p.x, y - p.y) < 26) return { kind: 'creek', creek };
+      if (Math.hypot(x - p.x, y - p.y) < this.pickRadius) return { kind: 'creek', creek };
     }
     return null;
   }

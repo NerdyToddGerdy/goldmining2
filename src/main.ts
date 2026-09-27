@@ -6,6 +6,7 @@ import {
   createSave,
   loadSave,
   buyGear,
+  buyFuel,
   CLASSIFIER_TUNING,
   rollShovelful,
   totalMg,
@@ -13,6 +14,8 @@ import {
   type Creek,
   type DigSpot,
   type FollowResult,
+  type GearId,
+  type LayerKind,
   type PanStepEvents,
   type ShovelResult,
   type Sluice,
@@ -48,6 +51,15 @@ const EVENT_MESSAGES = {
   workedOut: 'That was the last of this spot.',
 } as const;
 
+const BOUGHT_MESSAGES: Record<GearId, string> = {
+  sluice: 'A hand sluice, riffles and moss and all. It only sets up where a creek has steady water and a drop: look for a creek bend.',
+  bigJar: 'A big concentrate jar: three times the room for black sand.',
+  classifier: 'A hand classifier. Use it on the stretches you find; the Home Creek is too narrow for it.',
+  riffleMat: 'A riffle insert and ribbed mat, fitted to your sluice. It holds fine gold better: you will see it at cleanout.',
+  legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
+  pump: 'A recirculating pump. It lets the sluice run where the creek is too thin, if you keep it fuelled: buy fuel here by the can.',
+};
+
 async function start(): Promise<void> {
   const host = document.getElementById('game');
   if (!host) throw new Error('Missing #game element');
@@ -81,7 +93,7 @@ async function start(): Promise<void> {
   /** Topsoil pans in a row; after a few, a one-time tip to dig past it. */
   let topsoilPans = 0;
   let toldAboutTopsoil = false;
-  let panLayer: string | null = null;
+  let panLayer: LayerKind | 'slump' | null = null;
   /** The sluice: its intake setting, whether a cleanout is under way, and its last step. */
   let sluiceFlow = 0.75;
   let cleaningOut = false;
@@ -174,7 +186,8 @@ async function start(): Promise<void> {
     const from = panSpot;
     panSpot = null;
     if (pan.kind !== 'gravel' || !from) return;
-    creek.recordPan(from.id, totalMg(collected));
+    // A slumped bank is mostly topsoil; a bucket pan has no single layer.
+    creek.recordPan(from.id, totalMg(collected), panLayer === 'slump' ? 'overburden' : panLayer);
     // Topsoil barely pays: after a few pans of it, say once where the gold actually is.
     topsoilPans = panLayer === 'overburden' ? topsoilPans + 1 : 0;
     if (topsoilPans >= 3 && !toldAboutTopsoil) {
@@ -315,6 +328,14 @@ async function start(): Promise<void> {
       if (material) sluice.feedScreened(material);
     },
     setWater: (flow) => (sluiceFlow = flow),
+    setSlope: (slope) => sluiceHere()?.setSlope(slope),
+    refuelPump: () => {
+      if (!sluiceHere()?.usesPump) return;
+      const result = session.refuelPump();
+      if (result === 'refuelled') hud.toast(`You pour a can into the pump's tank. The engine picks up. ${session.fuelCans} can${session.fuelCans === 1 ? '' : 's'} left.`);
+      else if (result === 'noCans') hud.toast('No fuel left to pour. The outfitter in town sells it by the can.');
+      else if (result === 'full') hud.toast("The tank is still mostly full. Pour a can in once it's running low.");
+    },
     setUpSluice: () => {
       if (!spot || mode !== 'bank') return;
       const before = session.sluicePlace;
@@ -323,12 +344,21 @@ async function start(): Promise<void> {
         hud.toast("Your jar can't hold the sluice's moss, so it can't come down yet. Pan some of the jar first.");
         return;
       }
+      if (result === 'needsPump') {
+        hud.toast("There's room and a drop here, but the creek is only a trickle. A sluice needs a pump to run here.");
+        return;
+      }
       if (result !== 'set') return;
       cleaningOut = false;
       const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
       hud.toast(
         `${moved ? `You take the sluice down at ${region.creek(before.creekId).profile.name}, wash its moss into your jar, and carry it here. ` : ''}` +
-          'The sluice is set in the creek beside this spot. Drag shovelfuls into its header (F), or tap it for a close look.',
+          'The sluice is set in the creek beside this spot. Drag shovelfuls into its header (F), or tap it for a close look.' +
+          (sluiceHere()?.usesPump
+            ? session.sluiceKit.pump!.fuel > 0
+              ? ' The pump draws from a settling pool to feed it.'
+              : ' The pump is set to feed it from a settling pool, but its tank is dry: refuel it (G).'
+            : ''),
       );
     },
     takeDownSluice: () => {
@@ -375,8 +405,14 @@ async function start(): Promise<void> {
     followLead: (leadId) => hud.toast(describeFollow(region.follow(leadId))),
     buyGear: (id) => {
       const result = buyGear(session, id);
-      if (result === 'bought' && id === 'sluice') hud.toast('A hand sluice, riffles and moss and all. It only sets up where a creek has steady water and a drop: look for a creek bend.');
-      else if (result === 'bought') hud.toast('A big concentrate jar: three times the room for black sand.');
+      if (result === 'bought') hud.toast(BOUGHT_MESSAGES[id]);
+      else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
+      else if (result === 'needsBase') hud.toast('That fits the hand sluice. Buy the sluice first.');
+    },
+    buyFuel: () => {
+      const result = buyFuel(session);
+      if (result === 'bought') hud.toast(`A can of fuel. You're carrying ${session.fuelCans}.`);
+      else if (result === 'full') hud.toast("You can't carry any more cans.");
       else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
     },
     sell: () => {
@@ -448,7 +484,7 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, panView, classifierView },
+      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, regionMap, panView, classifierView },
     });
   }
 

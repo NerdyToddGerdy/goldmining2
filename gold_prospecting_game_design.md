@@ -367,6 +367,8 @@ The sliding rate creates a small decision: sell now, or keep panning to reach a 
 The Home Creek is also how the player finds their next site. Leads point to further creek stretches: shovel-and-pan ground like the Home Creek, but finite. Only the Home Creek renews with high water. Leads come from three places:
 
 - **Following colour upstream.** Dry side gullies join the creek. If one carries gold down from further up, spots just downstream of its mouth are richer, so panning along the creek shows a trail of colour. The player keeps field notes (pans and colour per spot) to read it. A test pan up the right gully that shows colour follows the trail to a new stretch. A barren gully pans empty. This lead is free, always real, and earned by reading the ground.
+
+  On the creek map, each panned spot shows gold flecks by its stake, one to four for its colour per pan, so the trail can be read at a glance. Its tooltip gives the notes as a prospector would jot them: the number of pans, the colour in words (no colour, a few specks, poor, fair, good, rich), and whether it gets richer or thinner deeper down once both shallow (topsoil, gravel) and deep (pay streak, bedrock) ground has been panned. No milligram figures.
 - **Clues while digging.** Now and then the shovel turns up an old pan, a survey stake, or a note in a tin. It points to a named stretch the player can follow later.
 - **The claims board in town.** Leads for sale, restocked every dozen pans:
 
@@ -377,6 +379,8 @@ The Home Creek is also how the player finds their next site. Leads point to furt
 | Map fragment | $15–25 | ~95% real | Narrow |
 
 About a third of stretches are **creek bends**: one or two spots with steady water, a usable drop, and room on the bank for a sluice. Some leads mention "a wide gravel bar with steady water". Better sources mention real bars more often and invent them less, but the mention can still be wrong. Whether a sluice can be set is a property of the ground: the Home Creek never has a sluice site, and owning a sluice doesn't create one.
+
+On the region map, found stretches are tributaries spread evenly along the river in the order found, in staggered rows. The spacing tightens and the labels shrink as more are found, so the map sets no limit. Claim holding costs are meant to keep the count sensible.
 
 Every lead states a richness range relative to the Home Creek. It is an estimate, never the truth, and a dud still states one. Following a lead either puts a new stretch on the region map or marks the lead as a dud. Found stretches can have gullies of their own, so leads can chain further out. The player leaves when they choose to, not because the creek forced them out.
 
@@ -699,6 +703,11 @@ Early game values should remain approximate. Better equipment, trained operators
 - **Clogs:** tapping the header rakes a clog. Raking out a full jam costs a little of the moss.
 - **Cleanout:** "Clean out" stops feeding while clean water rinses the riffles. The player chooses when to lift the mat: early brings more gravel to pan, late strips fines. The mat washes into the concentrate jar, and panning the jar gives the delayed reveal.
 - **When it runs:** the sluice only runs while the player is at its spot.
+- **Slope:** each site has its own drop. Below about 0.3 the box is **too shallow**: gravel piles on the riffles and packs them. Above about 0.75 it is **too steep**: material shoots through before the heavies settle, costing fines and black sand. The close-up tilts the box to match.
+- **Upgrades** (outfitter, each fits only a sluice already owned):
+  - **Riffle insert and ribbed mat ($25):** catches more fine gold and loses less to scour. No new control; the difference shows at cleanout.
+  - **Adjustable legs ($12):** a Slope slider, reaching up to 0.4 either side of the site's own drop. The close-up shows screw legs.
+  - **Recirculating pump ($60):** some stretches that aren't bends have a thin-water bench, with room and a drop but only a trickle of creek. A sluice sets up there only with a pump. The pump feeds the header from a settling pool while its tank has fuel. A can ($2, carry up to six) fills the tank for about two minutes of running, less with the intake wide open. When the tank runs dry mid-run, the engine stops puffing, the water falls back to a trickle, and the header backs up until the player refuels. Owning a pump creates no site, and it does nothing at a strong creek.
 
 ## Material Chains
 
@@ -779,14 +788,26 @@ Progression should add more capability and better information, not erase the ide
 
 Example sluice progression:
 
-1. Starter sluice: learn flow and feed control.
-2. Better classifier: fewer jams and more consistent material size.
-3. Improved miner's moss or riffle insert: better fine-material capture.
-4. Adjustable legs: reliable slope control at imperfect sites.
-5. Recirculating pump: allows operation away from a naturally strong creek, at fuel and maintenance cost.
+1. Starter sluice: learn flow and feed control. *(in the game)*
+2. Better classifier: fewer jams and more consistent material size. *(the hand classifier is in the game)*
+3. Improved miner's moss or riffle insert: better fine-material capture. *(in the game)*
+4. Adjustable legs: reliable slope control at imperfect sites. *(in the game)*
+5. Recirculating pump: allows operation away from a naturally strong creek, at fuel and maintenance cost. *(in the game, fuel only so far)*
 6. Highbanker hopper: increases material movement but introduces hoses, pump management, and clog risk.
 7. Worker operation: staff can run the system at reduced efficiency while the player prospects.
 8. Instrumented setup: improved reporting and estimates, while retaining site-specific risks.
+
+Pan progression:
+
+0. Steel pan: settle, tip, wash, reveal. The skill is how far to tip. *(in the game)*
+1. Riffled pan: moulded riffles on one side of the wall hold the dark layer, so the player can wash harder. The riffles also hold black sand, so the player flips to the smooth side for the final cleanup; when to flip is the decision. *Open question: whether it may be used at the Home Creek. It is still the pan, and can never be lost or run out, but the Home Creek takes no added gear.*
+2. Hand classifier: screened material, no rocks to rake. *(in the game)*
+3. Magnet: pulls magnetite out of saved black sand, so the jar holds more and jar pans go faster. A little fine gold clings to the magnetite, so stripping hard costs gold.
+4. Finishing pan and snuffer bottle: a small, deep-riffled pan for jar work, and a bottle that sucks up the thin tail of fines at the reveal instead of saving it back to the jar. The trade is a slower reveal for gold in hand now.
+5. Wash tub: panning where there is no creek (dry washes, benches). The player carries the water, and it clouds with every pan. Muddy water slows settling and hides colour until it is changed.
+6. Spiral wheel concentrator: a finishing machine for the jar. Faster and gentler on fines than hand panning, but lossy when mistuned (tilt, spray, feed). It sets up at found stretches or a camp spot in town, never the Home Creek.
+
+Steps 0–1 are the pan itself, the tool the player can never lose. Steps 3–4 make the concentrate jar worth more over time. Step 5 extends where the pan can reach. Step 6 is where hand finishing hands off to a machine. None of them needs a consumable that can run out.
 
 The player should never outgrow prospecting completely. Better operations make scouting more important because the cost of choosing the wrong location becomes larger.
 

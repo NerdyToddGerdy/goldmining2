@@ -64,6 +64,8 @@ export const REGION_TUNING = {
   stretchRichnessSigma: 0.5,
   /** Share of stretches that are creek bends, with room and water for a sluice. */
   bendChance: 0.35,
+  /** Chance a stretch that isn't a bend has a thin-water bench a sluice could run on with a pump. */
+  pumpSiteChance: 0.45,
 } as const;
 
 const BEND_HINT = 'Mentions a wide gravel bar with steady water: room for a sluice.';
@@ -210,6 +212,7 @@ export class Region {
       gullyCount: this.rng.int(0, 2),
       sourceChance: 0.5,
       sluiceSites: lead.truth.bend ? this.rng.int(1, 2) : 0,
+      pumpSites: !lead.truth.bend && this.rng.next() < REGION_TUNING.pumpSiteChance ? 1 : 0,
     };
     const creek = new Creek(this.rng, undefined, profile);
     this.creeks.push(creek);

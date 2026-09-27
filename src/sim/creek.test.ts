@@ -92,4 +92,14 @@ describe('Creek', () => {
     }
     expect(creek.highWaterEvents).toBeGreaterThan(0);
   });
+
+  it('keeps field notes per spot, split shallow and deep where the layer is known', () => {
+    const creek = new Creek(createRng(12));
+    const spot = creek.creekSpots[0]!;
+    creek.recordPan(spot.id, 1, 'gravel');
+    creek.recordPan(spot.id, 2, 'overburden');
+    creek.recordPan(spot.id, 9, 'bedrock');
+    creek.recordPan(spot.id, 4, null);
+    expect(spot.notes).toEqual({ pans: 4, mg: 16, shallow: { pans: 2, mg: 3 }, deep: { pans: 1, mg: 9 } });
+  });
 });

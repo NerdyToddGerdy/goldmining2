@@ -68,12 +68,28 @@ export interface DigSpot {
    * and room on the bank. A property of the ground; owning a sluice doesn't change it.
    */
   readonly sluiceSite: SluiceSite | null;
-  /** The player's field notes: gravel pans from this spot and the gold they kept. Absent until the first pan. */
-  notes?: { pans: number; mg: number };
+  /**
+   * The player's field notes: gravel pans from this spot and the gold they kept, overall and split
+   * by depth where the pan's layer is known. Absent until the first pan.
+   */
+  notes?: FieldNotes;
   /** How quickly water seeps in as the hole deepens. */
   readonly waterTable: number;
   /** How likely the hole walls are to slump. */
   readonly instability: number;
+}
+
+/** Pans and the gold they kept. */
+export interface NoteTally {
+  pans: number;
+  mg: number;
+}
+
+export interface FieldNotes extends NoteTally {
+  /** Topsoil and gravel. */
+  shallow?: NoteTally;
+  /** Pay streak and bedrock. */
+  deep?: NoteTally;
 }
 
 export type ShovelBlock = 'boulder' | 'flooded' | 'workedOut';
@@ -133,6 +149,11 @@ export interface CreekProfile {
    * one or two. The Home Creek never has any: it is shovel-and-pan ground by design.
    */
   readonly sluiceSites: number;
+  /**
+   * Spots with room and a drop for a sluice, but too little creek water to run one without a
+   * pump. Stretches that aren't bends sometimes have one.
+   */
+  readonly pumpSites: number;
 }
 
 export const HOME_CREEK_PROFILE: CreekProfile = {
@@ -143,6 +164,7 @@ export const HOME_CREEK_PROFILE: CreekProfile = {
   gullyCount: 2,
   sourceChance: 1,
   sluiceSites: 0,
+  pumpSites: 0,
 };
 
 let nextSpotId = 1;
@@ -193,9 +215,15 @@ export class Creek {
     joins.forEach((position, i) => this.spots.push(this.makeGullySpot(position, i === sourceIndex)));
 
     // Sluice sites go at creek spots; never on a renewing (Home) creek, whatever the profile says.
-    const siteCount = profile.renewing ? 0 : Math.min(profile.sluiceSites, count);
-    for (const spot of shuffle(rng, [...this.creekSpots]).slice(0, siteCount)) {
-      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(0.3, 0.9), flow: rng.range(0.6, 1) };
+    if (profile.renewing) return;
+    const siteCount = Math.min(profile.sluiceSites, count);
+    const candidates = shuffle(rng, [...this.creekSpots]);
+    for (const spot of candidates.slice(0, siteCount)) {
+      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(0.15, 0.95), flow: rng.range(0.6, 1) };
+    }
+    // Thin-water sites: a bench with room and a drop, but only a trickle of creek beside it.
+    for (const spot of candidates.slice(siteCount, siteCount + profile.pumpSites)) {
+      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(0.15, 0.95), flow: rng.range(0.1, 0.3) };
     }
   }
 
@@ -302,10 +330,20 @@ export class Creek {
     return { ok: true, from, load, event, clue };
   }
 
-  /** Note a finished pan from this spot in the field notes. */
-  recordPan(spotId: number, mg: number): void {
+  /** Note a finished pan from this spot in the field notes, with the layer it came from if known. */
+  recordPan(spotId: number, mg: number, layer: LayerKind | null = null): void {
     const spot = this.spot(spotId);
-    spot.notes = { pans: (spot.notes?.pans ?? 0) + 1, mg: (spot.notes?.mg ?? 0) + mg };
+    const notes: FieldNotes = spot.notes ?? { pans: 0, mg: 0 };
+    notes.pans += 1;
+    notes.mg += mg;
+    if (layer) {
+      const depth = layer === 'payStreak' || layer === 'bedrock' ? 'deep' : 'shallow';
+      const tally = notes[depth] ?? { pans: 0, mg: 0 };
+      tally.pans += 1;
+      tally.mg += mg;
+      notes[depth] = tally;
+    }
+    spot.notes = notes;
   }
 
   /** Lever the boulder with the shovel. Returns true once it comes free. */

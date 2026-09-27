@@ -3,7 +3,7 @@ import { PAN_VOLUME, Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapsho
 import { quoteSale, type SaleQuote } from './market';
 import type { DigSpot } from './creek';
 import type { GearId } from './outfitter';
-import { Sluice, type Concentrate, type SluiceSnapshot } from './sluice';
+import { SLUICE_TUNING, Sluice, bareKit, needsPump, type Concentrate, type SluiceKit, type SluiceSnapshot } from './sluice';
 import type { Rng } from './rng';
 
 /**
@@ -33,6 +33,10 @@ export interface SessionSnapshot {
   readonly classifier: ClassifierSnapshot | null;
   /** Null until a sluice is bought. */
   readonly sluice: { readonly placedAt: SluicePlace | null; readonly state: SluiceSnapshot | null } | null;
+  /** Seconds of running left in the pump's tank (0 without a pump). */
+  readonly pumpFuel: number;
+  /** Spare cans of fuel carried. */
+  readonly fuelCans: number;
 }
 
 /** Where a sluice is set up. */
@@ -41,7 +45,7 @@ export interface SluicePlace {
   readonly spotId: number;
 }
 
-export type SetUpResult = 'set' | 'notOwned' | 'noSite' | 'jarFull';
+export type SetUpResult = 'set' | 'notOwned' | 'noSite' | 'needsPump' | 'jarFull';
 
 /**
  * The player's panning: the pan (empty until a shovelful goes in), the vial of recovered gold,
@@ -64,6 +68,9 @@ export class PanningSession {
   private readonly gear = new Set<GearId>();
   /** The hand classifier, once bought: its screen, what's on it, and its bucket travel with the player. */
   classifier: Classifier | null = null;
+  /** Upgrades for the sluice, shared with it while it is set up. */
+  readonly sluiceKit: SluiceKit = bareKit();
+  fuelCans = 0;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -80,10 +87,13 @@ export class PanningSession {
     this.soldMg = saved.soldMg;
     this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
     for (const id of saved.gear) this.gear.add(id);
+    this.fitKit();
+    if (this.sluiceKit.pump) this.sluiceKit.pump.fuel = saved.pumpFuel;
+    this.fuelCans = saved.fuelCans;
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.sluice) {
       const state = saved.sluice.state;
-      this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state) : null };
+      this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state, this.sluiceKit) : null };
     }
   }
 
@@ -101,7 +111,31 @@ export class PanningSession {
       sluice: this.sluiceGear
         ? { placedAt: this.sluiceGear.placedAt, state: this.sluiceGear.sluice?.snapshot() ?? null }
         : null,
+      pumpFuel: this.sluiceKit.pump?.fuel ?? 0,
+      fuelCans: this.fuelCans,
     });
+  }
+
+  /** Bring the sluice kit in line with the gear owned. */
+  private fitKit(): void {
+    const kit = this.sluiceKit;
+    kit.improvedMat = this.gear.has('riffleMat');
+    kit.legs = this.gear.has('legs');
+    if (this.gear.has('pump') && !kit.pump) kit.pump = { fuel: 0 };
+  }
+
+  /**
+   * Empty a can of fuel into the pump's tank. Refused with no pump, no cans, or a tank already
+   * nearly full (a can is a tankful, so topping up early wastes most of it).
+   */
+  refuelPump(): 'refuelled' | 'noPump' | 'noCans' | 'full' {
+    const pump = this.sluiceKit.pump;
+    if (!pump) return 'noPump';
+    if (pump.fuel > SLUICE_TUNING.pumpTank * 0.75) return 'full';
+    if (this.fuelCans <= 0) return 'noCans';
+    this.fuelCans -= 1;
+    pump.fuel = SLUICE_TUNING.pumpTank;
+    return 'refuelled';
   }
 
   owns(id: GearId): boolean {
@@ -118,6 +152,7 @@ export class PanningSession {
       if (!this.classifier) this.classifier = new Classifier(this.rng);
     } else {
       this.gear.add(id);
+      this.fitKit();
     }
   }
 
@@ -154,17 +189,19 @@ export class PanningSession {
   }
 
   /**
-   * Set the sluice up in the creek beside a spot. Only works at a sluice site. If it is set up
-   * somewhere else it is taken down first, which washes its moss into the jar.
+   * Set the sluice up in the creek beside a spot. Only works at a sluice site, and where the
+   * creek runs thin, only with a pump. If it is set up somewhere else it is taken down first,
+   * which washes its moss into the jar.
    */
   setUpSluice(creekId: number, spot: DigSpot): SetUpResult {
     const gear = this.sluiceGear;
     if (!gear) return 'notOwned';
     if (!spot.sluiceSite) return 'noSite';
+    if (needsPump(spot.sluiceSite) && !this.sluiceKit.pump) return 'needsPump';
     if (gear.placedAt?.creekId === creekId && gear.placedAt.spotId === spot.id) return 'set';
     if (this.takeDownSluice() === 'jarFull') return 'jarFull';
     gear.placedAt = { creekId, spotId: spot.id };
-    gear.sluice = new Sluice(this.rng, spot.sluiceSite);
+    gear.sluice = new Sluice(this.rng, spot.sluiceSite, undefined, this.sluiceKit);
     return 'set';
   }
 

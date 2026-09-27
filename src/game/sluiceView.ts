@@ -6,6 +6,10 @@ import type { Sluice, SluiceStepEvents } from '../sim';
  * machine reports its own condition: how thick and fast the water runs, eddies behind the
  * riffles when it is balanced, whitewater when overpowered, gravel heaping at the header when
  * underpowered, the moss darkening as it loads. Tap the header to rake a clog.
+ *
+ * Upgrades show on the machine: the box tilts with its slope (screw legs when it has them), a
+ * ribbed mat lies under the riffles, and at a thin-water site a pump on the bank feeds the header
+ * through a hose, puffing exhaust while it runs and falling quiet when its tank is dry.
  */
 
 export interface SluiceActions {
@@ -58,6 +62,9 @@ export class SluiceView extends Container {
   private drops: Drop[] = [];
   private glints: { t: number; life: number }[] = [];
   private spawnCarry = 0;
+  private slope = 0.5;
+  private pumping = false;
+  private puffs: { x: number; y: number; life: number }[] = [];
 
   constructor(private readonly actions: SluiceActions) {
     super();
@@ -85,6 +92,18 @@ export class SluiceView extends Container {
     this.time += dt;
     const power = events?.power ?? 0;
     const state = events?.state ?? 'underpowered';
+    this.slope = sluice.slope;
+    this.pumping = events?.pumping ?? false;
+    if (this.pumping && Math.random() < dt * 8) {
+      const p = this.pumpPos();
+      this.puffs.push({ x: p.x + 14, y: p.y - 22, life: 1 });
+    }
+    for (const puff of this.puffs) {
+      puff.y -= 30 * dt;
+      puff.x += 8 * dt;
+      puff.life -= dt;
+    }
+    this.puffs = this.puffs.filter((puff) => puff.life > 0);
 
     // Material leaving the header becomes grains running down the box.
     this.spawnCarry += (events?.released ?? 0) / 0.012;
@@ -100,7 +119,8 @@ export class SluiceView extends Container {
         fade: 1,
       });
     }
-    const speed = 0.08 + power * 0.9;
+    // A steep box sends everything through faster: less time for the heavies to settle.
+    const speed = 0.08 + power * 0.9 + Math.max(0, this.slope - 0.75) * 1.6;
     for (const grain of this.grains) {
       if (grain.settleAt !== null && grain.t >= grain.settleAt) {
         grain.fade -= dt * 1.5; // Settling into the moss.
@@ -146,8 +166,15 @@ export class SluiceView extends Container {
     return { x: this.width_ * 0.2, y: this.height_ * 0.36 };
   }
 
+  /** The exit end drops further the steeper the box is set. */
   private get end(): { x: number; y: number } {
-    return { x: this.width_ * 0.88, y: this.height_ * 0.6 };
+    return { x: this.width_ * 0.88, y: this.height_ * (0.42 + 0.24 * this.slope) };
+  }
+
+  /** The pump sits on the bank just below the header, at a thin-water site. */
+  private pumpPos(): { x: number; y: number } {
+    const hr = this.headerRect();
+    return { x: hr.x + 30, y: this.height_ * 0.68 - 14 };
   }
 
   private pointAt(t: number): { x: number; y: number } {
@@ -194,10 +221,16 @@ export class SluiceView extends Container {
     const up = { x: along.y / len, y: -along.x / len }; // Perpendicular, pointing up out of the box.
     const wall = 34;
 
-    // Legs down to the creek bed.
+    // Legs down to the creek bed: plain wood, or threaded steel with a wing nut to set the slope.
     for (const t of [0.1, 0.55, 0.95]) {
       const p = this.pointAt(t);
-      g.moveTo(p.x, p.y + 4).lineTo(p.x - 6, creekY + 30).stroke({ width: 5, color: COLORS.woodDark });
+      if (sluice.kit.legs) {
+        g.moveTo(p.x, p.y + 4).lineTo(p.x - 6, creekY + 30).stroke({ width: 3, color: 0x8d8f91 });
+        const mid = { x: p.x - 3, y: (p.y + creekY + 34) / 2 };
+        g.rect(mid.x - 6, mid.y - 3, 12, 6).fill(0x5e6164);
+      } else {
+        g.moveTo(p.x, p.y + 4).lineTo(p.x - 6, creekY + 30).stroke({ width: 5, color: COLORS.woodDark });
+      }
     }
 
     // Box: floor with side wall behind.
@@ -209,6 +242,13 @@ export class SluiceView extends Container {
     const m0 = this.pointAt(0.16);
     const m1 = this.pointAt(0.98);
     g.poly([m0.x, m0.y - 1, m1.x, m1.y - 1, m1.x + up.x * 7, m1.y + up.y * 7, m0.x + up.x * 7, m0.y + up.y * 7]).fill(lerp(COLORS.moss, COLORS.mossFull, moss));
+    // A ribbed mat shows its ribs across the moss.
+    if (sluice.kit.improvedMat) {
+      for (let i = 0; i < 26; i++) {
+        const p = this.pointAt(0.17 + (i / 25) * 0.8);
+        g.moveTo(p.x, p.y - 1).lineTo(p.x + up.x * 7, p.y + up.y * 7).stroke({ width: 1, color: 0x2a3320, alpha: 0.7 });
+      }
+    }
     for (let i = 0; i < Math.round(moss * 60); i++) {
       const p = this.pointAt(0.17 + ((i * 0.618) % 1) * 0.8);
       g.circle(p.x + up.x * 3, p.y + up.y * 3, 1.2).fill(0x0c0b0a);
@@ -277,8 +317,12 @@ export class SluiceView extends Container {
 
     // Header box with the feed heaped in it; flume bringing water in from upstream.
     const hr = this.headerRect();
-    const flumeDepth = 2 + flow * 10;
-    g.poly([0, hr.y - 30, hr.x + 20, hr.y + 6, hr.x + 20, hr.y + 6 + flumeDepth, 0, hr.y - 30 + flumeDepth]).fill({ color: COLORS.sheet, alpha: 0.75 });
+    if (sluice.usesPump) {
+      this.drawPump(g, hr, flow, creekY);
+    } else {
+      const flumeDepth = 2 + flow * 10;
+      g.poly([0, hr.y - 30, hr.x + 20, hr.y + 6, hr.x + 20, hr.y + 6 + flumeDepth, 0, hr.y - 30 + flumeDepth]).fill({ color: COLORS.sheet, alpha: 0.75 });
+    }
     g.rect(hr.x, hr.y, hr.w, hr.h).fill(0x5a4128).stroke({ width: 2, color: COLORS.woodDark });
     const heap = Math.min(1, sluice.headerVolume / 2);
     if (heap > 0) {
@@ -306,6 +350,32 @@ export class SluiceView extends Container {
 
     const fx = this.fx.clear();
     for (const d of this.drops) fx.circle(d.x, d.y, d.size).fill({ color: d.color, alpha: Math.min(1, d.life * 2) });
+    for (const puff of this.puffs) fx.circle(puff.x, puff.y, 4 + (1 - puff.life) * 8).fill({ color: 0x9a9690, alpha: puff.life * 0.5 });
+  }
+
+  /**
+   * The pump on the bank: an intake hose from the settling pool, and a delivery hose up to the
+   * header that spurts while it runs. Dry, the engine sits still and the hose only dribbles.
+   */
+  private drawPump(g: Graphics, hr: { x: number; y: number; w: number; h: number }, flow: number, creekY: number): void {
+    const p = this.pumpPos();
+    // Settling pool and intake hose.
+    g.ellipse(p.x + 6, creekY + 18, 46, 10).fill({ color: 0x4d6b5e, alpha: 0.9 });
+    g.moveTo(p.x - 10, p.y + 6).quadraticCurveTo(p.x - 24, creekY, p.x - 4, creekY + 16).stroke({ width: 5, color: 0x1e1e1e });
+    // Engine.
+    const shake = this.pumping ? Math.sin(this.time * 60) * 1.2 : 0;
+    g.roundRect(p.x - 16 + shake, p.y - 18, 36, 24, 3).fill(this.pumping ? 0xa8412f : 0x6e3a2e).stroke({ width: 1.5, color: 0x2a1a14 });
+    g.rect(p.x + 12 + shake, p.y - 26, 5, 9).fill(0x3a3a3a);
+    // Delivery hose up to the header.
+    const out = { x: hr.x + 10, y: hr.y + 4 };
+    g.moveTo(p.x - 16, p.y - 8).quadraticCurveTo(hr.x - 40, hr.y + hr.h, out.x, out.y - 6).stroke({ width: 6, color: 0x1e1e1e });
+    if (this.pumping && flow > 0.02) {
+      for (let i = 0; i < 3; i++) {
+        this.drops.push({ x: out.x, y: out.y - 4, vx: 20 + Math.random() * 40 * flow, vy: -10 - Math.random() * 30 * flow, life: 0.3, color: COLORS.sheet, size: 1.6 + flow });
+      }
+    } else if (Math.random() < 0.1) {
+      this.drops.push({ x: out.x, y: out.y - 4, vx: 4, vy: 0, life: 0.4, color: COLORS.sheet, size: 1.2 });
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import type { Pan, PanControls, PanStepEvents, Sluice, SluiceStepEvents } from '../sim';
+import { SLUICE_TUNING, type Pan, type PanControls, type PanStepEvents, type Sluice, type SluiceStepEvents } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -89,6 +89,9 @@ export class SluiceCoach {
   private backingUp = 0;
   private recentGoldLost = 0;
   private toldAboutMoss = false;
+  private toldAboutSlope = false;
+  private toldPumpDry = false;
+  private toldPumpLow = false;
   private cooldown = 0;
 
   constructor(private readonly say: (message: string) => void) {}
@@ -99,9 +102,19 @@ export class SluiceCoach {
     this.backingUp = events?.state === 'underpowered' && sluice.headerVolume > 0.6 ? this.backingUp + dt : 0;
     // A fresh mat after cleanout earns a fresh reminder.
     if (sluice.mossLoading < 0.3) this.toldAboutMoss = false;
+    const pump = sluice.usesPump ? sluice.kit.pump : null;
+    if (pump && pump.fuel > SLUICE_TUNING.pumpTank * 0.5) this.toldPumpDry = this.toldPumpLow = false;
     if (this.cooldown > 0) return;
     const water = 'the Water slider';
-    if (sluice.jammed) {
+    const slope = sluice.slopeState();
+    const refuel = usingTouch() ? 'Refuel the pump' : 'Refuel the pump (G)';
+    if (pump && pump.fuel <= 0 && !this.toldPumpDry) {
+      this.toldPumpDry = true;
+      this.nudge(`The pump has run dry and gone quiet. The creek alone is only a trickle here. ${refuel} to get the water back.`);
+    } else if (pump && pump.fuel > 0 && pump.fuel < SLUICE_TUNING.pumpTank * 0.15 && !this.toldPumpLow) {
+      this.toldPumpLow = true;
+      this.nudge(`The pump is sputtering: its tank is nearly empty. ${refuel} before it stops.`);
+    } else if (sluice.jammed) {
       this.nudge(usingTouch() ? 'The intake is jammed. Tap the header to rake it clear.' : 'The intake is jammed. Click the header, or press R, to rake it clear.');
     } else if (events?.state === 'overpowered' && this.recentGoldLost >= 2) {
       this.recentGoldLost = 0;
@@ -109,6 +122,14 @@ export class SluiceCoach {
     } else if (this.backingUp > 3) {
       this.backingUp = 0;
       this.nudge(`Too little water for this much gravel: it's heaping at the header. Open the intake with ${water}, or shovel slower.`);
+    } else if (!this.toldAboutSlope && slope !== 'good' && sluice.elapsed > 20) {
+      this.toldAboutSlope = true;
+      const fix = sluice.kit.legs ? 'Set it with the Slope slider.' : "The site's drop is what it is without adjustable legs.";
+      this.nudge(
+        slope === 'steep'
+          ? `The box is steep: gravel shoots through before the gold can settle. ${fix}`
+          : `The box is nearly flat: gravel piles up on the riffles and packs them. ${fix}`,
+      );
     } else if (!this.toldAboutMoss && sluice.mossLoading > 0.8) {
       this.toldAboutMoss = true;
       this.nudge('The moss is dark and heavy with concentrate. Clean it out soon: a full mat lets gold through.');

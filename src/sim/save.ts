@@ -11,7 +11,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier'] as const;
 
@@ -48,6 +48,8 @@ export interface LoadedGame {
  * v4 → v5: owned gear. Nobody owned a sluice before the outfitter opened.
  * v5 → v6: other gear (the big jar). Nobody had any.
  * v6 → v7: the hand classifier. Nobody had one.
+ * v7 → v8: sluice upgrades. No pump, no fuel, no thin-water sites on existing creeks; a
+ *   sluice already set up keeps its site's slope.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -106,6 +108,28 @@ function migrate(data: unknown): unknown {
   if (save.version === 6 && isObject(save.session)) {
     save = { ...save, version: 7, session: { ...save.session, classifier: null } };
   }
+  if (save.version === 7 && isObject(save.session) && isObject(save.region)) {
+    const session = save.session;
+    const sluice = isObject(session.sluice) ? session.sluice : null;
+    const state = sluice && isObject(sluice.state) && isObject(sluice.state.site) ? sluice.state : null;
+    const creeks = Array.isArray(save.region.creeks) ? save.region.creeks : [];
+    save = {
+      ...save,
+      version: 8,
+      region: {
+        ...save.region,
+        creeks: creeks.map((creek) =>
+          isObject(creek) && isObject(creek.profile) ? { ...creek, profile: { ...creek.profile, pumpSites: 0 } } : creek,
+        ),
+      },
+      session: {
+        ...session,
+        pumpFuel: 0,
+        fuelCans: 0,
+        sluice: sluice && state ? { ...sluice, state: { ...state, slope: (state.site as { slope: unknown }).slope } } : session.sluice,
+      },
+    };
+  }
   return save;
 }
 
@@ -146,6 +170,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (typeof session.jar.blackSand !== 'number' || !Array.isArray(session.jar.gold)) return false;
   if (typeof session.cash !== 'number' || typeof session.earned !== 'number' || typeof session.soldMg !== 'number') return false;
   if (!Array.isArray(session.gear)) return false;
+  if (typeof session.pumpFuel !== 'number' || typeof session.fuelCans !== 'number') return false;
   if (session.classifier !== null && !(isObject(session.classifier) && 'bucket' in session.classifier)) return false;
   if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
