@@ -309,6 +309,21 @@ Low-cost recovery options:
 - **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down.
 - **Being behind** (any claim lapsed, or wages more than a day overdue) blocks new gear, leads and hires. Nothing owned is ever taken, and fuel can still be bought. The Home Creek is never a claim and never costs anything, so panning it always pays the way back.
 
+### In the game: going under and coming back
+
+The decline table plays out as states worked out from what's owed (claim fees and wages) against cash on hand:
+
+- **Healthy:** cash covers what's owed.
+- **Strained:** owing more than cash on hand, nothing overdue yet. No hiring and no big purchases (crew gear, gear over $20); everything else carries on. Being behind while holding the cash is only strained, because fees and wages are paid automatically in town, so a player is never shut down for staying away from town.
+- **Insolvent:** behind (a claim lapsed or wages more than a day overdue) and unable to cover it. With no money for payroll, the crew downs tools and walks off, and what they're owed stays owed. Nothing but fuel can be bought. "Insolvent: shutdown in ~2 days" shows under the clock.
+- **Shutdown** (two game days insolvent): every claim is released and its fees written off, and each camp leaves $2 of salvage.
+  - The player's sluice and highbanker are taken down and packed, and kept. A mat that won't fit in the jar waits in town.
+  - Crew sites close, and crew machines are sold for scrap at half price. Scrap and salvage go to the wages owed.
+  - The player comes away with a lead from someone they worked alongside, and is walked back to the Home Creek with a short story beat, not a game over.
+- **Recovering:** after a shutdown, until what's still owed is paid off by panning and selling. Buying stays restricted; nothing more is taken. Paying it off brings the player back to healthy.
+
+The shovel, the pan, the Home Creek, portable gear, field notes and leads are never touched in any state.
+
 ### Anti-death-spiral rules
 
 - Basic panning should never require fuel, rent, repair parts, or a consumable that can reach zero.

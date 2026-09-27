@@ -11,6 +11,7 @@ import {
   type JobIdle,
   type JobKind,
   type Role,
+  type FinancialState,
   OPERATOR_JOBS,
   type Economy,
   FUEL_CAN,
@@ -173,8 +174,15 @@ export interface HudState {
   readonly canPan: boolean;
   readonly economy: Economy;
   readonly crew: Crew;
-  /** Behind on fees or wages: expansion is blocked until paid. */
-  readonly restricted: boolean;
+  /** The books: financial state, the countdown to shutdown, and what's allowed. */
+  readonly money: {
+    readonly state: FinancialState;
+    readonly daysToShutdown: number | null;
+    readonly owed: number;
+    readonly canHire: boolean;
+    readonly canCrewGear: boolean;
+    readonly canRestake: boolean;
+  };
 }
 
 const JOB_NAMES: Record<JobKind, string> = {
@@ -271,6 +279,8 @@ export class Hud {
   private readonly cash: HTMLElement;
   /** The bar under the clock, filling toward the next day. */
   private readonly dayFill: HTMLElement;
+  /** A word under the clock when money is short, with the countdown to shutdown when insolvent. */
+  private readonly moneyLine: HTMLElement;
   private readonly panel: HTMLElement;
   private panelKey = '';
   /** Small screens start with the notebook and claims board folded up. */
@@ -288,7 +298,7 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-hint"></div>
-      <div class="hud-cash"><span class="hud-cash-text"></span><div class="hud-day" title="How far through the working day"><div class="hud-day-fill"></div></div></div>
+      <div class="hud-cash"><span class="hud-cash-text"></span><div class="hud-day" title="How far through the working day"><div class="hud-day-fill"></div></div><div class="hud-money" hidden></div></div>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
       <div class="hud-toast" hidden></div>
@@ -321,6 +331,7 @@ export class Hud {
     this.toastEl = this.root.querySelector('.hud-toast') as HTMLElement;
     this.cash = this.root.querySelector('.hud-cash-text') as HTMLElement;
     this.dayFill = this.root.querySelector('.hud-day-fill') as HTMLElement;
+    this.moneyLine = this.root.querySelector('.hud-money') as HTMLElement;
     this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
     this.panel.addEventListener('click', (e) => {
       const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
@@ -413,6 +424,18 @@ export class Hud {
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
     const width = `${(state.economy.dayProgress * 100).toFixed(1)}%`;
     if (this.dayFill.style.width !== width) this.dayFill.style.width = width;
+    const m = state.money;
+    const moneyText =
+      m.state === 'strained'
+        ? 'Money tight'
+        : m.state === 'insolvent'
+          ? `Insolvent: shutdown in ${m.daysToShutdown === null || m.daysToShutdown < 0.5 ? 'under half a day' : `~${Math.round(m.daysToShutdown * 2) / 2} days`}`
+          : m.state === 'recovering'
+            ? 'Paying off debts'
+            : '';
+    if (this.moneyLine.textContent !== moneyText) this.moneyLine.textContent = moneyText;
+    this.moneyLine.hidden = moneyText === '';
+    this.moneyLine.classList.toggle('danger', m.state === 'insolvent');
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;
@@ -645,7 +668,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.restricted}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -676,7 +699,7 @@ export class Hud {
         `<div class="lead"><b>Crew gear</b><p class="small">Extra machines for your crew, kept apart from your own. A crew job takes one when it needs it, and a sluice or highbanker job uses yours instead if it's set up at that stretch.</p>` +
           CREW_GEAR.map(
             ([machine, name]) =>
-              `<p class="small">${name}${crew.spares[machine] ? ` · ${crew.spares[machine]} spare` : ''} <button type="button" data-action="crewgear" data-machine="${machine}" ${session.cash >= STAFF_TUNING.machinePrice[machine] ? '' : 'disabled'}>Buy for $${STAFF_TUNING.machinePrice[machine]}</button></p>`,
+              `<p class="small">${name}${crew.spares[machine] ? ` · ${crew.spares[machine]} spare` : ''} <button type="button" data-action="crewgear" data-machine="${machine}" ${state.money.canCrewGear && session.cash >= STAFF_TUNING.machinePrice[machine] ? '' : 'disabled'}>Buy for $${STAFF_TUNING.machinePrice[machine]}</button></p>`,
           ).join('') +
           '</div>',
       );
@@ -691,7 +714,7 @@ export class Hud {
         [
           ['outfitter', 'Outfitter', ''],
           ['claims', 'Leads', `<span class="count">${region.offers.length}</span>`],
-          ['office', 'Claims & crew', state.restricted ? '<span class="count warn">!</span>' : ''],
+          ['office', 'Claims & crew', state.money.state !== 'healthy' ? '<span class="count warn">!</span>' : ''],
         ] as const
       )
         .map(
@@ -756,11 +779,18 @@ export class Hud {
     /** A debt as it will be paid: rounded up to the cent, so even a sliver shows as $0.01. */
     const owing = (n: number): string => `$${(Math.ceil(n * 100 - 1e-6) / 100).toFixed(2)}`;
     const parts: string[] = [];
-    if (state.restricted) {
-      parts.push('<p class="warn">You\'re behind on fees or wages. No new gear, leads, or hires until you pay up or release a claim. Nothing you own is taken.</p>');
-    }
+    const m = state.money;
+    const days = m.daysToShutdown === null ? '' : m.daysToShutdown < 0.5 ? 'less than half a day' : `about ${Math.round(m.daysToShutdown * 2) / 2} days`;
+    const moneyNote: Record<FinancialState, string> = {
+      healthy: '',
+      strained: `<p class="warn">Money's tight: you owe ${owing(m.owed)} and have ${money(session.cash)}. No hiring or big purchases until you can cover it; everything else carries on.</p>`,
+      insolvent: `<p class="warn"><b>Insolvent.</b> You're behind and can't pay what you owe (${owing(m.owed)}). Your crew has walked off, and nothing but fuel can be bought. Pay it off within ${days} or your claims will be shut down: your machines packed, crew gear sold for scrap, and you back at the Home Creek. Sell some gold.</p>`,
+      recovering: `<p class="warn"><b>Recovering.</b> You still owe ${owing(m.owed)} from before the shutdown. Pan and sell to pay it off; buying and hiring open up again once it's clear. Nothing more will be taken.</p>`,
+    };
+    if (m.state !== 'healthy') parts.push(moneyNote[m.state]);
     const owed = economy.feesOwed + Math.max(0, crew.wagesOwed);
-    if (owed > 0) {
+    // The state notes above already say how much is owed when money is short.
+    if (owed > 0 && m.state === 'healthy') {
       parts.push(
         session.cash >= 0.01
           ? '<p class="small">What you owe is paid from your cash automatically while you\'re in town.</p>'
@@ -776,7 +806,7 @@ export class Hud {
     ];
     if (crew.wagesOwed > 0) crewLines.push(`<p class="small">Wages owed: ${owing(crew.wagesOwed)}.</p>`);
     for (const role of ['hand', 'operator'] as const) {
-      const ok = !state.restricted && session.cash >= STAFF_TUNING.wage[role];
+      const ok = state.money.canHire && session.cash >= STAFF_TUNING.wage[role];
       crewLines.push(`<button type="button" data-action="hire" data-role="${role}" ${ok ? '' : 'disabled'}>Hire ${role === 'hand' ? 'a hand' : 'an operator'} for $${STAFF_TUNING.wage[role]} a day</button> `);
     }
     crewLines.push('<p class="small">The first day is paid up front.</p>');
@@ -807,7 +837,7 @@ export class Hud {
               ? `Owes ${owing(claim.owed)}.`
               : '<span class="found">Paid up.</span>';
       if (claim.status === 'released') {
-        return `<div class="lead"><b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p><button type="button" data-action="restake" data-creek="${claim.creekId}" ${!state.restricted && session.cash >= ECONOMY_TUNING.restakeFee ? '' : 'disabled'}>Re-stake for $${ECONOMY_TUNING.restakeFee}</button></div>`;
+        return `<div class="lead"><b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p><button type="button" data-action="restake" data-creek="${claim.creekId}" ${state.money.canRestake && session.cash >= ECONOMY_TUNING.restakeFee ? '' : 'disabled'}>Re-stake for $${ECONOMY_TUNING.restakeFee}</button></div>`;
       }
       const cap = traitsOf(creek.profile.site).crewMax;
       const here = crew.workersAt(claim.creekId);

@@ -10,6 +10,12 @@ import {
   CLASSIFIER_TUNING,
   Crew,
   ECONOMY_TUNING,
+  Finance,
+  FINANCE_TUNING,
+  OUTFITTER,
+  type FinanceEvent,
+  type FinancialState,
+  type Purchase,
   Economy,
   type CrewMachine,
   rollShovelful,
@@ -156,8 +162,16 @@ async function start(): Promise<void> {
   const economy = loaded?.economy ?? new Economy();
   const crew = loaded?.crew ?? new Crew(rng);
   /** Behind on fees or wages: no new gear, leads, or hires until paid. Never takes anything away. */
-  const restricted = (): boolean => economy.anyLapsed || crew.wagesOverdue;
-  const RESTRICTED_MESSAGE = "You're behind on claim fees or wages. Pay up here in town (sell some gold) or release a claim before buying anything new.";
+  const finance = loaded?.finance ?? new Finance();
+  const books = () => ({ session, economy, crew, region });
+  /** Why a purchase isn't allowed in the current financial state, or null if it is. */
+  const refused = (purchase: Purchase, price = 0): string | null => (finance.allows(purchase, books(), price) ? null : MONEY_MESSAGES[finance.state(books())]);
+  const MONEY_MESSAGES: Record<FinancialState, string> = {
+    healthy: '',
+    strained: "Money's tight: you owe more than you have on hand. No hiring or big purchases until you can cover it. Sell some gold.",
+    insolvent: "You're insolvent: nothing can be bought but fuel until what you owe is paid. Sell some gold here.",
+    recovering: "You're still paying off what you owed before the shutdown. Pan and sell to clear it; buying opens up again once it's paid.",
+  };
   let creek: Creek = loaded ? region.creek(loaded.place.creekId) : region.home;
   let mode: Mode = 'creek';
   let spot: DigSpot | null = loaded?.place.spotId != null ? creek.spot(loaded.place.spotId) : null;
@@ -432,6 +446,7 @@ async function start(): Promise<void> {
         const where = renewed.map((spot) => (spot.gully ? 'a gully' : `spot ${region.home.creekSpots.indexOf(spot) + 1}`));
         hud.toast(`The creek rises a little and leaves fresh gravel at ${where.join(' and ')}.`);
       }
+      checkBooks();
     }
   };
 
@@ -449,7 +464,48 @@ async function start(): Promise<void> {
     const fees = economy.payFees(session);
     const wages = crew.payWages(session);
     const parts = [fees > 0 ? `$${fees.toFixed(2)} in claim fees` : '', wages > 0 ? `$${wages.toFixed(2)} in wages` : ''].filter(Boolean);
-    if (parts.length) hud.toast(`Paid ${parts.join(' and ')}.${restricted() ? " You're still behind." : ''}`);
+    if (parts.length) hud.toast(`Paid ${parts.join(' and ')}.${finance.state(books()) !== 'healthy' ? " You're still behind." : ''}`);
+    checkBooks();
+  };
+
+  /** Look at the books after money moves or time passes, and tell the player what changed. */
+  const checkBooks = (): void => {
+    for (const event of finance.update(books())) tellFinance(event);
+  };
+  const tellFinance = (event: FinanceEvent): void => {
+    switch (event.kind) {
+      case 'strained':
+        return hud.toast("Money's tight: you owe more than you have on hand. No hiring or big purchases until you can cover it.");
+      case 'healthy':
+        return hud.toast('Your books are square again.');
+      case 'insolvent': {
+        const names = event.walkedOff.map((w) => w.name);
+        const who = names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+        return hud.toast(
+          `You can't pay what you owe.${names.length ? ` With no money for wages, ${who} down${names.length === 1 ? 's' : ''} tools and leave${names.length === 1 ? 's' : ''}: what they're owed stays owed.` : ''} ` +
+            `Pay up in town within ${FINANCE_TUNING.shutdownAfterDays} days, or your claims will be shut down.`,
+        );
+      }
+      case 'recovered':
+        return hud.toast("You've paid off the last of it. You're back on your feet: the outfitter, the claims board and hiring are open to you again.");
+      case 'shutdown': {
+        const lost = event.claimsLost;
+        hud.toast(
+          `You couldn't pay. ${lost.length ? `The claims go back: ${lost.join(', ')}. ` : ''}` +
+            `Your machines are packed and kept${event.scrap > 0 ? `, the crew's gear sold for scrap ($${event.scrap.toFixed(2)})` : ''}` +
+            `${event.salvage > 0 ? `, and a little salvage from the camps ($${event.salvage.toFixed(2)})` : ''} went to what you owed. ` +
+            `${event.lead ? `Someone you worked alongside tells you about ${event.lead}: it's in your notebook. ` : ''}` +
+            `${event.carried ? "What wouldn't fit in your jar is waiting for you in town. " : ''}` +
+            "You're back at the Home Creek with your shovel, your pan and everything you carry. It's still yours, and it still pays.",
+        );
+        // Back to where it started: the Home Creek is always there, free.
+        spot = null;
+        creek = region.home;
+        creekMap.setCreek(region.home);
+        setMode('creek');
+        return;
+      }
+    }
   };
 
   const goToCreek = (next: Creek): void => {
@@ -912,10 +968,12 @@ async function start(): Promise<void> {
     walkToTown,
     openRegion: () => setMode('region'),
     buyLead: (leadId) => {
-      if (restricted()) return hud.toast(RESTRICTED_MESSAGE);
+      const no = refused('lead');
+      if (no) return hud.toast(no);
       const lead = region.buy(leadId, session);
       if (lead) hud.toast(`Bought: ${lead.name}. Follow it from your notebook on the region map.`);
       else hud.toast("You can't afford that yet.");
+      checkBooks();
     },
     followLead: (leadId) => {
       if (region.lead(leadId).status !== 'open') return;
@@ -925,8 +983,10 @@ async function start(): Promise<void> {
       hud.toast(describeFollow(result));
     },
     buyGear: (id) => {
-      if (restricted()) return hud.toast(RESTRICTED_MESSAGE);
+      const no = refused('gear', OUTFITTER.find((g) => g.id === id)?.price ?? 0);
+      if (no) return hud.toast(no);
       const result = buyGear(session, id);
+      checkBooks();
       if (result === 'bought') hud.toast(BOUGHT_MESSAGES[id]);
       else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
       else if (result === 'needsBase') hud.toast('That fits the hand sluice. Buy the sluice first.');
@@ -983,7 +1043,10 @@ async function start(): Promise<void> {
       setMode(magnetReturn);
     },
     hireHand: (role) => {
-      const result = crew.hire(session, restricted(), role);
+      const no = refused('hire');
+      if (no) return hud.toast(no);
+      const result = crew.hire(session, false, role);
+      checkBooks();
       const hand = crew.workers[crew.workers.length - 1];
       if (result === 'hired' && hand) {
         hud.toast(
@@ -991,7 +1054,6 @@ async function start(): Promise<void> {
             (role === 'operator' ? 'Operators can run the sluice, highbanker and drywasher, or lend a hand at anything else.' : 'Hands pan, rock, haul, screen, prospect and finish; the sluice, highbanker and drywasher need an operator.'),
         );
       }
-      else if (result === 'restricted') hud.toast(RESTRICTED_MESSAGE);
       else if (result === 'cantAfford') hud.toast("You can't afford the first day's wage yet.");
     },
     dismissHand: (workerId) => {
@@ -1016,9 +1078,11 @@ async function start(): Promise<void> {
       if (result === 'doesntFit') hud.toast("That work doesn't fit the ground there.");
     },
     buyCrewMachine: (machine) => {
-      const result = crew.buyMachine(session, machine, restricted());
+      const no = refused('crewGear');
+      if (no) return hud.toast(no);
+      const result = crew.buyMachine(session, machine, false);
+      checkBooks();
       if (result === 'bought') hud.toast(`A crew ${CREW_MACHINE_NAMES[machine]}. It waits as a spare until a crew job needs it.`);
-      else if (result === 'restricted') hud.toast(RESTRICTED_MESSAGE);
       else hud.toast("You can't afford that yet.");
     },
     washReturned: () => {
@@ -1040,9 +1104,11 @@ async function start(): Promise<void> {
       }
     },
     restakeClaim: (creekId) => {
-      const result = economy.restake(creekId, session, restricted());
+      const no = refused('restake');
+      if (no) return hud.toast(no);
+      const result = economy.restake(creekId, session, false);
+      checkBooks();
       if (result === 'staked') hud.toast(`You re-stake ${region.creek(creekId).profile.name}.`);
-      else if (result === 'restricted') hud.toast(RESTRICTED_MESSAGE);
       else if (result === 'cantAfford') hud.toast(`Re-staking costs $${ECONOMY_TUNING.restakeFee}.`);
     },
     collectCrew: () => {
@@ -1112,7 +1178,7 @@ async function start(): Promise<void> {
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew }));
+    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew, finance }));
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -1127,7 +1193,7 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, economy, crew, passTime, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, regionMap, panView, classifierView },
+      __game: { session, region, economy, crew, finance, passTime, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, regionMap, panView, classifierView },
     });
   }
 
@@ -1340,7 +1406,14 @@ async function start(): Promise<void> {
       canPan: canPanHere(),
       economy,
       crew,
-      restricted: restricted(),
+      money: {
+        state: finance.state(books()),
+        daysToShutdown: finance.daysToShutdown(economy),
+        owed: Finance.owed(books()),
+        canHire: finance.allows('hire', books()),
+        canCrewGear: finance.allows('crewGear', books()),
+        canRestake: finance.allows('restake', books()),
+      },
     });
 
     sinceSave += dt;

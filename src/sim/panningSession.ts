@@ -346,6 +346,35 @@ export class PanningSession {
     return 'refuelled';
   }
 
+  /**
+   * Take down the sluice and highbanker, wherever they are, whatever the jar holds, as when a
+   * shutdown forces it. Both are packed and kept. Mats go into the jar as far as they fit; any
+   * that won't fit are handed back to be carried. Gravel in the header and hopper is tipped out.
+   */
+  packUp(): Concentrate[] {
+    const overflow: Concentrate[] = [];
+    const keep = (mat: Concentrate): void => {
+      if (!this.addConcentrate(mat)) overflow.push(mat);
+    };
+    const sluice = this.sluiceGear;
+    if (sluice?.sluice) {
+      sluice.sluice.emptyHeader();
+      keep(sluice.sluice.liftMat());
+      sluice.placedAt = null;
+      sluice.sluice = null;
+    }
+    const hb = this.highbankerGear;
+    if (hb?.machine) {
+      hb.machine.emptyHopper();
+      hb.machine.sluice.emptyHeader();
+      keep(hb.machine.sluice.liftMat());
+      this.packedHighbankerFuel = hb.machine.fuel;
+      hb.placedAt = null;
+      hb.machine = null;
+    }
+    return overflow;
+  }
+
   /** True when the pan can take a new shovelful: none yet, or the last one is finished. */
   get panIsFree(): boolean {
     return this.pan === null || this.pan.phase === 'emptied';

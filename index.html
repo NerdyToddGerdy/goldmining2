@@ -37,6 +37,8 @@
       }
       .hud-day { height: 3px; margin-top: 3px; background: rgba(239, 230, 207, 0.2); border-radius: 2px; overflow: hidden; }
       .hud-day-fill { height: 100%; width: 0; background: #f3d77a; }
+      .hud-money { margin-top: 3px; font: 12px system-ui, sans-serif; color: #e8a36a; text-align: right; }
+      .hud-money.danger { color: #ff8a6a; font-weight: 600; }
       .hud-result {
         position: absolute; left: 50%; top: 18%; transform: translateX(-50%);
         font: 600 22px Georgia, serif; text-shadow: 0 2px 4px #000; text-align: center; white-space: pre-line;
@@ -46,7 +48,7 @@
         background: rgba(30, 20, 12, 0.75); text-shadow: none; max-width: min(560px, 90vw);
       }
       .hud-panel {
-        position: absolute; right: var(--edge-r); top: 50px; width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 130px); overflow-y: auto;
+        position: absolute; right: var(--edge-r); top: 68px; width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 130px); overflow-y: auto;
         background: rgba(30, 22, 14, 0.9); border: 1px solid rgba(239, 230, 207, 0.25); border-radius: 4px;
         padding: 10px 12px; pointer-events: auto; font-size: 13px;
       }

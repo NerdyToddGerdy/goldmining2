@@ -3,6 +3,7 @@ import { Economy, type EconomySnapshot } from './economy';
 import { MAGNET_TUNING } from './magnet';
 import type { HighbankerSnapshot } from './highbanker';
 import { Crew, crewFromV14, type CrewSnapshot } from './staffing';
+import { Finance, type FinanceSnapshot } from './finance';
 import { reservePanIds, type GoldPiece } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
 import { Region, type RegionSnapshot } from './region';
@@ -15,7 +16,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher'] as const;
 
@@ -34,12 +35,14 @@ export interface SaveData {
   readonly place: SavedPlace;
   readonly economy: EconomySnapshot;
   readonly crew: CrewSnapshot;
+  readonly finance: FinanceSnapshot;
 }
 
 /** The clock, claims and crew. Optional so a save can be made without them (they start empty). */
 export interface Operations {
   readonly economy: Economy;
   readonly crew: Crew;
+  readonly finance?: Finance;
 }
 
 export function createSave(region: Region, session: PanningSession, place: SavedPlace, now: number, ops?: Operations): SaveData {
@@ -51,8 +54,11 @@ export function createSave(region: Region, session: PanningSession, place: Saved
     place,
     economy: ops?.economy.snapshot() ?? { clock: 0, claims: [] },
     crew: ops?.crew.snapshot() ?? EMPTY_CREW,
+    finance: ops?.finance?.snapshot() ?? FRESH_FINANCE,
   };
 }
+
+const FRESH_FINANCE: FinanceSnapshot = { insolventSince: null, recovering: false, shutdowns: 0 };
 
 const EMPTY_CREW: CrewSnapshot = crewFromV14({ hand: null, wagesOwed: 0, bucket: { blackSand: 0, gold: [] }, sluiceCreekId: null });
 
@@ -62,6 +68,7 @@ export interface LoadedGame {
   readonly place: SavedPlace;
   readonly economy: Economy;
   readonly crew: Crew;
+  readonly finance: Finance;
 }
 
 /**
@@ -86,6 +93,7 @@ export interface LoadedGame {
  * v14 → v15: a crew of hands with job lists, in place of the single hand. The old hand is on the
  *   sluice job wherever the sluice was set up, with the crew bucket there; with no sluice set up,
  *   they wait in town and their bucket comes back to town with them.
+ * v15 → v16: financial decline and recovery. Nobody had been shut down.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -217,6 +225,9 @@ function migrate(data: unknown): unknown {
     const wagesOwed = typeof crew.wagesOwed === 'number' ? crew.wagesOwed : 0;
     save = { ...save, version: 15, crew: crewFromV14({ hand, wagesOwed, bucket, sluiceCreekId }) };
   }
+  if (save.version === 15) {
+    save = { ...save, version: 16, finance: FRESH_FINANCE };
+  }
   return save;
 }
 
@@ -234,7 +245,7 @@ export function loadSave(raw: unknown, rng: Rng): LoadedGame | null {
   reservePanIds(maxPieceId(data.session, data.crew));
   const creek = region.creeks.find((c) => c.id === data.place.creekId) ?? region.home;
   const spotId = data.place.spotId !== null && creek.spots.some((s) => s.id === data.place.spotId) ? data.place.spotId : null;
-  return { region, session, place: { screen: data.place.screen, creekId: creek.id, spotId }, economy, crew };
+  return { region, session, place: { screen: data.place.screen, creekId: creek.id, spotId }, economy, crew, finance: new Finance(data.finance) };
 }
 
 function maxPieceId(session: SessionSnapshot, crew: CrewSnapshot): number {
@@ -277,6 +288,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
   const { economy, crew } = data;
   if (!isObject(economy) || typeof economy.clock !== 'number' || !Array.isArray(economy.claims)) return false;
+  if (!isObject(data.finance) || typeof data.finance.recovering !== 'boolean') return false;
   if (!isObject(crew) || typeof crew.wagesOwed !== 'number' || !Array.isArray(crew.workers) || !Array.isArray(crew.sites) || !isObject(crew.returned)) return false;
   return true;
 }

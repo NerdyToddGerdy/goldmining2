@@ -20,3 +20,4 @@ export * from './highbanker';
 export * from './drywasher';
 export * from './washTub';
 export * from './crewJobs';
+export * from './finance';
