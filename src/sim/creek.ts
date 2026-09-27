@@ -259,6 +259,22 @@ export class Creek {
   }
 
   /**
+   * Share of the stretch's diggable ground still in place (the creek spots, not gully test pans),
+   * 0 worked out to 1 untouched. It measures digging left, not gold left: what it holds stays hidden.
+   */
+  get groundLeft(): number {
+    let left = 0;
+    let total = 0;
+    for (const spot of this.creekSpots) {
+      for (const layer of spot.layers) {
+        left += layer.loads;
+        total += layer.initialLoads;
+      }
+    }
+    return total > 0 ? left / total : 0;
+  }
+
+  /**
    * Add side gullies to a creek that has none (saves from before gullies existed). There is no
    * colour trail below them, since the creek's spots were set long ago, but a test pan still works.
    */

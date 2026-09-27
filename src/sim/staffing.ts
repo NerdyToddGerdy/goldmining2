@@ -416,7 +416,7 @@ function machineContext(creek: Creek, site: SiteCrew, session: PanningSession): 
 
 /** Roughly how many game days of digging a crewed stretch has left at their pace. */
 export function crewGroundLeft(crew: Crew, creek: Creek): number {
-  const diggers = crew.staffedJobs(creek.id).filter((j) => DIGGING_JOBS.includes(j)).length;
+  const diggers = crew.staffedJobs(creek.id).filter((j) => DIGGING_JOBS.includes(j));
   return crewDaysLeft(creek, diggers, ECONOMY_TUNING.daySeconds);
 }
 

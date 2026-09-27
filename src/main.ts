@@ -1094,6 +1094,10 @@ async function start(): Promise<void> {
       if (moved <= 0 && crew.returned.blackSand > 0) return hud.toast('Your jar is full. Pan some of it down first.');
       hud.toast(crew.returned.blackSand > 0 ? 'You wash what fits of what the crew brought back into your jar.' : 'You wash what the crew brought back into your jar.');
     },
+    goToClaim: (creekId) => {
+      if (mode === 'town') passTime(ECONOMY_TUNING.travel.town);
+      goToCreek(region.creek(creekId));
+    },
     releaseClaim: (creekId) => {
       const name = region.creek(creekId).profile.name;
       const result = economy.release(creekId, session);
@@ -1227,7 +1231,7 @@ async function start(): Promise<void> {
 
     // Game time runs while the player is out working and has touched something lately; not in
     // town or on the map (those are paid for as travel), and not while the game sits idle.
-    if (!inTown() && mode !== 'region' && performance.now() - lastInput < IDLE_AFTER_MS) passTime(dt);
+    if (!inTown() && mode !== 'region' && !hud.tabletOpen && performance.now() - lastInput < IDLE_AFTER_MS) passTime(dt);
     // In town, anything owed is paid the moment there's cash for it, not just on arrival.
     if (mode === 'town' && session.cash >= 0.01 && (economy.feesOwed > 0 || crew.wagesOwed > 0)) settleUp();
     creekMap.setStatus(claimBlock() ? (economy.claim(creek.id)?.status === 'released' ? 'claim released' : 'claim lapsed: pay fees in town') : null);

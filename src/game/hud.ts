@@ -13,6 +13,11 @@ import {
   type Role,
   type FinancialState,
   type SiteKind,
+  claimOverview,
+  costOverview,
+  STATUS_ORDER,
+  type ClaimHealth,
+  type ClaimOverview,
   OPERATOR_JOBS,
   type Economy,
   FUEL_CAN,
@@ -99,6 +104,8 @@ export interface HudActions {
   buyCrewMachine(machine: CrewMachine): void;
   washReturned(): void;
   releaseClaim(creekId: number): void;
+  /** From the field tablet: walk straight to a claim. */
+  goToClaim(creekId: number): void;
   restakeClaim(creekId: number): void;
   collectCrew(): void;
   // Highbanker
@@ -208,6 +215,24 @@ const IDLE_WORDS: Record<JobIdle, string> = {
   nothingToFinish: 'nothing to finish yet',
 };
 
+type TabletTab = 'overview' | 'claims' | 'crew' | 'leads' | 'costs';
+
+const HEALTH_WORDS: Record<ClaimHealth, string> = { steady: 'Steady', warn: 'Needs a look', critical: 'Trouble', noCrew: 'No crew' };
+
+const JOB_STATE_WORDS: Record<string, string> = {
+  working: 'working',
+  noOne: 'nobody free for it',
+  needsOperator: 'needs an operator',
+  standingBack: 'standing back while you’re there',
+  noMachine: 'needs a crew unit (outfitter)',
+  noSite: 'no free spot for it',
+  noWater: 'no water here',
+  workedOut: 'ground worked out',
+  bucketFull: 'crew bucket full',
+  noFuel: 'out of fuel cans',
+  nothingToFinish: 'nothing to finish yet',
+};
+
 const CREW_GEAR: readonly [CrewMachine, string][] = [
   ['sluice', 'Crew sluice'],
   ['highbanker', 'Crew highbanker'],
@@ -282,8 +307,18 @@ export class Hud {
   private readonly dayFill: HTMLElement;
   /** A word under the clock when money is short, with the countdown to shutdown when insolvent. */
   private readonly moneyLine: HTMLElement;
+  private readonly cashButton: HTMLElement;
   private readonly panel: HTMLElement;
   private panelKey = '';
+  /** The field tablet: an overlay for checking claims, crew and costs from anywhere. */
+  private readonly tablet: HTMLElement;
+  private readonly tabletBody: HTMLElement;
+  private readonly tabletClock: HTMLElement;
+  private tabletTab: TabletTab = 'overview';
+  private tabletSelected: number | null = null;
+  private tabletKey = '';
+  /** Open: game time stands still while the player reads it. */
+  tabletOpen = false;
   /** Small screens start with the notebook and claims board folded up. */
   private panelCollapsed = matchMedia('(max-width: 700px), (max-height: 500px)').matches;
   /** Which tab of the town's side menu is open; remembered between visits. */
@@ -299,11 +334,24 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-hint"></div>
-      <div class="hud-cash"><span class="hud-cash-text"></span><div class="hud-day" title="How far through the working day"><div class="hud-day-fill"></div></div><div class="hud-money" hidden></div></div>
+      <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
       <div class="hud-toast" hidden></div>
       <div class="hud-panel" hidden></div>
+      <div class="tablet" hidden>
+        <div class="tablet-screen">
+          <div class="tablet-head"><b>Field tablet</b><span class="tablet-clock"></span><button type="button" data-t="close">Close (Esc)</button></div>
+          <div class="tablet-tabs" role="tablist">
+            <button type="button" role="tab" data-ttab="overview">Overview</button>
+            <button type="button" role="tab" data-ttab="claims">Claims</button>
+            <button type="button" role="tab" data-ttab="crew">Crew</button>
+            <button type="button" role="tab" data-ttab="leads">Leads</button>
+            <button type="button" role="tab" data-ttab="costs">Costs</button>
+          </div>
+          <div class="tablet-body"></div>
+        </div>
+      </div>
       <div class="hud-bar">
         <span class="hud-pan-controls">
           <label class="hud-tilt">Tilt <input type="range" min="0" max="1" step="0.01" value="0" /></label>
@@ -333,7 +381,34 @@ export class Hud {
     this.cash = this.root.querySelector('.hud-cash-text') as HTMLElement;
     this.dayFill = this.root.querySelector('.hud-day-fill') as HTMLElement;
     this.moneyLine = this.root.querySelector('.hud-money') as HTMLElement;
+    // The clock and cash are the tablet's lock screen: tap them to open it.
+    this.cashButton = this.root.querySelector('.hud-cash') as HTMLElement;
+    this.cashButton.addEventListener('click', () => (this.tabletOpen ? this.closeTablet() : this.openTablet()));
     this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
+    this.tablet = this.root.querySelector('.tablet') as HTMLElement;
+    this.tabletBody = this.root.querySelector('.tablet-body') as HTMLElement;
+    this.tabletClock = this.root.querySelector('.tablet-clock') as HTMLElement;
+    this.tablet.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('[data-t], [data-ttab], [data-claim], [data-go]');
+      if (!target) return;
+      if (target.dataset.t === 'close') return this.closeTablet();
+      if (target.dataset.ttab) {
+        this.tabletTab = target.dataset.ttab as TabletTab;
+        this.tabletKey = '';
+        return;
+      }
+      if (target.dataset.go) {
+        const id = Number(target.dataset.go);
+        this.closeTablet();
+        return this.on.goToClaim(id);
+      }
+      if (target.dataset.claim) {
+        // Tap a card to read it; tap it again to fold it away.
+        const id = Number(target.dataset.claim);
+        this.tabletSelected = this.tabletSelected === id ? null : id;
+        this.tabletKey = '';
+      }
+    });
     this.panel.addEventListener('click', (e) => {
       const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
       if (tab) {
@@ -395,6 +470,8 @@ export class Hud {
     const pan = session.pan;
 
     const inspectLabel = forInput('Inspect (I)');
+    const tabletTitle = forInput('Field tablet (O): claims, crew, leads and costs');
+    if (this.cashButton.title !== tabletTitle) this.cashButton.title = tabletTitle;
     if (this.inspectToggle.textContent !== inspectLabel) this.inspectToggle.textContent = inspectLabel;
     const hint =
       mode === 'bank' && state.drywasher
@@ -437,6 +514,8 @@ export class Hud {
     if (this.moneyLine.textContent !== moneyText) this.moneyLine.textContent = moneyText;
     this.moneyLine.hidden = moneyText === '';
     this.moneyLine.classList.toggle('danger', m.state === 'insolvent');
+    // The tablet's light goes red when the books or a claim need the player.
+    this.cashButton.classList.toggle('alert', m.state !== 'healthy' || state.economy.anyLapsed || state.crew.wagesOverdue);
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;
@@ -505,6 +584,7 @@ export class Hud {
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toastEl.hidden = true;
     this.renderPanel(state);
+    this.renderTablet(state);
 
     const spilled = events ? events.darkSpilled / Math.max(dt, 1e-6) : 0;
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
@@ -772,7 +852,7 @@ export class Hud {
   /** What the Claims & crew tab shows, as a key so it only re-renders when something changes. */
   private officeKey(state: HudState): string {
     const { economy, crew } = state;
-    const claims = economy.allClaims.map((c) => `${c.creekId}${c.status}${c.owed.toFixed(2)}`).join();
+    const claims = economy.allClaims.map((c) => `${c.creekId}${c.status}${c.owed.toFixed(2)}${Math.round(state.region.creek(c.creekId).groundLeft * 10)}`).join();
     const workers = crew.workers.map((w) => `${w.id}@${w.siteId}`).join();
     const sites = crew.sites.map((s) => `${s.creekId}:${s.jobs.join('+')}:${JOB_KINDS.map((j) => s.idle[j] ?? '').join('')}`).join();
     return `${claims}:${workers}:${sites}:${JSON.stringify(crew.spares)}:${crew.returned.blackSand.toFixed(3)}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
@@ -842,14 +922,15 @@ export class Hud {
             : claim.owed > 0
               ? `Owes ${owing(claim.owed)}.`
               : '<span class="found">Paid up.</span>';
+      const ground = `<p class="small">${groundWords(creek.groundLeft)}</p>`;
       if (claim.status === 'released') {
-        return `<div class="lead"><b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p><button type="button" data-action="restake" data-creek="${claim.creekId}" ${state.money.canRestake && session.cash >= ECONOMY_TUNING.restakeFee ? '' : 'disabled'}>Re-stake for $${ECONOMY_TUNING.restakeFee}</button></div>`;
+        return `<div class="lead"><b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p>${ground}<button type="button" data-action="restake" data-creek="${claim.creekId}" ${state.money.canRestake && session.cash >= ECONOMY_TUNING.restakeFee ? '' : 'disabled'}>Re-stake for $${ECONOMY_TUNING.restakeFee}</button></div>`;
       }
       const cap = traitsOf(creek.profile.site).crewMax;
       const here = crew.workersAt(claim.creekId);
       const site = crew.findSite(claim.creekId);
       const staffed = crew.staffedJobs(claim.creekId);
-      const lines = [`<b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p>`];
+      const lines = [`<b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p>${ground}`];
       const room = here.length < cap && economy.canWork(claim.creekId);
       lines.push(
         `<p class="small">Crew here: ${here.length ? here.map((w) => `${w.name} (${w.role})`).join(', ') : 'none'} (room for ${cap}).</p>` +
@@ -914,6 +995,12 @@ export class Hud {
     if (key === 'i') return this.toggleInspect();
     const state = this.state;
     if (!state) return;
+    // The tablet sits over everything: while it's open, keys are for it.
+    if (this.tabletOpen) {
+      if (key === 'escape' || key === 'o') this.closeTablet();
+      return;
+    }
+    if (key === 'o' && (state.mode === 'creek' || state.mode === 'region' || state.mode === 'town')) return this.openTablet();
     const phase = state.session.pan?.phase;
     if (state.mode === 'creek') {
       const n = Number(key);
@@ -1007,6 +1094,214 @@ export class Hud {
       else if (key === 'h' && state.rocker) this.on.shovel('rocker');
       else if (key === 'o' && state.rocker) this.on.openRocker();
     }
+  }
+
+  openTablet(): void {
+    this.tabletOpen = true;
+    this.tablet.hidden = false;
+    this.tabletKey = '';
+  }
+
+  closeTablet(): void {
+    this.tabletOpen = false;
+    this.tablet.hidden = true;
+  }
+
+  private renderTablet(state: HudState): void {
+    if (!this.tabletOpen) return;
+    const { crew, economy, region, session } = state;
+    const clock = `Day ${economy.day} · ${economy.timeOfDay} · $${session.cash.toFixed(2)}`;
+    if (this.tabletClock.textContent !== clock) this.tabletClock.textContent = clock;
+    const playerAt = state.mode === 'town' || state.mode === 'region' ? null : state.creek.id;
+    const world = { crew, economy, session, playerAt };
+    const views = economy.allClaims
+      .filter((c) => c.status === 'held')
+      .map((c) => claimOverview(region.creek(c.creekId), c, world))
+      .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || region.creek(a.creekId).profile.name.localeCompare(region.creek(b.creekId).profile.name));
+    const key = `${this.tabletTab}:${this.tabletSelected}:${clock}:${views.map((v) => `${v.creekId}${v.status}${v.warnings.length}${v.jobs.map((j) => j.state).join('')}${Math.round(v.groundLeft * 10)}${v.waiting.gold}${v.waiting.sand.toFixed(1)}`).join()}:${crew.workers.map((w) => `${w.id}@${w.siteId}`).join()}:${state.money.state}:${session.vial.length}:${session.jar.blackSand.toFixed(2)}:${session.fuelCans}:${OUTFITTER.map((g) => (session.owns(g.id) ? 1 : 0)).join('')}:${JSON.stringify(session.sluicePlace)}:${JSON.stringify(session.highbankerPlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.length}:${Math.round(region.home.groundLeft * 20)}:${crew.returned.blackSand.toFixed(2)}`;
+    if (key === this.tabletKey) return;
+    this.tabletKey = key;
+    for (const tab of this.tablet.querySelectorAll<HTMLElement>('[data-ttab]')) tab.classList.toggle('active', tab.dataset.ttab === this.tabletTab);
+    const money = (n: number): string => `$${n.toFixed(2)}`;
+    const name = (id: number): string => region.creek(id).profile.name;
+
+    if (this.tabletTab === 'overview') {
+      this.tabletBody.innerHTML = this.tabletOverview(state, views);
+      return;
+    }
+
+    if (this.tabletTab === 'leads') {
+      const leads = [...region.leads].reverse().map((lead) => {
+        const status =
+          lead.status === 'open' ? '<span class="small">Not followed yet: follow it from the region map.</span>'
+          : lead.status === 'dud' ? '<span class="dud">Nothing there.</span>'
+          : '<span class="found">Found. It is on the map.</span>';
+        return `<div class="tablet-group">${leadHeader(lead)}${status}</div>`;
+      });
+      const offers = region.offers.length ? `<p class="small">${region.offers.length} lead${region.offers.length === 1 ? '' : 's'} for sale in town.</p>` : '';
+      this.tabletBody.innerHTML = offers + (leads.join('') || '<p class="small">No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>');
+      return;
+    }
+
+    if (this.tabletTab === 'claims') {
+      const home = region.home;
+      const homeCard =
+        `<button type="button" class="tablet-card is-home ${this.tabletSelected === home.id ? 'selected' : ''}" data-claim="${home.id}">` +
+        `<span class="chip">Free · always yours</span><b>${home.profile.name}</b>` +
+        `<span class="small">home creek · shovel and pan · ${Math.round(home.groundLeft * 10) * 10}% ground</span></button>`;
+      const cards = views.map((v) => {
+        const creek = region.creek(v.creekId);
+        const jobsOn = v.jobs.length;
+        const summary = v.crew.length ? `${v.crew.length} crew · ${jobsOn} job${jobsOn === 1 ? '' : 's'}` : 'No crew';
+        return (
+          `<button type="button" class="tablet-card is-${v.status} ${this.tabletSelected === v.creekId ? 'selected' : ''}" data-claim="${v.creekId}">` +
+          `<span class="chip ${v.status}">${HEALTH_WORDS[v.status]}</span><b>${creek.profile.name}</b>` +
+          `<span class="small">${traitsOf(creek.profile.site).label.toLowerCase()} · ${summary} · ${Math.round(v.groundLeft * 10) * 10}% ground</span>` +
+          `${v.warnings[0] ? `<span class="small warn">${v.warnings[0]}</span>` : ''}</button>`
+        );
+      });
+      const selected = views.find((v) => v.creekId === this.tabletSelected);
+      const sheet = selected
+        ? this.claimSheet(selected, state)
+        : this.tabletSelected === home.id
+          ? `<div class="tablet-sheet"><b>${home.profile.name}</b> <span class="small">home creek</span><p>No fee, no claim, no crew: shovel and pan only, and always there to come back to.</p>` +
+            `<p>${groundWords(home.groundLeft)} Floods and the creek's slow trickle bring fresh gravel down over time.</p><button type="button" data-go="${home.id}">Walk there</button></div>`
+          : `<p class="small">${views.length ? 'Tap a claim to read it.' : 'No claims held yet. Follow a lead and stake what you find.'}</p>`;
+      this.tabletBody.innerHTML = `<div class="tablet-cards">${cards.join('')}${homeCard}</div>${sheet}`;
+      return;
+    }
+
+    if (this.tabletTab === 'crew') {
+      const sites = views.filter((v) => v.crew.length > 0);
+      const groups = sites.map((v) => {
+        const roles = (['operator', 'hand'] as const).map((r) => ({ r, n: v.crew.filter((c) => c.role === r).length })).filter((x) => x.n > 0);
+        const flags = v.jobs.filter((j) => j.state === 'needsOperator' || j.state === 'noOne').map((j) => `${JOB_NAMES[j.job]} ${j.state === 'needsOperator' ? 'needs an operator' : 'has nobody on it'}`);
+        const idle = v.jobs.filter((j) => j.state !== 'working' && j.state !== 'standingBack' && j.state !== 'noOne' && j.state !== 'needsOperator').length;
+        return (
+          `<div class="tablet-group"><b>${name(v.creekId)}</b> <span class="small">${roles.map((x) => `${x.n} ${x.r}${x.n === 1 ? '' : 's'}`).join(', ')} · ${money(v.wagesPerDay)} a day</span>` +
+          `<p class="small">${v.crew.map((c) => `${c.name} (${c.role})`).join(', ')}</p>` +
+          `<p class="small">Jobs: ${v.jobs.length ? v.jobs.map((j) => JOB_NAMES[j.job]).join(', ') : 'none switched on'}${idle ? ` · ${idle} idle` : ''}</p>` +
+          `${flags.map((f) => `<p class="small warn">${f}.</p>`).join('')}</div>`
+        );
+      });
+      const waiting = crew.idleWorkers;
+      const spares = CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, label]) => `${crew.spares[m]} ${label.replace('Crew ', '')}`);
+      if (crew.workers.length === 0) {
+        this.tabletBody.innerHTML =
+          `<p>No crew hired.</p><p class="small">Hands ($${STAFF_TUNING.wage.hand} a day) and operators ($${STAFF_TUNING.wage.operator} a day) are hired in town, in Claims & crew, and sent to a staked stretch. They work while you're somewhere else: they buy you time, not better recovery.</p>` +
+          (CREW_GEAR.some(([m]) => crew.spares[m] > 0) ? `<p class="small">Spare crew gear: ${CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, label]) => `${crew.spares[m]} ${label.replace('Crew ', '')}`).join(', ')}.</p>` : '');
+        return;
+      }
+      this.tabletBody.innerHTML =
+        (groups.join('') || '<p class="small">Nobody is out at a claim.</p>') +
+        `<div class="tablet-group"><b>In town</b><p class="small">${waiting.length ? waiting.map((w) => `${w.name} (${w.role})`).join(', ') : 'Nobody waiting.'}</p>${spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : ''}</div>`;
+      return;
+    }
+
+    // Costs.
+    const c = costOverview(state);
+    const burn = c.feesPerDay + c.wagesPerDay;
+    const m = state.money;
+    const runway = burn > 0 ? session.cash / burn : Infinity;
+    const stateLine =
+      m.state === 'healthy'
+        ? '<p class="found">Books square.</p>'
+        : m.state === 'strained'
+          ? '<p class="warn">Money tight: you owe more than you have on hand.</p>'
+          : m.state === 'insolvent'
+            ? `<p class="warn"><b>Insolvent.</b> Shutdown in ${m.daysToShutdown === null || m.daysToShutdown < 0.5 ? 'under half a day' : `about ${Math.round(m.daysToShutdown * 2) / 2} days`} unless you pay up.</p>`
+            : '<p class="warn"><b>Recovering</b> from a shutdown: pay off what\'s left.</p>';
+    const owedRows = economy.allClaims
+      .filter((cl) => cl.owed > 0)
+      .map((cl) => `<tr><td>${name(cl.creekId)}${economy.isLapsed(cl) ? ' <span class="warn">(lapsed)</span>' : ''}</td><td>${money(Math.ceil(cl.owed * 100 - 1e-6) / 100)}</td></tr>`);
+    this.tabletBody.innerHTML =
+      stateLine +
+      `<table class="tablet-table">` +
+      `<tr><td>Cash on hand</td><td>${money(session.cash)}</td></tr>` +
+      `<tr><td>Claim fees a day</td><td>${money(c.feesPerDay)}</td></tr>` +
+      `<tr><td>Wages a day</td><td>${money(c.wagesPerDay)}</td></tr>` +
+      `<tr><td><b>Costs a day</b></td><td><b>${money(burn)}</b></td></tr>` +
+      `<tr><td>Cash lasts</td><td>${burn <= 0 ? '—' : runway < 0.5 ? 'under half a day' : `about ${Math.round(runway * 2) / 2} days`}</td></tr>` +
+      `</table>` +
+      `<p class="small">Owed now: ${money(c.feesOwed + c.wagesOwed)} (fees ${money(c.feesOwed)}, wages ${money(c.wagesOwed)}). Paid from your cash in town.</p>` +
+      (owedRows.length ? `<table class="tablet-table">${owedRows.join('')}</table>` : '');
+  }
+
+  /** The front page: where things stand, what you're carrying, and what needs you. */
+  private tabletOverview(state: HudState, views: readonly ClaimOverview[]): string {
+    const { session, region, crew, economy } = state;
+    const money = (n: number): string => `$${n.toFixed(2)}`;
+    const where =
+      state.mode === 'town' ? 'In town' : state.mode === 'region' ? 'Looking over the region map' : `At ${state.creek.profile.name}`;
+    const vial = session.vial.length
+      ? `${session.vialMg.toFixed(1)} mg in ${session.vial.length} piece${session.vial.length === 1 ? '' : 's'}, worth about ${money(quoteSale(session.vial).total)} to the buyer`
+      : 'empty';
+    const jarShare = session.jarCapacity > 0 ? session.jar.blackSand / session.jarCapacity : 0;
+    const jar =
+      session.jar.blackSand < 0.01 ? 'empty'
+      : `${jarShare > 0.9 ? 'full' : jarShare > 0.6 ? 'mostly full' : jarShare > 0.3 ? 'about half full' : 'a little'} of black sand; its gold is unknown until it's panned`;
+    const owned = OUTFITTER.filter((g) => session.owns(g.id)).map((g) => {
+      if (g.id === 'sluice' && session.sluicePlace) return `${g.name} (set up at ${region.creek(session.sluicePlace.creekId).profile.name})`;
+      if (g.id === 'highbanker' && session.highbankerPlace) return `${g.name} (set up at ${region.creek(session.highbankerPlace.creekId).profile.name})`;
+      return g.name;
+    });
+    const gear = ['Shovel', 'Pan', ...owned].join(', ') + (session.fuelCans ? `; ${session.fuelCans} fuel can${session.fuelCans === 1 ? '' : 's'}` : '');
+    const held = views.length;
+    const openLeads = region.leads.filter((l) => l.status === 'open').length;
+    const wages = crew.dailyWages;
+    const fees = economy.allClaims.filter((c) => c.status === 'held').reduce((n, c) => n + c.fee, 0);
+
+    const attention: string[] = [];
+    if (state.money.state === 'insolvent') attention.push('<b>Insolvent:</b> get to town with cash before the operation is shut down.');
+    else if (state.money.state === 'strained') attention.push('Money is tight: you owe more than you have on hand.');
+    else if (state.money.state === 'recovering') attention.push('Recovering from a shutdown: pay off what’s left in town.');
+    for (const v of views) for (const w of v.warnings.slice(0, v.status === 'critical' ? 2 : 1)) attention.push(`<b>${region.creek(v.creekId).profile.name}:</b> ${w}`);
+    const idle = crew.idleWorkers.length;
+    if (idle) attention.push(`${idle} of your crew ${idle === 1 ? 'is' : 'are'} waiting in town for a stretch to work.`);
+    if (crew.returned.blackSand > 0.01) attention.push('Your crew left concentrate in town to wash into your jar.');
+    if (session.jarSpace <= 0.01 && session.jar.blackSand > 0) attention.push('The jar is full: pan it down, or clean it with the magnet.');
+
+    return (
+      `<table class="tablet-table">` +
+      `<tr><td>Where</td><td>${where}</td></tr>` +
+      `<tr><td>Cash</td><td>${money(session.cash)}${state.money.state === 'healthy' ? '' : ` <span class="warn">(${state.money.state})</span>`}</td></tr>` +
+      `<tr><td>Vial</td><td>${vial}</td></tr>` +
+      `<tr><td>Jar</td><td>${jar}</td></tr>` +
+      `<tr><td>Gear</td><td>${gear}</td></tr>` +
+      `<tr><td>Claims</td><td>${held ? `${held} held, ${money(fees)} a day in fees` : 'none held'} · the Home Creek is free</td></tr>` +
+      `<tr><td>Crew</td><td>${crew.workers.length ? `${crew.workers.length} hired, ${money(wages)} a day` : 'none hired'}</td></tr>` +
+      `<tr><td>Leads</td><td>${openLeads ? `${openLeads} to follow` : 'none open'}${region.offers.length ? `, ${region.offers.length} for sale in town` : ''}</td></tr>` +
+      `<tr><td>Pans worked</td><td>${session.pansWorked}, ${money(session.earned)} earned all told</td></tr>` +
+      `</table>` +
+      `<h4>Needs you</h4>` +
+      (attention.length ? `<ul class="warnings">${attention.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="found">Nothing pressing.</p>')
+    );
+  }
+
+  /** The detail sheet for one claim: everything on the card, spelled out. */
+  private claimSheet(v: ClaimOverview, state: HudState): string {
+    const creek = state.region.creek(v.creekId);
+    const money = (n: number): string => `$${n.toFixed(2)}`;
+    const jobs = v.jobs.length
+      ? v.jobs.map((j) => `<li>${JOB_NAMES[j.job]}: ${JOB_STATE_WORDS[j.state] ?? j.state}</li>`).join('')
+      : '<li>No jobs switched on.</li>';
+    const days = !Number.isFinite(v.daysLeft) ? 'nobody digging' : v.daysLeft < 0.5 ? 'under half a day at their pace' : `about ${Math.round(v.daysLeft * 2) / 2} days at their pace`;
+    const take = v.take
+      ? `very roughly ${money(Math.max(0, v.take.low))} to ${money(v.take.high)} a day for each hand digging, from your field notes`
+      : 'no field notes here yet';
+    const sand = v.waiting.sand > 3 ? 'nearly full' : v.waiting.sand > 1.5 ? 'half full' : v.waiting.sand > 0.01 ? 'some' : 'empty';
+    return (
+      `<div class="tablet-sheet"><b>${creek.profile.name}</b> <span class="small">${traitsOf(creek.profile.site).label.toLowerCase()}</span>` +
+      `${v.warnings.length ? `<ul class="warnings">${v.warnings.map((w) => `<li>${w}</li>`).join('')}</ul>` : '<p class="found">Nothing needs you here.</p>'}` +
+      `<table class="tablet-table">` +
+      `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map((c) => `${c.name} (${c.role})`).join(', ') : 'none'}</td></tr>` +
+      `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
+      `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +
+      `<tr><td>Take</td><td>${take}</td></tr>` +
+      `<tr><td>Waiting to collect</td><td>crew bucket ${sand}${v.waiting.gold ? `, ${v.waiting.gold} piece${v.waiting.gold === 1 ? '' : 's'} of gold in the poke` : ''}</td></tr>` +
+      `</table><ul class="jobs-list">${jobs}</ul>` +
+      `<button type="button" data-go="${v.creekId}">Walk there</button></div>`
+    );
   }
 
   private toggleInspect(): void {
@@ -1136,6 +1431,18 @@ export class Hud {
 function leadHeader(lead: Lead): string {
   const { low, high } = lead.richness;
   return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${describeGround(lead)}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
+}
+
+/**
+ * How much of a stretch is left to dig, in round figures: the nearest ten percent, never exact.
+ */
+function groundWords(left: number): string {
+  if (left <= 0) return 'Worked out.';
+  if (left >= 1) return 'Untouched: all its ground left to dig.';
+  const tens = Math.round(left * 10) * 10;
+  if (tens <= 0) return 'Nearly worked out: under 10% of its ground left.';
+  if (tens >= 100) return 'Barely touched: nearly all its ground left.';
+  return `About ${tens}% of its ground left to dig.`;
 }
 
 /** How each source puts what it says about the ground, and how far to trust it. */

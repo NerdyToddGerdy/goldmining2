@@ -312,6 +312,7 @@ Low-cost recovery options:
 - **Claims:** every found stretch is staked when found. A plain stretch costs $1 a day to hold, and one with ground for a sluice (including a thin-water bench) costs $2.
 - **Paying:** fees and wages come out of cash automatically in town, as far as the cash goes, on arriving and after each sale.
 - **Lapsing:** a claim more than three days behind lapses. It can't be dug, the sluice can't be set up on it, and a hand won't work it until it's paid up.
+- **Ground left:** each claim in the Claims & crew tab shows roughly how much of the stretch is left to dig, to the nearest 10% ("About 60% of its ground left to dig", "Untouched", "Worked out"). It measures digging left, not gold left, so what the ground holds stays hidden.
 - **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down.
 - **Being behind** (any claim lapsed, or wages more than a day overdue) blocks new gear, leads and hires. Nothing owned is ever taken, and fuel can still be bought. The Home Creek is never a claim and never costs anything, so panning it always pays the way back.
 
@@ -557,6 +558,14 @@ Example warning:
 - **What they make:** each stretch's crew bucket (concentrate, about five mats) and poke (gold) wait for the player. "Collect from the crew" at the stretch puts the poke in the vial and as much of the bucket as fits in the jar. On arrival the player hears who worked, for how long, and what they did.
 - **Wages** run by the day for every hand, working or not, and are paid in town with claim fees, automatically while there's cash. If the crew goes more than two days' wages unpaid, the last hand hired walks off, and what's owed stays owed. Releasing a claim brings its crew back to town with their bucket and poke.
 - **Estimates:** the claim's entry shows how many days of ground are left at the crew's pace, and a rough daily take for a hand built only from the player's own field notes.
+- **Field tablet:** the player's central place for information, always to hand on a creek, the region map and in town, crew or no crew. The clock and cash in the corner are drawn as the tablet itself: tap it (or press O) to open it, and its light turns red when the books or a claim need the player. It only reads; buying, hiring and setting jobs still happen in town. Game time stands still while it's open.
+  - **Overview:** where the player is, cash, the vial (weight and what the buyer would pay), the jar (how full; its gold unknown until panned), gear owned and where machines are set up, claims, crew, leads, and a "Needs you" list gathered from everything below.
+  - **Claims:** a card for each held claim, sorted by what needs attention: Trouble (lapsed, crew idle on wages, no jobs, or likely costing more than it brings in by the player's own notes), Needs a look (bucket nearly full, out of fuel, waiting for a crew unit or an operator, fees owed, ground nearly worked out, no field notes), Steady, and No crew. The Home Creek is always listed: free, always yours. Tapping a card shows the crew, each job's state, costs a day, ground left, the rough take, what's waiting to collect, and a "Walk there" button.
+  - **What waiting shows:** how full the crew bucket is, and pieces in the poke. Gold still in the bucket's concentrate is never counted: it's unknown until panned.
+  - **Crew:** who is at each stretch, their wages, jobs left unfilled, who is waiting in town, and spare crew gear; with nobody hired, what hiring would get you.
+  - **Leads:** the notebook, read-only, and how many leads are for sale in town.
+  - **Costs:** cash, fees and wages a day, how long cash lasts at that rate, what's owed, and the financial state with the countdown to shutdown when insolvent.
+  - Not yet: accident and maintenance risk (not modelled), and setting crew policy from the tablet (see "Crew policies").
 
 ## Equipment UX Philosophy
 

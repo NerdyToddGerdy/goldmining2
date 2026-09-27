@@ -31,13 +31,23 @@
       @media (hover: hover) { .hud button:hover { background: rgba(60, 70, 50, 0.85); } }
       .hud button:active { background: rgba(80, 90, 60, 0.9); }
       .hud-hint { position: absolute; left: var(--edge-l); top: var(--edge-t); right: 280px; opacity: 0.8; text-shadow: 0 1px 2px #000; }
-      .hud-cash {
-        position: absolute; right: var(--edge-r); top: var(--edge-t); font: 600 18px Georgia, serif;
-        color: #f3d77a; text-shadow: 0 1px 3px #000;
+      /* The clock and cash, shown on a small handheld: tap it to open the field tablet. */
+      .hud .hud-cash {
+        position: absolute; right: var(--edge-r); top: var(--edge-t); display: block; padding: 4px 10px 5px;
+        font: 600 18px Georgia, serif; color: #f3d77a; text-align: right;
+        background: #1e2a22; border: 3px solid #3a3a36; border-radius: 9px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5), inset 0 0 0 1px #5a6b5c;
       }
-      .hud-day { height: 3px; margin-top: 3px; background: rgba(239, 230, 207, 0.2); border-radius: 2px; overflow: hidden; }
+      @media (hover: hover) { .hud .hud-cash:hover { background: #26352b; border-color: #4a4a44; } }
+      .hud .hud-cash:active { background: #2c3d31; }
+      .hud .hud-cash:focus:not(:focus-visible) { outline: none; }
+      .hud-cash-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+      .hud-led { width: 6px; height: 6px; border-radius: 50%; background: #9fd08a; box-shadow: 0 0 4px #9fd08a; }
+      .hud-cash.alert .hud-led { background: #ff8a6a; box-shadow: 0 0 5px #ff8a6a; }
+      .hud-day { display: block; height: 3px; margin-top: 3px; background: rgba(239, 230, 207, 0.2); border-radius: 2px; overflow: hidden; }
       .hud-day-fill { height: 100%; width: 0; background: #f3d77a; }
-      .hud-money { margin-top: 3px; font: 12px system-ui, sans-serif; color: #e8a36a; text-align: right; }
+      .hud-money { display: block; margin-top: 3px; font: 12px system-ui, sans-serif; color: #e8a36a; text-align: right; }
+      .hud-money[hidden] { display: none; }
       .hud-money.danger { color: #ff8a6a; font-weight: 600; }
       .hud-result {
         position: absolute; left: 50%; top: 18%; transform: translateX(-50%);
@@ -79,6 +89,43 @@
       .hud-panel .jobs .job.on { opacity: 1; border-color: #f3d77a; color: #f3d77a; }
       .hud-panel button.link { background: none; border: none; padding: 0; min-height: 0; font-size: 12px; text-decoration: underline; color: inherit; cursor: pointer; }
       .hud-panel button[disabled] { opacity: 0.4; cursor: default; }
+      /* The field tablet: an in-fiction handheld, over whatever screen the player is on. */
+      .tablet { position: absolute; inset: 48px max(12px, 4vw) 64px; display: flex; justify-content: center; pointer-events: auto; z-index: 5; }
+      .tablet[hidden] { display: none; }
+      .tablet-screen {
+        width: min(920px, 100%); height: 100%; display: flex; flex-direction: column; padding: 12px 14px;
+        background: #1e2a22; border: 10px solid #3a3a36; border-radius: 16px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), inset 0 0 0 1px #5a6b5c;
+      }
+      .tablet-head { display: flex; align-items: center; gap: 12px; }
+      .tablet-head b { font: 600 17px Georgia, serif; color: #f3d77a; }
+      .tablet-clock { flex: 1; font-size: 13px; opacity: 0.8; }
+      .tablet-tabs { display: flex; gap: 4px; margin: 8px 0; border-bottom: 1px solid rgba(239, 230, 207, 0.2); }
+      .tablet-tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 4px 10px 6px; min-height: 0; font: 600 15px Georgia, serif; color: rgba(239, 230, 207, 0.65); }
+      .tablet-tabs button.active { color: #f3d77a; border-bottom-color: #f3d77a; }
+      .tablet-body { flex: 1; overflow-y: auto; font-size: 13px; }
+      .tablet-body .small { font-size: 12px; opacity: 0.8; display: block; }
+      .tablet-body .warn { color: #e8a36a; opacity: 1; }
+      .tablet-body .found { color: #9fd08a; }
+      .tablet-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+      .tablet-card { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; min-height: 0; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(239, 230, 207, 0.2); border-left-width: 4px; }
+      .tablet-card.is-steady { border-left-color: #9fd08a; }
+      .tablet-card.is-warn { border-left-color: #e8c36a; }
+      .tablet-card.is-critical { border-left-color: #ff8a6a; }
+      .tablet-card.is-home { border-left-color: #7fb2d0; }
+      .tablet-card.is-noCrew { border-left-color: rgba(239, 230, 207, 0.3); }
+      .tablet-card.selected { background: rgba(243, 215, 122, 0.12); border-color: #f3d77a; }
+      .tablet-card .chip { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; }
+      .tablet-sheet { margin-top: 10px; padding: 10px 12px; background: rgba(0, 0, 0, 0.3); border-radius: 6px; }
+      .tablet-sheet ul { margin: 6px 0; padding-left: 18px; }
+      .tablet-sheet .warnings li { color: #e8a36a; }
+      .tablet-table { border-collapse: collapse; margin: 6px 0; }
+      .tablet-table td { padding: 2px 12px 2px 0; vertical-align: top; }
+      .tablet-body h4 { margin: 12px 0 4px; font: 600 14px Georgia, serif; color: #f3d77a; }
+      .tablet-body .warnings { margin: 4px 0; padding-left: 18px; }
+      .tablet-body .warnings li { color: #e8a36a; margin: 2px 0; }
+      .tablet-body .dud { opacity: 0.6; }
+      .tablet-group { padding: 8px 0; border-top: 1px solid rgba(239, 230, 207, 0.15); }
+      .tablet-group:first-child { border-top: none; }
       .hud-toast {
         position: absolute; left: 50%; top: 28%; transform: translateX(-50%);
         background: rgba(20, 26, 18, 0.85); padding: 8px 14px; border-radius: 4px; color: #f3d77a;
@@ -112,7 +159,7 @@
       /* Short screens (phones held sideways): smaller type, two-line hints, tighter bars. */
       @media (max-height: 500px) {
         .hud { font-size: 13px; }
-        .hud-cash { font-size: 15px; }
+        .hud .hud-cash { font-size: 15px; padding: 2px 8px 3px; min-height: 0; }
         .hud-hint { right: 230px; }
         .hud-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .hud button { padding: 5px 10px; min-height: 34px; }

@@ -835,16 +835,28 @@ function runProspect(dt: number, ctx: JobContext): JobIdle | null {
   return null;
 }
 
-/** Roughly how many game days of digging a stretch has left, with `diggers` hands at it. */
-export function crewDaysLeft(creek: Creek, diggers: number, daySeconds: number): number {
-  if (diggers <= 0) return Infinity;
+/**
+ * Roughly how many seconds a hand spends per load of gravel on each digging job: feeding a machine,
+ * rocking and fetching water, or panning and resting between pans. Measured from the crew sim.
+ */
+const SECONDS_PER_LOAD: Partial<Record<JobKind, number>> = { sluice: 8, highbanker: 8, rocker: 25, drywasher: 10, pan: 60 };
+
+/** Roughly how many game days of digging a stretch has left, with these staffed jobs digging it. */
+export function crewDaysLeft(creek: Creek, jobs: readonly JobKind[], daySeconds: number): number {
   const T = CREW_TUNING;
-  let seconds = 0;
+  const diggers = jobs.filter((j) => SECONDS_PER_LOAD[j]);
+  const loadsPerSecond = diggers.reduce((n, j) => n + 1 / SECONDS_PER_LOAD[j]!, 0);
+  if (loadsPerSecond <= 0) return Infinity;
+  let loads = 0;
+  let tosses = 0;
   for (const spot of creek.creekSpots) {
-    seconds += spot.slumped * T.tossTime;
-    for (const layer of spot.layers) seconds += layer.loads * (layer.kind === 'overburden' ? T.tossTime : T.feedTime + T.haulPerLength * 0.25);
+    tosses += spot.slumped;
+    for (const layer of spot.layers) {
+      if (layer.kind === 'overburden') tosses += layer.loads;
+      else loads += layer.loads;
+    }
   }
-  return seconds / diggers / daySeconds;
+  return (loads / loadsPerSecond + (tosses * T.tossTime) / diggers.length) / daySeconds;
 }
 
 /** Jobs that dig from the stretch. */

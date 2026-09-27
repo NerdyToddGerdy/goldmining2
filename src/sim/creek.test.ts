@@ -157,4 +157,18 @@ describe('Creek', () => {
     expect(stretch.trickle(100)).toHaveLength(0);
     for (const spot of stretch.spots) expect(stretch.isWorkedOut(spot)).toBe(true);
   });
+
+  it('tells how much of its ground is left to dig, from untouched to worked out', () => {
+    const creek = new Creek(createRng(16));
+    expect(creek.groundLeft).toBe(1);
+    const spot = creek.creekSpots[0]!;
+    clearBlocks(creek, spot);
+    creek.shovel(spot.id, 'spoil');
+    expect(creek.groundLeft).toBeLessThan(1);
+    expect(creek.groundLeft).toBeGreaterThan(0.8);
+    // The Home Creek renews when it's worked out, so check a stretch that doesn't.
+    const stretch = new Creek(createRng(17), undefined, { ...HOME_CREEK_PROFILE, name: 'Found', site: 'creekStretch', renewing: false });
+    for (const s of stretch.creekSpots) while (!stretch.isWorkedOut(s)) (clearBlocks(stretch, s), stretch.shovel(s.id, 'spoil'));
+    expect(stretch.groundLeft).toBe(0);
+  });
 });

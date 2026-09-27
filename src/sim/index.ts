@@ -21,3 +21,4 @@ export * from './drywasher';
 export * from './washTub';
 export * from './crewJobs';
 export * from './finance';
+export * from './overview';
