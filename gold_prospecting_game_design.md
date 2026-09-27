@@ -167,7 +167,7 @@ Every stretch found by following a lead is one of these. What it is decides what
 | Creek bend | ~33% | 3–5 spots, 1–2 steady sluice sites | Pan, classifier, rocker, sluice | — | $2 |
 | Gravel bar | ~12% | 6–8 spots, shallow: thin overburden, broad gravel and pay | Pan, classifier, rocker, 2–3 steady sluice sites | Floods (about one game day in five): open holes half buried, worked-out spots given a thin fresh layer, a sluice there swept, stripped and choked | $3 |
 | Narrow ravine | ~12% | 2–3 spots, rich bedrock pockets under broken rock; unstable walls, twice the boulders | Pan, classifier; no flat ground for a rocker; at most one sluice site, in fast, steep water | A long walk in (extra game time) | $2 |
-| Dry wash | ~11% | 4–6 spots, shallow and fairly rich, no seep in the holes | No water to pan in or run a sluice. The rocker works on water hauled in (a long fetch). The drywasher and wash tub will open it up properly. | — | $1 |
+| Dry wash | ~11% | 4–6 spots, shallow and fairly rich, no seep in the holes | No creek water to pan in or run a sluice. A wash tub makes panning possible, the drywasher works it with air, and the rocker runs on water hauled in (a long fetch). | — | $1 |
 
 Creek maps, bank views and the region map draw each kind differently: a wide channel with pale bars, a narrow torrent between rock walls, a dry sandy bed and a dashed tributary.
 
@@ -816,6 +816,14 @@ Distinct visual identity:
 - Airflow tuning.
 - Feed consistency and dust buildup.
 
+In the game, the **drywasher** ($45) is a hand-bellows machine for dry washes only. It uses no water and no fuel:
+- **Where it works:** it travels with the player and stands on the bank behind the classifier.
+- **Feeding:** shovelfuls go on its screen (or the classifier's bucket is poured in). Fines drop onto a sloped riffle tray with a cloth bottom, and rocks stay on the screen to be tipped off, pickers and all.
+- **Controls:** holding Pump works the bellows, reusing the pan's Sift control. The Air slider sets the air gate, reusing the pan's Tilt.
+- **Operating states:** **still** (not pumping: nothing moves), **underblown** (the bed never loosens, heavies don't separate, the drawer fills with plain sand, and gold rides off with the mass), **balanced**, and **overblown** (fine gold goes up with the dust). The tray throws brown dust clouds that rise higher with more air.
+- **Interruptions:** dust from dry clay and silt builds up in the cloth and chokes the air, so a good air setting drifts into underblown until the cloth is shaken out (which loses a few fines). Dry clay lumps blind the screen and slow it until it's knocked clear. The cloth greys and the screen goes pale, so both read at a glance.
+- **Harvest:** pull the concentrate drawer into the jar. Pan it in a wash tub on the spot, or back at a creek. (True dry-panning is left for later.)
+
 ### Hard-rock chain
 
 ```text
@@ -860,7 +868,7 @@ Pan progression:
 2. Hand classifier: screened material, no rocks to rake. *(in the game)*
 3. Magnet: pulls magnetite out of saved black sand, so the jar holds more and jar pans go faster. A little fine gold clings to the magnetite, so stripping hard costs gold. *(in the game: $6. About 60% of saved black sand is magnetite. The jar is spread in a tray and the player holds Pass to sweep the magnet at a chosen closeness: close strips fast but lifts fines into the clump, high is slow and clean. Each pass lifts less as the magnetite runs low. The clump holds a little before it must be dealt with: shake it back (most trapped gold and some sand drop back) and strip it onto the discard pile, gold and all, unannounced. Used in town or on a found stretch, never the Home Creek bank.)*
 4. Finishing pan and snuffer bottle: a small, deep-riffled pan for jar work, and a bottle that sucks up the thin tail of fines at the reveal instead of saving it back to the jar. The trade is a slower reveal for gold in hand now.
-5. Wash tub: panning where there is no creek (dry washes, benches). The player carries the water, and it clouds with every pan. Muddy water slows settling and hides colour until it is changed.
+5. Wash tub: panning where there is no creek (dry washes, benches). The player carries the water, and it clouds with every pan. Muddy water slows settling and hides colour until it is changed. *(in the game: $8, used only on dry ground. A full tub is about ten pans. Each pan clouds it, clay-rich gravel most. A pan dipped in muddy water settles slower, glints less and hides more colour at the reveal, and the pan and its water show brown. Changing the water tips out the mud and hauls fresh, which takes the site's long water fetch. Digging and panning wait meanwhile.)*
 6. Spiral wheel concentrator: a finishing machine for the jar. Faster and gentler on fines than hand panning, but lossy when mistuned (tilt, spray, feed). It sets up at found stretches or a camp spot in town, never the Home Creek.
 
 Steps 0–1 are the pan itself, the tool the player can never lose. Steps 3–4 make the concentrate jar worth more over time. Step 5 extends where the pan can reach. Step 6 is where hand finishing hands off to a machine. None of them needs a consumable that can run out.

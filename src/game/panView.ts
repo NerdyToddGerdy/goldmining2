@@ -284,7 +284,8 @@ export class PanView extends Container {
     }
 
     // Water film: pools toward the lip as the pan tips; clay and fines turn it brown.
-    const murk = Math.min(1, pan.turbidity * 1.5);
+    // Clay stirred up in the pan, or a muddy wash tub it's dipped in.
+    const murk = Math.min(1, Math.max(pan.turbidity * 1.5, pan.waterMurk * 0.8));
     const waterColor = lerpColor(COLORS.water, COLORS.mud, murk);
     g.ellipse(controls.tilt * this.rx * 0.3 + this.surge * this.rx * 0.15, 0, this.rx * (1 - controls.tilt * 0.3), this.ry * 0.95)
       .fill({ color: waterColor, alpha: 0.18 + murk * 0.55 });

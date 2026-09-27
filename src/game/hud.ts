@@ -16,6 +16,10 @@ import {
   type Rocker,
   type Highbanker,
   type HighbankerStepEvents,
+  type Drywasher,
+  type DrywasherStepEvents,
+  type WashTub,
+  DRYWASHER_TUNING,
   SLUICE_TUNING,
   quoteSale,
   type GearId,
@@ -34,7 +38,7 @@ import {
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher';
 
 export interface HudActions {
   // Pan
@@ -49,7 +53,7 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker'): void;
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher'): void;
   openClassifier(): void;
   // Classifier
   swapScreen(): void;
@@ -95,6 +99,14 @@ export interface HudActions {
   cancelHighbankerCleanout(): void;
   liftHighbankerMat(): void;
   pourIntoHighbanker(): void;
+  // Dry gear
+  openDrywasher(): void;
+  knockScreen(): void;
+  shakeOutDust(): void;
+  tipDrywasher(): void;
+  pullDrawer(): void;
+  pourIntoDrywasher(): void;
+  changeTubWater(): void;
   // Rocker
   openRocker(): void;
   rock(): void;
@@ -131,6 +143,12 @@ export interface HudState {
   readonly highbankerEvents: HighbankerStepEvents | null;
   readonly throttle: number;
   readonly priming: boolean;
+  /** Dry gear, when the player has it and the ground is dry. */
+  readonly drywasher: Drywasher | null;
+  readonly drywasherEvents: DrywasherStepEvents | null;
+  readonly tub: WashTub | null;
+  /** Off hauling water for the tub. */
+  readonly tubFetching: boolean;
   /** A cleanout is under way: feeding stopped, clean water rinsing the riffles. */
   readonly cleaningOut: boolean;
   /** The classifier, when the player has one and this creek allows it (never the Home Creek). */
@@ -167,6 +185,7 @@ const HINTS: Record<Mode, string> = {
   magnet: 'Hold Space or Pass to sweep the magnet over the sand · W/S or the wheel sets how close · shake the clump back (B), then strip it off (T)',
   rocker: 'Ladle water over the screen (L) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
   highbanker: 'Prime the pump (P) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
+  drywasher: 'Hold Space or Pump to work the bellows · W/S or the wheel sets the Air · shake out the dust (D) · knock the screen (K) · pull the drawer (C)',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -181,6 +200,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   magnet: 'Hold Pass to sweep the magnet · the slider sets how close · shake the clump back, then strip it off',
   rocker: 'Ladle water over the screen · tap Rock on a steady beat · tip the rocks off · clean up the apron before it loads up',
   highbanker: 'Prime the pump · start the engine · set the Throttle · shovel into the hopper · tap the hopper to clear a jam',
+  drywasher: 'Hold Pump to work the bellows · the slider sets the Air · shake out the dust · knock the screen · pull the drawer',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -324,10 +344,14 @@ export class Hud {
     const inspectLabel = forInput('Inspect (I)');
     if (this.inspectToggle.textContent !== inspectLabel) this.inspectToggle.textContent = inspectLabel;
     const hint =
-      mode === 'bank' && !state.canPan
+      mode === 'bank' && state.drywasher
         ? usingTouch()
-          ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile.'
-          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (T).'
+          ? 'A dry wash: drag shovelfuls up to the drywasher behind the classifier, or to the pan if the wash tub has water. Tap the drywasher for a close look.'
+          : 'A dry wash: drag shovelfuls up to the drywasher (Y), or to the pan (P) if the wash tub has water. Click the drywasher for a close look.'
+        : mode === 'bank' && !state.canPan
+        ? usingTouch()
+          ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile. A wash tub or a drywasher from town would help.'
+          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (T). A wash tub or a drywasher from town would help.'
         : mode === 'bank' && state.rocker && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls up to the rocker behind the pan, to the pan, or to the spoil pile. Tap the rocker for a close look.'
@@ -350,12 +374,13 @@ export class Hud {
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;
     const magnet = mode === 'magnet';
-    this.panControls.hidden = !classifying && !magnet && (mode !== 'pan' || pan?.phase !== 'working');
+    const drywashing = mode === 'drywasher' && state.drywasher !== null;
+    this.panControls.hidden = !classifying && !magnet && !drywashing && (mode !== 'pan' || pan?.phase !== 'working');
     this.tiltLabel.hidden = classifying;
     // The magnet reuses the pan's controls: Pass instead of Sift, and closeness instead of tilt.
-    const siftText = magnet ? 'Pass' : 'Sift';
+    const siftText = magnet ? 'Pass' : drywashing ? 'Pump' : 'Sift';
     if (this.sift.textContent !== siftText) this.sift.textContent = siftText;
-    const tiltText = magnet ? 'Closeness ' : 'Tilt ';
+    const tiltText = magnet ? 'Closeness ' : drywashing ? 'Air ' : 'Tilt ';
     if (this.tiltLabel.firstChild && this.tiltLabel.firstChild.textContent !== tiltText) this.tiltLabel.firstChild.textContent = tiltText;
     // The same slider is the sluice's Water, or the highbanker's Throttle.
     const onHighbanker = state.highbanker !== null && (mode === 'bank' || mode === 'highbanker');
@@ -371,9 +396,11 @@ export class Hud {
       this.slopeInput.max = String(max);
       this.slopeInput.value = String(state.sluice.slope);
     }
-    if ((mode === 'pan' || magnet) && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
+    if ((mode === 'pan' || magnet || drywashing) && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
     // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
-    const siftedOut = magnet
+    const siftedOut = drywashing
+      ? false
+      : magnet
       ? session.jar.magnetite < 0.002
       : classifying
       ? !state.classifier!.hasLoad || state.classifier!.screened
@@ -461,6 +488,13 @@ export class Hud {
       } else if (spot.sluiceSite && session.owns('sluice') && !state.highbanker) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
+      if (state.drywasher) {
+        if (blocked === null) list.push(['Shovel onto the drywasher (Y)', () => this.on.shovel('drywasher')]);
+        list.push(['Drywasher (D)', () => this.on.openDrywasher()]);
+      }
+      if (state.tub && (state.tub.water < 1 || state.tub.turbidity > 0)) {
+        list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (U)', () => this.on.changeTubWater()]);
+      }
       if (state.highbanker) {
         if (blocked === null && !state.highbanker.rinsing) list.push(['Shovel into the highbanker (F)', () => this.on.shovel('highbanker')]);
         list.push(['Watch the highbanker (V)', () => this.on.openHighbanker()], ...this.highbankerFuelButton(state));
@@ -482,6 +516,18 @@ export class Hud {
       if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (P)', () => this.on.panBucket()]);
       if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (F)', () => this.on.pourIntoSluice()]);
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
+      return list;
+    }
+    if (mode === 'drywasher' && state.drywasher) {
+      const dw = state.drywasher;
+      const list: [string, () => void][] = [];
+      if (dw.dust > 0.15) list.push(['Shake out the dust (D)', () => this.on.shakeOutDust()]);
+      if (dw.screenClog > 0.15) list.push(['Knock the screen (K)', () => this.on.knockScreen()]);
+      if (dw.hasLoad) list.push([dw.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipDrywasher()]);
+      if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (Y)', () => this.on.shovel('drywasher')]);
+      if (state.classifier && state.classifier.bucketVolume > 0.005 && !dw.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoDrywasher()]);
+      if (dw.drawerVolume > 0.001 || dw.drawerGoldCount > 0) list.push(['Pull the drawer (C)', () => this.on.pullDrawer()]);
+      list.push(...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
     if (mode === 'highbanker' && state.highbanker) {
@@ -790,6 +836,15 @@ export class Hud {
       else if (key === 'p') this.on.panBucket();
       else if (key === 'f' && state.sluice) this.on.pourIntoSluice();
       else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'drywasher') {
+      if (key === 'd') this.on.shakeOutDust();
+      else if (key === 'k') this.on.knockScreen();
+      else if (key === 't') this.on.tipDrywasher();
+      else if (key === 'c') this.on.pullDrawer();
+      else if (key === 'y') this.on.shovel('drywasher');
+      else if (key === 'b') this.on.pourIntoDrywasher();
+      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'highbanker' && state.highbanker) {
       const hb = state.highbanker;
       if (key === 'p') this.on.primePump();
@@ -809,6 +864,9 @@ export class Hud {
       else if (key === 'v' && state.sluice) this.on.openSluice();
       else if (key === 'g' && state.sluice) this.on.refuelPump();
       else if (key === 'f' && state.highbanker) this.on.shovel('highbanker');
+      else if (key === 'y' && state.drywasher) this.on.shovel('drywasher');
+      else if (key === 'd' && state.drywasher) this.on.openDrywasher();
+      else if (key === 'u' && state.tub) this.on.changeTubWater();
       else if (key === 'v' && state.highbanker) this.on.openHighbanker();
       else if (key === 'g' && state.highbanker) this.on.refuelHighbanker();
       else if (key === 'w' && state.sluice) this.on.washCrewBucket();
@@ -839,7 +897,7 @@ export class Hud {
     let rows: [string, string][] = [];
     const pan = session.pan;
     if (mode === 'pan' && pan) {
-      const water = pan.turbidity > 0.3 ? 'muddy' : pan.turbidity > 0.08 ? 'cloudy' : 'clear';
+      const water = pan.turbidity > 0.3 ? 'muddy' : pan.waterMurk > 0.5 ? 'muddy tub' : pan.turbidity > 0.08 || pan.waterMurk > 0.2 ? 'cloudy' : 'clear';
       const loss = this.lossRate > 0.004 ? 'heavy' : this.lossRate > 0.0008 ? 'some' : 'low';
       rows = [
         ['Working', pan.phase === 'working' ? (events?.state ?? 'timid') : pan.phase],
@@ -847,6 +905,17 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+      ];
+    } else if (mode === 'drywasher' && state.drywasher) {
+      const dw = state.drywasher;
+      const hopper = dw.hopperVolume / DRYWASHER_TUNING.hopperMax;
+      const drawer = dw.drawerLoading;
+      rows = [
+        ['Bed', { still: 'still', underblown: 'underblown', balanced: 'balanced', overblown: 'overblown' }[state.drywasherEvents?.state ?? 'still']],
+        ['Dust in the cloth', dw.dust > 0.6 ? 'choking' : dw.dust > 0.3 ? 'heavy' : dw.dust > 0.1 ? 'some' : 'clean'],
+        ['Screen', dw.screenClog > 0.6 ? 'blinded' : dw.screenClog > 0.25 ? 'clogging' : 'clear'],
+        ['On the screen', !dw.hasLoad ? 'empty' : dw.screened ? 'only rocks left' : hopper > 0.8 ? 'heaped' : 'gravel'],
+        ['Drawer', drawer > 0.85 ? 'full' : drawer > 0.6 ? 'heavy' : drawer > 0.25 ? 'filling' : 'light'],
       ];
     } else if (mode === 'highbanker' && state.highbanker) {
       const hb = state.highbanker;
@@ -927,6 +996,10 @@ export class Hud {
         ['Water in hole', spot.water >= 1 ? 'flooded' : spot.water > 0.5 ? 'deep' : spot.water > 0.1 ? 'seeping' : 'dry'],
         ['Spoil pile', `${spot.spoil} shovelfuls`],
       ];
+      if (state.tub) {
+        const t = state.tub;
+        rows.push(['Wash tub', state.tubFetching ? 'fetching water' : t.water < 0.1 ? 'empty' : `${t.water > 0.6 ? 'full' : t.water > 0.3 ? 'half' : 'low'}, ${t.turbidity > 0.6 ? 'muddy' : t.turbidity > 0.25 ? 'cloudy' : 'clear'}`]);
+      }
     }
     this.inspect.innerHTML = [...rows, ...common].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   }

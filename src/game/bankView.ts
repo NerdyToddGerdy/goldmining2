@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import { CLASSIFIER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, type Classifier, type Highbanker, type DigSpot, type Creek, type LayerKind, type Rocker, type Sluice, type SluiceStepEvents } from '../sim';
+import { CLASSIFIER_TUNING, DRYWASHER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, type Classifier, type Drywasher, type Highbanker, type WashTub, type DigSpot, type Creek, type LayerKind, type Rocker, type Sluice, type SluiceStepEvents } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
@@ -11,7 +11,7 @@ import { CLASSIFIER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, type Classifier, t
  * it; click a flooded hole to bail; tap the sluice or rocker for a close look.
  */
 
-export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker';
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher';
 
 export interface BankActions {
   shovel(into: ShovelTarget): void;
@@ -21,6 +21,7 @@ export interface BankActions {
   openClassifier(): void;
   openRocker(): void;
   openHighbanker(): void;
+  openDrywasher(): void;
 }
 
 const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
@@ -68,6 +69,9 @@ export class BankView extends Container {
   private sluiceEvents: SluiceStepEvents | null = null;
   /** The classifier on its bucket beside the hole, when the player has one and the ground allows it. */
   private classifier: Classifier | null = null;
+  /** Dry gear, on a dry wash: the drywasher behind the classifier, the wash tub beside the pan. */
+  private drywasher: Drywasher | null = null;
+  private tub: WashTub | null = null;
   /** The highbanker on its stand at the bank edge, where a sluice would sit in the creek. */
   private highbanker: Highbanker | null = null;
   /** The rocker box, standing on the bank behind the pan, when the player has one and the ground allows it. */
@@ -120,6 +124,11 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setDryGear(drywasher: Drywasher | null, tub: WashTub | null): void {
+    this.drywasher = drywasher;
+    this.tub = tub;
   }
 
   setHighbanker(highbanker: Highbanker | null): void {
@@ -210,6 +219,17 @@ export class BankView extends Container {
     return { x: this.width_ * 0.81, y: this.surfaceY - 34, w: this.width_ * 0.17, h: 70 };
   }
 
+  /** The drywasher stands on the bank behind the classifier: drop a shovelful up there. */
+  private drywasherRect(): { x: number; y: number; w: number; h: number } {
+    const pan = this.panRect();
+    return { x: pan.x - 130, y: this.surfaceY - 104, w: 100, h: 54 };
+  }
+
+  private overDrywasher(x: number, y: number): boolean {
+    const r = this.drywasherRect();
+    return x > r.x - 14 && x < r.x + r.w + 14 && y > r.y - 20 && y < r.y + r.h + 8;
+  }
+
   /** The rocker stands on the bank behind the pan: drop a shovelful up there to put it on the screen. */
   private rockerRect(): { x: number; y: number; w: number; h: number } {
     const pan = this.panRect();
@@ -258,6 +278,10 @@ export class BankView extends Container {
       this.actions.openRocker();
       return;
     }
+    if (this.drywasher && this.overDrywasher(x, y)) {
+      this.actions.openDrywasher();
+      return;
+    }
     if (!this.inHole(x, y, spot)) return;
     const blocked = this.creek.blockedBy(spot);
     if (blocked === 'boulder') {
@@ -282,7 +306,8 @@ export class BankView extends Container {
     const pan = this.panRect();
     const spoil = this.spoilRect();
     const cr = this.classifierRect();
-    if (this.rocker && this.overRocker(x, y)) this.actions.shovel('rocker');
+    if (this.drywasher && this.overDrywasher(x, y)) this.actions.shovel('drywasher');
+    else if (this.rocker && this.overRocker(x, y)) this.actions.shovel('rocker');
     else if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
     else if (this.highbanker && x > this.sluiceRect().x - 12) this.actions.shovel('highbanker');
     else if (x > pan.x - 40) this.actions.shovel('pan');
@@ -328,6 +353,8 @@ export class BankView extends Container {
     this.drawPan(g);
     if (this.classifier) this.drawClassifier(g, this.classifier);
     if (this.rocker) this.drawRocker(g, this.rocker);
+    if (this.drywasher) this.drawDrywasher(g, this.drywasher);
+    if (this.tub) this.drawTub(g, this.tub);
     if (this.sluice) this.drawSluice(g, this.sluice);
     if (this.sluice && this.crewBucket > 0) this.drawCrewBucket(g);
     if (this.highbanker) this.drawHighbanker(g, this.highbanker);
@@ -525,6 +552,31 @@ export class BankView extends Container {
     g.roundRect(ex, ey, 22, 14, 2).fill(hb.running ? 0xa8412f : 0x6e3a2e);
     g.moveTo(ex + 22, ey + 8).quadraticCurveTo(r.x + 50, this.surfaceY + 40, r.x + 70, this.surfaceY + 50).stroke({ width: 3, color: 0x1e1e1e });
     if (hb.running) g.circle(ex + 16, ey - 6 - (this.time * 20) % 10, 3).fill({ color: 0x6a6660, alpha: 0.5 });
+  }
+
+  /** The drywasher in miniature: screen over a sloped tray, bellows beneath, the drawer filling. */
+  private drawDrywasher(g: Graphics, dw: Drywasher): void {
+    const r = this.drywasherRect();
+    const hot = this.carrying !== null && this.overDrywasher(this.pointer.x, this.pointer.y);
+    g.moveTo(r.x + 16, r.y + 30).lineTo(r.x + 14, r.y + r.h).moveTo(r.x + r.w - 12, r.y + 40).lineTo(r.x + r.w - 10, r.y + r.h).stroke({ width: 3, color: 0x3d2c1c });
+    g.poly([r.x + 6, r.y + 22, r.x + r.w, r.y + 36, r.x + r.w, r.y + 42, r.x + 6, r.y + 28]).fill(0x7a5a38).stroke({ width: hot ? 3 : 1.5, color: hot ? 0xe6b940 : 0x3d2c1c });
+    g.rect(r.x + 20, r.y + 34, 30, 10).fill(0x5e4a33);
+    g.rect(r.x + r.w - 24, r.y + 42, 20, 6).fill(lerp(0x7a5a38, 0x1d1a14, dw.drawerLoading));
+    g.rect(r.x - 2, r.y, 32, 20).stroke({ width: 2, color: 0x3d2c1c });
+    const heap = Math.min(1, dw.hopperVolume / DRYWASHER_TUNING.hopperMax);
+    if (heap > 0.01) g.poly([r.x + 1, r.y + 18, r.x + 27, r.y + 18, r.x + 19, r.y + 18 - heap * 16, r.x + 8, r.y + 18 - heap * 14]).fill(0x8b8578);
+  }
+
+  /** The wash tub beside the pan: its water level, and how muddy it has got. */
+  private drawTub(g: Graphics, tub: WashTub): void {
+    const p = this.panRect();
+    const x = p.x + p.w + 12;
+    const y = this.surfaceY - 30;
+    g.poly([x, y, x + 46, y, x + 40, y + 30, x + 6, y + 30]).fill(0x8d8f91).stroke({ width: 2, color: 0x55585b });
+    if (tub.water > 0.01) {
+      const top = y + 28 - tub.water * 24;
+      g.rect(x + 7, top, 32, y + 28 - top).fill({ color: lerp(0x4f8a8c, 0x6b5a3a, tub.turbidity), alpha: 0.9 });
+    }
   }
 
   /** The rocker in miniature: box on its runners, gravel on the screen, water in the box, the apron darkening. */

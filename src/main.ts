@@ -24,6 +24,12 @@ import {
   type Rocker,
   type Highbanker,
   type HighbankerStepEvents,
+  type Drywasher,
+  type DrywasherStepEvents,
+  type WashTub,
+  dipPan,
+  refillTub,
+  tubHasWater,
   HIGHBANKER_TUNING,
   ROCKER_TUNING,
   needsPump,
@@ -37,7 +43,7 @@ import {
 import { BankView, type ShovelTarget } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
-import { HighbankerCoach, PanCoach, RockerCoach, SluiceCoach } from './game/coach';
+import { DrywasherCoach, HighbankerCoach, PanCoach, RockerCoach, SluiceCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
@@ -47,6 +53,7 @@ import { SluiceView } from './game/sluiceView';
 import { MagnetView } from './game/magnetView';
 import { RockerView } from './game/rockerView';
 import { HighbankerView } from './game/highbankerView';
+import { DrywasherView } from './game/drywasherView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
 import { usingTouch } from './game/inputMode';
@@ -76,6 +83,8 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
   rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
   highbanker: 'A highbanker. Set it up on the bank at a creek bend, gravel bar or ravine: prime the pump, start the engine, and shovel into the hopper. Buy fuel here by the can.',
+  washTub: 'A wash tub. On a dry wash, fill it and you can pan there. Change the water when it gets muddy: muddy water hides colour.',
+  drywasher: 'A drywasher. On a dry wash, shovel onto its screen and hold Pump to work the bellows. Set the Air so the light sand drifts off and the heavies stay.',
   magnet: 'A magnet in a plastic sleeve. Clean your jar with it here in town or out on a stretch: close is quick, but drags fine gold up with the sand.',
   pump: 'A recirculating pump. It lets the sluice run where the creek is too thin, if you keep it fuelled: buy fuel here by the can.',
 };
@@ -148,8 +157,42 @@ async function start(): Promise<void> {
   /** The rocker travels with the player too, and likewise has no room at the Home Creek. */
   const rockerHere = (): Rocker | null => (session.rocker && region.allows(creek, 'rocker') ? session.rocker : null);
   /** A dry wash has no water to pan in. */
-  const canPanHere = (): boolean => inTown() || region.allows(creek, 'pan');
-  const NO_PAN_WATER = 'There is no water here to pan in. Haul water to a rocker box, or carry what you dig somewhere wetter.';
+  /** Dry gear travels with the player, but is only for ground with no water. */
+  const drywasherHere = (): Drywasher | null => (session.drywasher && region.allows(creek, 'drywasher') ? session.drywasher : null);
+  const tubHere = (): WashTub | null => (session.tub && region.allows(creek, 'washTub') ? session.tub : null);
+  /** Hauling water for the tub: seconds left, and how long the trip takes here. */
+  let tubFetching: number | null = null;
+  let tubFetchTotal = 1;
+  let drywasherEvents: DrywasherStepEvents | null = null;
+  let toldAboutDrywasher = false;
+  let toldMuddyTub = false;
+  /** A creek to pan in, or on dry ground a wash tub with water in it. */
+  const canPanHere = (): boolean => {
+    if (inTown() || region.allows(creek, 'pan')) return true;
+    const tub = tubHere();
+    return tub !== null && tubHasWater(tub) && tubFetching === null;
+  };
+  const noPanWater = (): string => {
+    const tub = tubHere();
+    if (tubFetching !== null) return "You're still hauling water for the tub.";
+    if (tub) return usingTouch() ? 'The wash tub is empty. Fetch water for it.' : 'The wash tub is empty. Fetch water for it (U).';
+    return 'There is no water here to pan in. Bring a wash tub from the outfitter, haul water to a rocker box, or carry what you dig somewhere wetter.';
+  };
+  /**
+   * Dip a pan in the wash tub on dry ground: returns how muddy the water is for this pan, or 0 at
+   * a creek. Warns once when the water has got thick.
+   */
+  const panWater = (clayiness: number): number => {
+    if (region.allows(creek, 'pan') || inTown()) return 0;
+    const tub = tubHere();
+    const murk = tub ? (dipPan(tub, clayiness) ?? 0) : 0;
+    if (murk > 0.6 && !toldMuddyTub) {
+      toldMuddyTub = true;
+      hud.toast(`The tub water is thick with mud: it's slow to settle and hides colour. ${usingTouch() ? 'Change it' : 'Change it (U)'} when you can.`);
+    }
+    if (murk < 0.3) toldMuddyTub = false;
+    return murk;
+  };
   /** Floods that happened while the player was elsewhere, to hear about on arrival. */
   const floodNews = new Set<number>();
   /** Fetching a bucket for the rocker: seconds left, and how long the trip takes here. */
@@ -172,13 +215,14 @@ async function start(): Promise<void> {
     bankView.visible = mode === 'bank';
     sluiceView.visible = mode === 'sluice';
     highbankerView.visible = mode === 'highbanker';
+    drywasherView.visible = mode === 'drywasher';
     classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
     magnetView.visible = mode === 'magnet';
     scene.visible = panView.visible = mode === 'pan';
     rockerView.visible = mode === 'rocker';
     if (mode !== 'rocker') fetchingWater = null; // Walking off abandons the trip for water.
-    input.enabled = mode === 'pan' || mode === 'classifier' || mode === 'magnet';
+    input.enabled = mode === 'pan' || mode === 'classifier' || mode === 'magnet' || mode === 'drywasher';
   };
 
   /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
@@ -203,11 +247,12 @@ async function start(): Promise<void> {
       (into === 'classifier' && mode === 'classifier') ||
       (into === 'sluice' && mode === 'sluice') ||
       (into === 'rocker' && mode === 'rocker') ||
-      (into === 'highbanker' && mode === 'highbanker');
+      (into === 'highbanker' && mode === 'highbanker') ||
+      (into === 'drywasher' && mode === 'drywasher');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const blockedClaim = claimBlock();
     if (blockedClaim) return hud.toast(blockedClaim);
-    if (into === 'pan' && !canPanHere()) return hud.toast(NO_PAN_WATER);
+    if (into === 'pan' && !canPanHere()) return hud.toast(noPanWater());
     // A pan left half-washed (Esc back to the hole) has to be finished before another goes in.
     if (into === 'pan' && !session.panIsFree) {
       setMode('pan');
@@ -215,6 +260,14 @@ async function start(): Promise<void> {
     }
     const sluice = into === 'sluice' ? sluiceHere() : null;
     const highbanker = into === 'highbanker' ? highbankerHere() : null;
+    const drywasher = into === 'drywasher' ? drywasherHere() : null;
+    if (into === 'drywasher') {
+      if (!drywasher) return;
+      if (drywasher.hopperFull) {
+        openDrywasher();
+        return hud.toast('The screen is heaped full. Work the bellows to get it through first.');
+      }
+    }
     if (into === 'highbanker') {
       if (!highbanker) return;
       if (highbanker.rinsing) return hud.toast('Finish the cleanout before feeding the hopper again.');
@@ -268,10 +321,13 @@ async function start(): Promise<void> {
       if (mode !== 'rocker') openRocker();
     } else if (result.load && sluice) {
       sluice.feed(result.load);
+    } else if (result.load && drywasher) {
+      drywasher.feed(result.load);
+      if (mode !== 'drywasher') openDrywasher();
     } else if (result.load && highbanker) {
       highbanker.feed(result.load);
     } else if (result.load) {
-      session.startPan(result.load);
+      session.startPan(result.load, panWater(result.load.clayiness));
       panSpot = spot;
       panLayer = result.from;
       startPanning();
@@ -368,6 +424,7 @@ async function start(): Promise<void> {
   };
 
   const goToCreek = (next: Creek): void => {
+    tubFetching = null;
     if (next !== creek) {
       spot = null;
       passTime(ECONOMY_TUNING.travel.creek + traitsOf(next.profile.site).access);
@@ -412,6 +469,21 @@ async function start(): Promise<void> {
   };
   const regionMap = new RegionMapView(region, (place) => (place.kind === 'town' ? walkToTown() : goToCreek(place.creek)));
   const creekMap = new CreekMapView(creek, pickSpot);
+  const openDrywasher = (): void => {
+    if (!drywasherHere()) return;
+    drywasherView.reset();
+    input.tilt = 0.5;
+    input.shakeHeld = false;
+    setMode('drywasher');
+    if (!toldAboutDrywasher) {
+      toldAboutDrywasher = true;
+      hud.toast(
+        usingTouch()
+          ? 'Hold Pump to work the bellows, and set the Air slider so the light sand drifts off in dust while the heavies stay behind the riffles.'
+          : 'Hold Pump (or Space) to work the bellows, and set the Air (W/S) so the light sand drifts off in dust while the heavies stay behind the riffles.',
+      );
+    }
+  };
   const openHighbanker = (): void => {
     if (!highbankerHere()) return;
     highbankerView.reset();
@@ -477,7 +549,7 @@ async function start(): Promise<void> {
       else hud.toast(usingTouch() ? 'The bucket is empty. Fetch water.' : 'The bucket is empty. Fetch water (E).');
     },
   };
-  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier, openRocker, openHighbanker });
+  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier, openRocker, openHighbanker, openDrywasher });
   const rockerView = new RockerView(rockerActions);
   const classifierView = new ClassifierView({
     inspectRock: (rockId) => {
@@ -500,11 +572,12 @@ async function start(): Promise<void> {
     }
   };
   const highbankerView = new HighbankerView({ rake: clearHighbanker, clearGrizzly: clearHighbanker });
+  const drywasherView = new DrywasherView();
   const magnetView = new MagnetView();
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, classifierView, rockerView, townView, magnetView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, drywasherView, classifierView, rockerView, townView, magnetView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -513,6 +586,7 @@ async function start(): Promise<void> {
     bankView.layout(width, height);
     sluiceView.layout(width, height);
     highbankerView.layout(width, height);
+    drywasherView.layout(width, height);
     classifierView.layout(width, height);
     rockerView.layout(width, height);
     townView.layout(width, height);
@@ -554,8 +628,8 @@ async function start(): Promise<void> {
     },
     panBucket: () => {
       if (!classifierHere() || !session.panIsFree) return;
-      if (!canPanHere()) return hud.toast(NO_PAN_WATER);
-      if (!session.startScreenedPan()) return;
+      if (!canPanHere()) return hud.toast(noPanWater());
+      if (!session.startScreenedPan(panWater(0.1))) return;
       panSpot = spot;
       panLayer = null;
       startPanning();
@@ -612,6 +686,51 @@ async function start(): Promise<void> {
       else sluiceFlow = flow;
     },
     openHighbanker,
+    openDrywasher,
+    knockScreen: () => {
+      const dw = drywasherHere();
+      if (!dw || dw.screenClog <= 0) return;
+      dw.knockScreen();
+      hud.toast('You rap the frame and the dry clay falls out of the mesh.');
+    },
+    shakeOutDust: () => {
+      const dw = drywasherHere();
+      if (!dw || dw.dust <= 0) return;
+      dw.shakeOutDust();
+      hud.toast('You beat the dust out of the cloth in a brown cloud. The air comes through strong again.');
+    },
+    tipDrywasher: () => {
+      const dw = drywasherHere();
+      if (!dw?.hasLoad) return;
+      const unworked = !dw.screened;
+      const rocks = dw.hopperRocks;
+      dw.tipOff();
+      hud.toast(unworked ? 'You tip the screen off, unworked gravel and all.' : `You tip ${rocks} rock${rocks === 1 ? '' : 's'} off the screen.`);
+    },
+    pullDrawer: () => {
+      const dw = drywasherHere();
+      if (!dw) return;
+      if (dw.drawerVolume < 0.001 && dw.drawerGoldCount === 0) return hud.toast('The drawer is empty.');
+      if (!session.fitsInJar(dw.drawerVolume)) return hud.toast('Your jar is too full for the drawer. Pan some of the jar down first.');
+      session.addConcentrate(dw.pullDrawer());
+      hud.toast(`You pull the drawer and tip the concentrate into your jar. Pan it to see what the drywasher caught${tubHere() ? '' : ', in a wash tub or back at a creek'}.`);
+    },
+    pourIntoDrywasher: () => {
+      const c = classifierHere();
+      const dw = drywasherHere();
+      if (!c || !dw) return;
+      if (dw.hopperFull) return hud.toast('The screen is heaped full.');
+      const material = c.pour(dw.hopperRoom);
+      if (material) dw.feedScreened(material);
+    },
+    changeTubWater: () => {
+      const tub = tubHere();
+      if (!tub || tubFetching !== null) return;
+      if (tub.water >= 1 && tub.turbidity <= 0) return hud.toast('The tub is full of clean water already.');
+      tubFetchTotal = fetchSecondsHere();
+      tubFetching = tubFetchTotal;
+      hud.toast('You tip out the muddy water and set off to haul fresh. It is a long way to water from here.');
+    },
     setUpHighbanker: () => {
       if (!spot || mode !== 'bank') return;
       const blockedClaim = claimBlock();
@@ -872,8 +991,8 @@ async function start(): Promise<void> {
     },
     panConcentrate: () => {
       if (!session.canPanConcentrate || mode === 'creek') return;
-      if (!canPanHere()) return hud.toast(NO_PAN_WATER);
-      session.startConcentratePan();
+      if (!canPanHere()) return hud.toast(noPanWater());
+      session.startConcentratePan(panWater(0));
       startPanning();
       hud.toast('Black sand is heavy and holds fine gold. Settle it, then sift with only a slight tip: a light touch keeps the gold in the pan.');
     },
@@ -909,9 +1028,10 @@ async function start(): Promise<void> {
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
   else if (screen === 'highbanker' && highbankerHere()) setMode('highbanker');
+  else if (screen === 'drywasher' && spot && drywasherHere()) setMode('drywasher');
   else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
   else if (screen === 'rocker' && spot && rockerHere()) setMode('rocker');
-  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker' || screen === 'highbanker') && spot) setMode('bank');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker' || screen === 'highbanker' || screen === 'drywasher') && spot) setMode('bank');
   else setMode('creek');
   // Nothing is held up on the magnet between visits.
   if (session.clump.sand > 0 || session.clump.gold.length > 0) session.dropClump();
@@ -942,6 +1062,7 @@ async function start(): Promise<void> {
 
   const sluiceCoach = new SluiceCoach((message) => hud.toast(message));
   const highbankerCoach = new HighbankerCoach((message) => hud.toast(message));
+  const drywasherCoach = new DrywasherCoach((message) => hud.toast(message));
   const rockerCoach = new RockerCoach((message) => hud.toast(message));
 
   /** Time stops after this long without input, so an idle tab neither earns nor owes. */
@@ -956,6 +1077,7 @@ async function start(): Promise<void> {
   let classifierAccumulator = 0;
   let magnetAccumulator = 0;
   let hbAccumulator = 0;
+  let dwAccumulator = 0;
   /** Said once per fill: sifting into a full bucket does nothing, and tipping off would lose the load. */
   let toldBucketFull = false;
   app.ticker.add((ticker) => {
@@ -1017,6 +1139,18 @@ async function start(): Promise<void> {
       if (mode === 'highbanker') setMode('bank');
     }
     bankView.setHighbanker(highbanker);
+    const drywasher = drywasherHere();
+    bankView.setDryGear(drywasher, tubHere());
+    if (mode === 'drywasher' && !drywasher) setMode('bank');
+    // Hauling water for the tub goes on while the player stays at this stretch.
+    if (tubFetching !== null && (tubFetching -= dt) <= 0) {
+      tubFetching = null;
+      const tub = tubHere();
+      if (tub) {
+        refillTub(tub);
+        hud.toast('You fill the tub with clean water.');
+      }
+    }
     const classifier = classifierHere();
     bankView.setClassifier(classifier);
     if (mode === 'classifier' && !classifier) setMode('bank');
@@ -1042,6 +1176,7 @@ async function start(): Promise<void> {
         events = { ...e, darkSpilled, lightSpilled, glints, goldLost };
       }
       coach.update(dt, pan, controls, events);
+      scene.setMurk(pan.waterMurk);
       scene.update(dt);
       const bucketHere = classifierHere();
       panView.update(dt, session, controls, events, bucketHere ? { volume: bucketHere.bucketVolume, capacity: CLASSIFIER_TUNING.bucketCapacity } : null);
@@ -1062,6 +1197,19 @@ async function start(): Promise<void> {
       }
     } else if (mode === 'sluice' && sluice) {
       sluiceView.update(dt, sluice, stepped, sluiceFlow);
+    } else if (mode === 'drywasher' && drywasher) {
+      dwAccumulator += dt;
+      let merged: DrywasherStepEvents | null = null;
+      while (dwAccumulator >= SIM_DT) {
+        dwAccumulator -= SIM_DT;
+        const e = drywasher.step(SIM_DT, controls.shake > 0, controls.tilt);
+        merged = merged
+          ? { ...e, passed: e.passed + merged.passed, blown: e.blown + merged.blown, goldLost: e.goldLost + merged.goldLost, glint: e.glint || merged.glint }
+          : e;
+      }
+      if (merged) drywasherEvents = merged;
+      drywasherCoach.update(dt, drywasher, merged);
+      drywasherView.update(dt, drywasher, controls.shake > 0, controls.tilt, merged);
     } else if (mode === 'highbanker' && highbanker) {
       highbankerView.update(dt, highbanker, highbankerEvents, throttle, primingLeft === null ? null : 1 - primingLeft / HIGHBANKER_TUNING.primeSeconds);
     } else if (mode === 'rocker' && rocker) {
@@ -1108,6 +1256,10 @@ async function start(): Promise<void> {
       highbankerEvents,
       throttle,
       priming: primingLeft !== null,
+      drywasher,
+      drywasherEvents,
+      tub: tubHere(),
+      tubFetching: tubFetching !== null,
       cleaningOut,
       classifier,
       rocker,

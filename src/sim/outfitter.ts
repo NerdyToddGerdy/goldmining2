@@ -6,7 +6,7 @@ import type { PanningSession } from './panningSession';
  * feed one. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker' | 'highbanker';
+export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher' | 'washTub';
 
 export interface GearItem {
   readonly id: GearId;
@@ -47,6 +47,18 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Magnet in a sleeve',
     price: 6,
     description: 'Pass it over your jar of black sand and the magnetite leaps up onto it, so the jar holds more and pans down faster. Held close it drags fine gold up too: shake the clump back before you strip it off. For use in town or on the stretches you find.',
+  },
+  {
+    id: 'washTub',
+    name: 'Wash tub',
+    price: 8,
+    description: 'A galvanized tub to carry water to dry ground, so you can pan where there is no creek. Every pan muddies it, clay worst of all, and muddy water hides colour. Changing the water means another long haul.',
+  },
+  {
+    id: 'drywasher',
+    name: 'Drywasher',
+    price: 45,
+    description: 'A screen over a sloped riffle tray with a cloth bottom and a hand bellows under it. Pump the bellows and air lifts the light sand away while the heavies settle into the drawer. No water at all: the tool for a dry wash. Mind the air gate, the dust in the cloth, and dry clay on the screen.',
   },
   {
     id: 'highbanker',

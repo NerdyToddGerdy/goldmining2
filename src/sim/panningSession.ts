@@ -2,6 +2,8 @@ import { Classifier, type ClassifierSnapshot } from './classifier';
 import { Rocker, type RockerSnapshot } from './rocker';
 import { HIGHBANKER_TUNING, Highbanker, type HighbankerSnapshot } from './highbanker';
 import { siteAllows } from './sites';
+import { Drywasher, type DrywasherSnapshot } from './drywasher';
+import { freshTub, type WashTub } from './washTub';
 import type { Creek } from './creek';
 import { PAN_VOLUME, Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
@@ -41,6 +43,9 @@ export interface SessionSnapshot {
   readonly classifier: ClassifierSnapshot | null;
   /** Null until a rocker box is bought. */
   readonly rocker: RockerSnapshot | null;
+  /** Null until bought. */
+  readonly drywasher: DrywasherSnapshot | null;
+  readonly tub: WashTub | null;
   /** Null until a highbanker is bought. */
   readonly highbanker: { readonly placedAt: SluicePlace | null; readonly state: HighbankerSnapshot | null; readonly packedFuel: number } | null;
   /** Null until a sluice is bought. */
@@ -79,6 +84,9 @@ export class PanningSession {
   soldMg = 0;
   /** The sluice, once owned: packed (placedAt null) or set up and running at a sluice site. */
   private sluiceGear: { placedAt: SluicePlace | null; sluice: Sluice | null } | null = null;
+  /** The drywasher and wash tub travel with the player, like the rocker. */
+  drywasher: Drywasher | null = null;
+  tub: WashTub | null = null;
   /** The highbanker, once owned: packed, or set up on the bank at a spot. */
   private highbankerGear: { placedAt: SluicePlace | null; machine: Highbanker | null } | null = null;
   /** Simple owned gear, such as the big jar. */
@@ -116,6 +124,8 @@ export class PanningSession {
     this.fuelCans = saved.fuelCans;
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.rocker) this.rocker = new Rocker(rng, saved.rocker);
+    if (saved.drywasher) this.drywasher = new Drywasher(rng, saved.drywasher);
+    if (saved.tub) this.tub = { ...saved.tub };
     if (saved.highbanker) {
       const state = saved.highbanker.state;
       this.highbankerGear = { placedAt: saved.highbanker.placedAt, machine: state ? new Highbanker(rng, state, this.sluiceKit) : null };
@@ -140,6 +150,8 @@ export class PanningSession {
       gear: [...this.gear],
       classifier: this.classifier?.snapshot() ?? null,
       rocker: this.rocker?.snapshot() ?? null,
+      drywasher: this.drywasher?.snapshot() ?? null,
+      tub: this.tub ? { ...this.tub } : null,
       highbanker: this.highbankerGear
         ? { placedAt: this.highbankerGear.placedAt, state: this.highbankerGear.machine?.snapshot() ?? null, packedFuel: this.packedHighbankerFuel }
         : null,
@@ -178,6 +190,8 @@ export class PanningSession {
     if (id === 'classifier') return this.classifier !== null;
     if (id === 'rocker') return this.rocker !== null;
     if (id === 'highbanker') return this.highbankerGear !== null;
+    if (id === 'drywasher') return this.drywasher !== null;
+    if (id === 'washTub') return this.tub !== null;
     return this.gear.has(id);
   }
 
@@ -189,6 +203,10 @@ export class PanningSession {
       if (!this.classifier) this.classifier = new Classifier(this.rng);
     } else if (id === 'rocker') {
       if (!this.rocker) this.rocker = new Rocker(this.rng);
+    } else if (id === 'drywasher') {
+      if (!this.drywasher) this.drywasher = new Drywasher(this.rng);
+    } else if (id === 'washTub') {
+      if (!this.tub) this.tub = freshTub();
     } else if (id === 'highbanker') {
       if (!this.highbankerGear) this.highbankerGear = { placedAt: null, machine: null };
     } else {
@@ -333,19 +351,21 @@ export class PanningSession {
     return this.pan === null || this.pan.phase === 'emptied';
   }
 
-  /** Fill the pan with a shovelful. */
-  startPan(load: PanLoad): Pan {
+  /** Fill the pan with a shovelful. `waterMurk`: how muddy the water is (a wash tub), 0 for a creek. */
+  startPan(load: PanLoad, waterMurk = 0): Pan {
     if (!this.panIsFree) throw new Error('The pan is still in use');
     this.pan = new Pan(this.rng, load);
+    this.pan.waterMurk = waterMurk;
     return this.pan;
   }
 
   /** Pan a pan-sized share of the classifier's bucket. */
-  startScreenedPan(): Pan | null {
+  startScreenedPan(waterMurk = 0): Pan | null {
     if (!this.panIsFree || !this.classifier) return null;
     const material = this.classifier.pour(PAN_VOLUME);
     if (!material) return null;
     this.pan = Pan.fromScreened(this.rng, material);
+    this.pan.waterMurk = waterMurk;
     return this.pan;
   }
 
@@ -403,7 +423,7 @@ export class PanningSession {
    * Pour black sand from the jar into the pan to re-pan it. The gold saved in the jar comes with
    * it in proportion to how much of the jar is poured.
    */
-  startConcentratePan(): Pan {
+  startConcentratePan(waterMurk = 0): Pan {
     if (!this.canPanConcentrate) throw new Error('Nothing to pour, or the pan is in use');
     const amount = Math.min(this.jar.blackSand, CONCENTRATE_POUR);
     const share = amount / this.jar.blackSand;
@@ -415,6 +435,7 @@ export class PanningSession {
     this.jar.magnetite -= this.jar.magnetite * share;
     this.jar.blackSand -= amount;
     this.pan = new Pan(this.rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: amount, gold: poured });
+    this.pan.waterMurk = waterMurk;
     return this.pan;
   }
 

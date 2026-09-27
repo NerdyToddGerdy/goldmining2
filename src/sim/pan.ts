@@ -137,6 +137,8 @@ export interface PanSnapshot {
   readonly elapsed: number;
   readonly visible: readonly GoldPiece[];
   readonly hidden: readonly GoldPiece[];
+  /** How muddy the water it's panned in is (a wash tub), 0 clear. Absent means clear creek water. */
+  readonly waterMurk?: number;
 }
 
 export class Pan {
@@ -155,6 +157,11 @@ export class Pan {
   /** Set by reveal(): the pieces the player can see. The rest stay mixed in the black sand. */
   visible: GoldPiece[] = [];
   hidden: GoldPiece[] = [];
+  /**
+   * How muddy the water is that this pan is worked in: 0 for a creek, rising in a wash tub with
+   * every pan. Muddy water settles the pan slower, shows fewer glints, and hides colour at the reveal.
+   */
+  waterMurk = 0;
 
   readonly initialLightSand: number;
   readonly kind: PanKind;
@@ -207,6 +214,7 @@ export class Pan {
       elapsed: this.elapsed,
       visible: this.visible,
       hidden: this.hidden,
+      ...(this.waterMurk > 0 ? { waterMurk: this.waterMurk } : {}),
     };
   }
 
@@ -249,6 +257,7 @@ export class Pan {
     pan.elapsed = snap.elapsed;
     pan.visible = [...snap.visible];
     pan.hidden = [...snap.hidden];
+    pan.waterMurk = snap.waterMurk ?? 0;
     return pan;
   }
 
@@ -306,7 +315,7 @@ export class Pan {
       if (this.clay - broken < T.clayGone) broken = this.clay;
       this.clay -= broken;
       this.turbidity += broken * 4;
-      this.stratification += shake * (1 - tilt) * T.shakeStratRate * dt * (1 - this.stratification);
+      this.stratification += shake * (1 - tilt) * T.shakeStratRate * (1 - 0.6 * this.waterMurk) * dt * (1 - this.stratification);
     }
     // Water rushing over the lip churns the layers back together.
     this.stratification -= wash * T.washMixRate * dt * this.stratification;
@@ -334,7 +343,7 @@ export class Pan {
     // Glints hint at gold as the light layer thins; they never say how much.
     const visibility = 1 - Math.min(1, this.lightSand / 0.35);
     const goldPresence = this.gold.reduce((sum, p) => sum + (p.size === 'fine' ? 0.2 : p.size === 'flake' ? 1 : 3), 0);
-    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * shake * T.glintRate * dt;
+    const glintChance = visibility * Math.min(3, goldPresence * 0.1) * shake * T.glintRate * (1 - 0.7 * this.waterMurk) * dt;
     const glints = this.rng.next() < glintChance ? 1 : 0;
 
     return { state, lightSpilled, darkSpilled, glints, goldLost };
@@ -353,7 +362,7 @@ export class Pan {
   reveal(): GoldPiece[] {
     if (this.phase !== 'working') return this.visible;
     this.phase = 'revealed';
-    const cover = this.lightSand * 6;
+    const cover = this.lightSand * 6 + this.waterMurk * 0.3;
     for (const piece of this.gold) {
       if (this.rng.next() < cover * PAN_TUNING.hideFactor[piece.size]) this.hidden.push(piece);
       else this.visible.push(piece);

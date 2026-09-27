@@ -1,4 +1,4 @@
-import { HIGHBANKER_TUNING, ROCKER_TUNING, SLUICE_TUNING, type Highbanker, type HighbankerStepEvents, type Pan, type PanControls, type PanStepEvents, type Rocker, type RockerStroke, type Sluice, type SluiceStepEvents } from '../sim';
+import { HIGHBANKER_TUNING, ROCKER_TUNING, SLUICE_TUNING, type Drywasher, type DrywasherStepEvents, type Highbanker, type HighbankerStepEvents, type Pan, type PanControls, type PanStepEvents, type Rocker, type RockerStroke, type Sluice, type SluiceStepEvents } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -237,6 +237,53 @@ export class HighbankerCoach {
     } else if (!this.toldAboutMoss && hb.sluice.mossLoading > 0.8) {
       this.toldAboutMoss = true;
       this.nudge(`The moss is dark and heavy. Clean it out${key('C')} soon: a full mat lets gold through.`);
+    }
+  }
+
+  private nudge(message: string): void {
+    this.say(message);
+    this.cooldown = 8;
+  }
+}
+
+/**
+ * Nudges for the drywasher. Each names what the player can see: puffs gone weak and a grey cloth,
+ * a pale blinded screen, specks glinting away in the dust, a sluggish bed, a dark full drawer.
+ */
+export class DrywasherCoach {
+  private cooldown = 0;
+  private recentLost = 0;
+  private underblown = 0;
+  private toldDust = false;
+  private toldScreen = false;
+  private toldDrawer = false;
+
+  constructor(private readonly say: (message: string) => void) {}
+
+  update(dt: number, dw: Drywasher, events: DrywasherStepEvents | null): void {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    this.recentLost = this.recentLost * Math.exp(-dt / 3) + (events?.goldLost ?? 0);
+    this.underblown = events?.state === 'underblown' && (events.passed ?? 0) > 0 ? this.underblown + dt : 0;
+    if (dw.dust < 0.3) this.toldDust = false;
+    if (dw.screenClog < 0.3) this.toldScreen = false;
+    if (dw.drawerLoading < 0.3) this.toldDrawer = false;
+    if (this.cooldown > 0) return;
+    const key = (k: string): string => (usingTouch() ? '' : ` (${k})`);
+    if (!this.toldDust && dw.dust > 0.5) {
+      this.toldDust = true;
+      this.nudge(`The puffs have gone weak and the cloth is grey: it's choked with dust. Shake it out${key('D')}.`);
+    } else if (!this.toldScreen && dw.screenClog > 0.5) {
+      this.toldScreen = true;
+      this.nudge(`Dry clay is blinding the screen and little is getting through. Knock it clear${key('K')}.`);
+    } else if (events?.state === 'overblown' && this.recentLost >= 2) {
+      this.recentLost = 0;
+      this.nudge('Too much air: fine gold is going up with the dust. Close the air gate a little.');
+    } else if (this.underblown > 4) {
+      this.underblown = 0;
+      this.nudge("Too little air: the bed isn't lifting, so the sand won't separate. Open the air gate.");
+    } else if (!this.toldDrawer && dw.drawerLoading > 0.8) {
+      this.toldDrawer = true;
+      this.nudge(`The drawer is nearly full. Pull it${key('C')} before it starts losing what it catches.`);
     }
   }
 

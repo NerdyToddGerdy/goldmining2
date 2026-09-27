@@ -8,6 +8,7 @@ export class CreekScene extends Container {
   private viewWidth = 0;
   private viewHeight = 0;
   private time = 0;
+  private murk = 0;
 
   constructor() {
     super();
@@ -29,6 +30,22 @@ export class CreekScene extends Container {
       this.bank.circle(x, y, 3 + (i % 5) * 2).fill(i % 3 ? 0x6e6446 : 0x4c4430);
     }
     this.water.clear().rect(0, this.waterTop, width, height - this.waterTop).fill(0x2f5a5e);
+    const murk = this.murk;
+    this.murk = -1;
+    this.setMurk(murk);
+  }
+
+  /**
+   * How muddy the water is (a wash tub on dry ground clouds with every pan): the water browns and
+   * the ripples fade. 0 is a clear creek.
+   */
+  setMurk(murk: number): void {
+    if (Math.abs(murk - this.murk) < 0.01) return;
+    this.murk = murk;
+    const t = Math.min(1, murk);
+    const mix = (a: number, b: number, shift: number): number => Math.round(((a >> shift) & 0xff) + ((((b >> shift) & 0xff) - ((a >> shift) & 0xff)) * t)) << shift;
+    const color = mix(0x2f5a5e, 0x6b5a3a, 16) | mix(0x2f5a5e, 0x6b5a3a, 8) | mix(0x2f5a5e, 0x6b5a3a, 0);
+    this.water.clear().rect(0, this.waterTop, this.viewWidth, this.viewHeight - this.waterTop).fill(color);
   }
 
   update(deltaSeconds: number): void {
@@ -40,6 +57,6 @@ export class CreekScene extends Container {
       const drift = ((this.time * 60 + i * 137) % (this.viewWidth + 200)) - 100;
       this.ripples.moveTo(drift, y).lineTo(drift + 80 + (i % 3) * 30, y);
     }
-    this.ripples.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.35 });
+    this.ripples.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.35 * (1 - 0.8 * Math.max(0, this.murk)) });
   }
 }
