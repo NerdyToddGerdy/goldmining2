@@ -772,7 +772,7 @@ export class Hud {
     const dig: [string, () => void][] = selected
       ? [[selected.gully ? 'Dig in the gully' : `Dig at spot ${state.creek.creekSpots.indexOf(selected) + 1}`, () => this.on.digSelected()]]
       : [];
-    return [...dig, ['Region map (M)', () => this.on.openRegion()], ['Walk to town (T)', () => this.on.walkToTown()]];
+    return [...dig, ...this.crewBucketButton(state), ['Region map (M)', () => this.on.openRegion()], ['Walk to town (T)', () => this.on.walkToTown()]];
   }
 
   /** The notebook of leads on the region map, and the claims board in town. */
@@ -1068,6 +1068,7 @@ export class Hud {
       const n = Number(key);
       if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
       else if (key === 't') this.on.walkToTown();
+      else if (key === 'w') this.on.collectCrew();
       else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
