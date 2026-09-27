@@ -241,13 +241,20 @@ async function start(): Promise<void> {
   let toldAboutRocker = false;
   /** Where the magnet was picked up from, to go back to when done. */
   let magnetReturn: 'town' | 'bank' = 'town';
+  /** Where the pan came out: the jar can be panned at the assay office's wash trough in town. */
+  let panReturn: 'town' | 'bank' = 'bank';
   let toldAboutMagnet = false;
   /** In town, or at the magnet table there: time is covered by the trip, and the player isn't at any stretch. */
-  const inTown = (): boolean => mode === 'town' || (mode === 'magnet' && magnetReturn === 'town');
+  const inTown = (): boolean => mode === 'town' || (mode === 'magnet' && magnetReturn === 'town') || (mode === 'pan' && panReturn === 'town');
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
   const setMode = (next: Mode): void => {
+    // Taking up the pan: from the town counter it's the wash trough out back, anywhere else the creek.
+    if (next === 'pan' && mode !== 'pan') {
+      panReturn = mode === 'town' ? 'town' : 'bank';
+      scene.setSetting(panReturn === 'town' ? 'town' : 'creek');
+    }
     mode = next;
     if (mode !== 'creek') creekMap.selected = null;
     regionMap.visible = mode === 'region';
@@ -693,7 +700,7 @@ async function start(): Promise<void> {
       if (pan && coach.allowReveal(pan)) pan.reveal();
     },
     collect,
-    backToHole: () => setMode('bank'),
+    backToHole: () => setMode(mode === 'pan' && panReturn === 'town' ? 'town' : 'bank'),
     openSluice,
     rakeSluice,
     openClassifier,
@@ -1133,7 +1140,10 @@ async function start(): Promise<void> {
       hud.toast(`You collect ${parts.join(', and ')}.${got.sandLeft > 0 ? ' The rest of the bucket waits: your jar is full.' : ''}`);
     },
     panConcentrate: () => {
-      if (!session.canPanConcentrate || mode === 'creek') return;
+      if (mode === 'creek') return;
+      // In town, a pan left half-washed at the trough is picked back up.
+      if (mode === 'town' && session.pan && !session.panIsFree) return startPanning();
+      if (!session.canPanConcentrate) return;
       if (!canPanHere()) return hud.toast(noPanWater());
       session.startConcentratePan(panWater(0));
       startPanning();
@@ -1167,7 +1177,10 @@ async function start(): Promise<void> {
   const pan = session.pan;
   const screen = loaded?.place.screen ?? 'creek';
   if (spot) bankView.setSpot(creek, spot);
-  if (pan && pan.phase !== 'emptied') setMode('pan');
+  if (pan && pan.phase !== 'emptied') {
+    if (screen === 'town') setMode('town'); // Picked back up at the town trough.
+    setMode('pan');
+  }
   else if (screen === 'town') {
     region.restockOffers(session.pansWorked);
     setMode('town');
@@ -1188,7 +1201,7 @@ async function start(): Promise<void> {
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew, finance }));
+    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode === 'pan' && panReturn === 'town' ? 'town' : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew, finance }));
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -1410,7 +1423,8 @@ async function start(): Promise<void> {
       tub: tubHere(),
       tubFetching: tubFetching !== null,
       cleaningOut,
-      classifier,
+      classifier: mode === 'pan' && panReturn === 'town' ? null : classifier,
+      panInTown: mode === 'pan' && panReturn === 'town',
       rocker,
       fetchingWater: fetchingWater !== null,
       canPan: canPanHere(),

@@ -677,7 +677,7 @@ The concentrate jar is the tailings layer at the smallest scale. Saved black san
 
 The jar has a real limit: about fifteen pans' black sand, or one sluice cleanout. A full jar refuses more rather than spilling it, so nothing is ever lost to it. Saving is refused, lifting a sluice mat waits, and the sluice can't come down, until some of the jar is panned. The standard jar always holds a full sluice mat, so a cleanout can always finish once the jar is emptied.
 
-Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the safe tip is shallower than for gravel. The game warns when gold is going over the lip. A jar pan worked all the way down leaves only spent residue, which is tipped out rather than saved. A jar pan revealed early puts its unfinished black sand back, with any gold still hidden in it.
+Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the safe tip is shallower than for gravel. The game warns when gold is going over the lip. A jar pan worked all the way down leaves only spent residue, which is tipped out rather than saved. A jar pan revealed early puts its unfinished black sand back, with any gold still hidden in it. The jar can be panned at any water, and in town at the wash trough behind the assay office, so a jar full from the claims can be finished and sold in one stop. Time doesn't pass for it there, as with everything in town.
 
 ### Compact inspection panel
 

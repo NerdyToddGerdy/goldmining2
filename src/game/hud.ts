@@ -178,6 +178,8 @@ export interface HudState {
   readonly rocker: Rocker | null;
   /** Off fetching a bucket of water for the rocker. */
   readonly fetchingWater: boolean;
+  /** Panning at the wash trough in town rather than at a creek. */
+  readonly panInTown: boolean;
   /** There is water here to pan in (not at a dry wash). */
   readonly canPan: boolean;
   readonly economy: Economy;
@@ -629,7 +631,7 @@ export class Hud {
       // Keep panning from the classifier's bucket without walking back to it.
       const bucket: [string, () => void][] =
         state.classifier && state.classifier.bucketVolume > 0.005 ? [['Pan from the bucket (B)', () => this.on.panBucket()]] : [];
-      return [...bucket, ['Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
+      return [...bucket, [state.panInTown ? 'Back to the counter (N)' : 'Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
     }
     if (mode === 'bank' && spot) {
       const blocked = creek.blockedBy(spot);
@@ -752,8 +754,12 @@ export class Hud {
     if (mode === 'town') {
       const offer = quoteSale(session.vial);
       const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
+      // The assay office has a wash trough out back: the jar can be panned down here too.
+      const pan: [string, () => void][] =
+        session.pan && !session.panIsFree ? [['Back to your pan (J)', () => this.on.panConcentrate()]] : this.jarButton(session);
       return [
         ...sell,
+        ...pan,
         ...this.magnetButton(state),
         ['Region map (Esc)', () => this.on.openRegion()],
         [`Back to ${state.creek.profile.name}`, () => this.on.walkCreek()],
@@ -1081,6 +1087,7 @@ export class Hud {
       else if (key === 'escape') this.on.closeMagnet();
     } else if (state.mode === 'town') {
       if (key === 'x') this.on.openMagnet();
+      else if (key === 'j') this.on.panConcentrate();
       else if (key === 's') this.on.sell();
       else if (key === 'escape' || key === 'm') this.on.openRegion();
     } else if (state.mode === 'pan') {
