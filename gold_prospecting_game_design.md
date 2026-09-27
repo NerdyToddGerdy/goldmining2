@@ -783,6 +783,19 @@ In the game, the **rocker box** ($20 at the outfitter) is the step between the p
 - **Harvest:** the canvas apron darkens as it loads and catches less when heavy, like the sluice's moss. "Clean up the apron" washes it into the jar for the delayed reveal.
 - **Throughput:** well above the pan, below the sluice.
 
+In the game, the **highbanker** ($90) is the first motorized machine: a sluice box on a stand on the bank, fed by a hopper with a grizzly and a spray bar, watered by a small gas engine and pump drawing from the creek:
+- **Where it sets up:** it needs strong water to pump from and room for the stand. That means a creek bend, a gravel bar, or a ravine (the compact one), beside any dig spot. Never a plain stretch, a dry wash, or the Home Creek, and never at the same spot as the hand sluice. Moving it washes its mat into the jar, and the engine keeps whatever fuel is in its tank.
+- **Setup:** prime the pump (a couple of seconds), then start the engine.
+- **Operation:** the throttle is the sluice's water, so the underpowered / balanced / overpowered states apply, and it also sets fuel burn and engine heat. The box is larger than the hand sluice's (water carries more through it, and its header holds more), but the mat is the standard size, so the standard jar always holds one. The hopper takes shovelfuls straight from the hole (or the classifier's bucket) and meters them down so the header never backs up. Rocks roll off the end of the grizzly, taking any wedged pickers with them, unannounced.
+- **Interruptions:**
+  - The hose can shift and suck air, more often at high throttle: the pump loses prime, the spray stops, and bubbles show at the intake. It has to be primed again.
+  - An engine run dry, or hard for long, heats up, glows and steams, and stalls at full heat. It won't restart until it has cooled.
+  - A rock can jam across the grizzly and stop the hopper until it's cleared.
+  - The tank runs dry. It runs on the same $2 cans as the recirculating pump.
+- **Harvest:** the same cleanout as the sluice. The hopper holds back while clean water rinses the riffles, then the mat is lifted into the jar. The riffle insert applies to it too.
+- **Floods:** a flood on a gravel bar sweeps its hopper, strips its mat, and knocks the pump out of prime.
+- **Throughput:** it moves at least a quarter more gravel than a hand sluice fed at a brisk pace (over 120 shovelfuls in four minutes of play, against about 96), recovering well over half the gold fed.
+
 ### Dry-wash chain
 
 ```text

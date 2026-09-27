@@ -16,3 +16,4 @@ export * from './staffing';
 export * from './magnet';
 export * from './rocker';
 export * from './sites';
+export * from './highbanker';

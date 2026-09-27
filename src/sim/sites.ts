@@ -198,10 +198,15 @@ export function traitsOf(site: SiteKind | undefined): SiteTraits {
 }
 
 /** Whether the ground has room and water for a piece of hand gear. */
-export function siteAllows(site: SiteKind | undefined, gear: 'pan' | 'classifier' | 'rocker' | 'magnet'): boolean {
+export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker';
+
+export function siteAllows(site: SiteKind | undefined, gear: SiteGear): boolean {
   const traits = traitsOf(site);
   if (gear === 'pan') return traits.water === 'creek';
   if (site === 'homeCreek') return false;
+  // A highbanker needs strong water to pump from and room on the bank for its stand; a ravine
+  // takes the compact one.
+  if (gear === 'highbanker') return site === 'creekBend' || site === 'gravelBar' || site === 'ravine';
   if (gear === 'rocker') return traits.footprint !== 'narrow';
   return true;
 }

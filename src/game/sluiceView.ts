@@ -62,6 +62,8 @@ export class SluiceView extends Container {
   private drops: Drop[] = [];
   private glints: { t: number; life: number }[] = [];
   private spawnCarry = 0;
+  /** Fed by a highbanker's hopper and pump: no flume or recirculating pump to draw. */
+  pumpFed = false;
   private slope = 0.5;
   private pumping = false;
   private puffs: { x: number; y: number; life: number }[] = [];
@@ -162,8 +164,9 @@ export class SluiceView extends Container {
 
   // ---- geometry ----
 
-  private get start(): { x: number; y: number } {
-    return { x: this.width_ * 0.2, y: this.height_ * 0.36 };
+  get start(): { x: number; y: number } {
+    // A highbanker's hopper sits over the header; keep it clear of the inspection panel top-left.
+    return { x: this.width_ * (this.pumpFed ? 0.34 : 0.2), y: this.height_ * 0.36 };
   }
 
   /** The exit end drops further the steeper the box is set. */
@@ -188,7 +191,7 @@ export class SluiceView extends Container {
     return 3 + power * 26;
   }
 
-  private headerRect(): { x: number; y: number; w: number; h: number } {
+  headerRect(): { x: number; y: number; w: number; h: number } {
     const s = this.start;
     return { x: s.x - 90, y: s.y - 70, w: 96, h: 74 };
   }
@@ -317,7 +320,9 @@ export class SluiceView extends Container {
 
     // Header box with the feed heaped in it; flume bringing water in from upstream.
     const hr = this.headerRect();
-    if (sluice.usesPump) {
+    if (this.pumpFed) {
+      // Water arrives through the highbanker's hopper, drawn over this by its own view.
+    } else if (sluice.usesPump) {
       this.drawPump(g, hr, flow, creekY);
     } else {
       const flumeDepth = 2 + flow * 10;

@@ -11,7 +11,11 @@ import {
   MIN_CONCENTRATE,
   OUTFITTER,
   ROCKER_TUNING,
+  HIGHBANKER_TUNING,
+  siteAllows,
   type Rocker,
+  type Highbanker,
+  type HighbankerStepEvents,
   SLUICE_TUNING,
   quoteSale,
   type GearId,
@@ -30,7 +34,7 @@ import {
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker';
 
 export interface HudActions {
   // Pan
@@ -45,7 +49,7 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker'): void;
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker'): void;
   openClassifier(): void;
   // Classifier
   swapScreen(): void;
@@ -79,6 +83,18 @@ export interface HudActions {
   releaseClaim(creekId: number): void;
   restakeClaim(creekId: number): void;
   washCrewBucket(): void;
+  // Highbanker
+  openHighbanker(): void;
+  setUpHighbanker(): void;
+  takeDownHighbanker(): void;
+  primePump(): void;
+  toggleEngine(): void;
+  clearHighbanker(): void;
+  refuelHighbanker(): void;
+  highbankerCleanout(): void;
+  cancelHighbankerCleanout(): void;
+  liftHighbankerMat(): void;
+  pourIntoHighbanker(): void;
   // Rocker
   openRocker(): void;
   rock(): void;
@@ -110,6 +126,11 @@ export interface HudState {
   readonly sluice: Sluice | null;
   readonly sluiceEvents: SluiceStepEvents | null;
   readonly sluiceFlow: number;
+  /** The highbanker set up at the current spot, if any, its last step, throttle, and a prime under way. */
+  readonly highbanker: Highbanker | null;
+  readonly highbankerEvents: HighbankerStepEvents | null;
+  readonly throttle: number;
+  readonly priming: boolean;
   /** A cleanout is under way: feeding stopped, clean water rinsing the riffles. */
   readonly cleaningOut: boolean;
   /** The classifier, when the player has one and this creek allows it (never the Home Creek). */
@@ -145,6 +166,7 @@ const HINTS: Record<Mode, string> = {
   classifier: 'Hold Space or the screen to sift · click a rock to check it for a wedged picker · tip off the oversize when only rocks are left',
   magnet: 'Hold Space or Pass to sweep the magnet over the sand · W/S or the wheel sets how close · shake the clump back (B), then strip it off (T)',
   rocker: 'Ladle water over the screen (L) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
+  highbanker: 'Prime the pump (P) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -158,6 +180,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   classifier: 'Hold the screen or Sift · tap a rock to check it for a picker · tip off the oversize when only rocks are left',
   magnet: 'Hold Pass to sweep the magnet · the slider sets how close · shake the clump back, then strip it off',
   rocker: 'Ladle water over the screen · tap Rock on a steady beat · tip the rocks off · clean up the apron before it loads up',
+  highbanker: 'Prime the pump · start the engine · set the Throttle · shovel into the hopper · tap the hopper to clear a jam',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -334,8 +357,12 @@ export class Hud {
     if (this.sift.textContent !== siftText) this.sift.textContent = siftText;
     const tiltText = magnet ? 'Closeness ' : 'Tilt ';
     if (this.tiltLabel.firstChild && this.tiltLabel.firstChild.textContent !== tiltText) this.tiltLabel.firstChild.textContent = tiltText;
-    this.water.hidden = !(state.sluice && (mode === 'bank' || mode === 'sluice'));
-    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(state.sluiceFlow);
+    // The same slider is the sluice's Water, or the highbanker's Throttle.
+    const onHighbanker = state.highbanker !== null && (mode === 'bank' || mode === 'highbanker');
+    this.water.hidden = !(onHighbanker || (state.sluice && (mode === 'bank' || mode === 'sluice')));
+    const waterText = onHighbanker ? 'Throttle ' : 'Water ';
+    if (this.water.firstChild && this.water.firstChild.textContent !== waterText) this.water.firstChild.textContent = waterText;
+    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(onHighbanker ? state.throttle : state.sluiceFlow);
     // Adjustable legs: the slider covers only as far as the legs reach at this site.
     this.slope.hidden = this.water.hidden || !state.sluice?.kit.legs;
     if (!this.slope.hidden && state.sluice && document.activeElement !== this.slopeInput) {
@@ -431,8 +458,14 @@ export class Hud {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
         list.push(...this.refuelButton(state), ...this.crewBucketButton(state));
-      } else if (spot.sluiceSite && session.owns('sluice')) {
+      } else if (spot.sluiceSite && session.owns('sluice') && !state.highbanker) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
+      }
+      if (state.highbanker) {
+        if (blocked === null && !state.highbanker.rinsing) list.push(['Shovel into the highbanker (F)', () => this.on.shovel('highbanker')]);
+        list.push(['Watch the highbanker (V)', () => this.on.openHighbanker()], ...this.highbankerFuelButton(state));
+      } else if (!state.sluice && !spot.gully && session.owns('highbanker') && siteAllows(state.creek.profile.site, 'highbanker')) {
+        list.push([session.highbankerPlace ? 'Move the highbanker here' : 'Set up the highbanker here', () => this.on.setUpHighbanker()]);
       }
       list.push(...this.jarButton(session), ...this.magnetButton(state));
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
@@ -449,6 +482,22 @@ export class Hud {
       if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (P)', () => this.on.panBucket()]);
       if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (F)', () => this.on.pourIntoSluice()]);
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
+      return list;
+    }
+    if (mode === 'highbanker' && state.highbanker) {
+      const hb = state.highbanker;
+      if (hb.rinsing) {
+        return [['Lift the mat (L)', () => this.on.liftHighbankerMat()], ['Keep running', () => this.on.cancelHighbankerCleanout()], ...this.jarButton(session)];
+      }
+      const list: [string, () => void][] = [];
+      if (!hb.primed) list.push([state.priming ? 'Priming…' : 'Prime the pump (P)', () => this.on.primePump()]);
+      list.push([hb.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleEngine()]);
+      if (hb.jammed) list.push(['Clear the grizzly (R)', () => this.on.clearHighbanker()]);
+      else if (hb.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.clearHighbanker()]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null && !hb.hopperFull) list.push(['Shovel into the hopper (F)', () => this.on.shovel('highbanker')]);
+      if (state.classifier && state.classifier.bucketVolume > 0.005 && !hb.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoHighbanker()]);
+      list.push(...this.highbankerFuelButton(state), ['Clean out the moss (C)', () => this.on.highbankerCleanout()], ...this.jarButton(session));
+      list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the highbanker', () => this.on.takeDownHighbanker()]);
       return list;
     }
     if (mode === 'rocker' && state.rocker) {
@@ -533,10 +582,10 @@ export class Hud {
               : '<span class="found">Yours. Packed and ready to set up.</span>';
         return `<div class="lead"><b>${item.name}</b><p class="small">${item.description}</p>${status}</div>`;
       });
-      if (session.owns('pump')) {
+      if (session.owns('pump') || session.owns('highbanker')) {
         const full = session.fuelCans >= FUEL_CAN.carryLimit;
         gear.push(
-          `<div class="lead"><b>${FUEL_CAN.name}</b><p class="small">One can fills the pump's tank. You're carrying ${session.fuelCans} of ${FUEL_CAN.carryLimit}.</p>` +
+          `<div class="lead"><b>${FUEL_CAN.name}</b><p class="small">One can fills a tank, the pump's or the highbanker's. You're carrying ${session.fuelCans} of ${FUEL_CAN.carryLimit}.</p>` +
             `<button type="button" data-action="fuel" ${session.cash >= FUEL_CAN.price && !full ? '' : 'disabled'}>${full ? 'Can’t carry more' : `Buy for $${FUEL_CAN.price}`}</button></div>`,
         );
       }
@@ -570,6 +619,13 @@ export class Hud {
       const open = region.leads.filter((l) => l.status === 'open').length;
       this.panel.innerHTML = `<h3>Notebook <span class="count">${open ? `${open} to follow` : region.leads.length}</span></h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
     }
+  }
+
+  /** Offered once the highbanker's tank is low enough for a can to be worth pouring in. */
+  private highbankerFuelButton(state: HudState): [string, () => void][] {
+    const hb = state.highbanker;
+    if (!hb || state.session.fuelCans <= 0 || hb.fuel > HIGHBANKER_TUNING.tank * 0.75) return [];
+    return [[`Refuel (G) · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`, () => this.on.refuelHighbanker()]];
   }
 
   /** The hand's cleanouts wait in a bucket by the sluice until the player washes them into the jar. */
@@ -734,12 +790,27 @@ export class Hud {
       else if (key === 'p') this.on.panBucket();
       else if (key === 'f' && state.sluice) this.on.pourIntoSluice();
       else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'highbanker' && state.highbanker) {
+      const hb = state.highbanker;
+      if (key === 'p') this.on.primePump();
+      else if (key === 'e') this.on.toggleEngine();
+      else if (key === 'r') this.on.clearHighbanker();
+      else if (key === 'f' && !hb.rinsing) this.on.shovel('highbanker');
+      else if (key === 'b') this.on.pourIntoHighbanker();
+      else if (key === 'g') this.on.refuelHighbanker();
+      else if (key === 'c' && !hb.rinsing) this.on.highbankerCleanout();
+      else if (key === 'l' && hb.rinsing) this.on.liftHighbankerMat();
+      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
       if (key === 'k' && state.classifier) this.on.shovel('classifier');
       else if (key === 'c' && state.classifier) this.on.openClassifier();
       else if (key === 'f' && state.sluice) this.on.shovel('sluice');
       else if (key === 'v' && state.sluice) this.on.openSluice();
       else if (key === 'g' && state.sluice) this.on.refuelPump();
+      else if (key === 'f' && state.highbanker) this.on.shovel('highbanker');
+      else if (key === 'v' && state.highbanker) this.on.openHighbanker();
+      else if (key === 'g' && state.highbanker) this.on.refuelHighbanker();
       else if (key === 'w' && state.sluice) this.on.washCrewBucket();
       else if (key === 'p') this.on.shovel('pan');
       else if (key === 't') this.on.shovel('spoil');
@@ -776,6 +847,21 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+      ];
+    } else if (mode === 'highbanker' && state.highbanker) {
+      const hb = state.highbanker;
+      const heat = hb.heat;
+      const fuel = hb.fuel / HIGHBANKER_TUNING.tank;
+      const hopper = hb.hopperVolume / HIGHBANKER_TUNING.hopperMax;
+      const moss = hb.sluice.mossLoading;
+      rows = [
+        ['Engine', hb.running ? 'running' : hb.tooHot ? 'stalled, too hot' : hb.fuel <= 0 ? 'out of fuel' : 'stopped'],
+        ['Pump', state.priming ? 'priming' : hb.primed ? 'primed' : hb.running ? 'sucking air' : 'not primed'],
+        ['Water', hb.rinsing ? 'rinsing' : state.highbankerEvents?.spraying ? state.highbankerEvents.sluice.state : 'none'],
+        ['Heat', heat > 0.85 ? 'overheating' : heat > 0.6 ? 'hot' : heat > 0.3 ? 'warm' : 'cool'],
+        ['Fuel', `${fuel > 0.6 ? 'plenty' : fuel > 0.3 ? 'half' : fuel > 0.1 ? 'low' : fuel > 0 ? 'nearly out' : 'empty'} · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`],
+        ['Hopper', hb.jammed ? 'jammed' : hopper > 0.85 ? 'heaped' : hopper > 0.05 ? 'feeding' : 'empty'],
+        ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
       ];
     } else if (mode === 'rocker' && state.rocker) {
       const r = state.rocker;

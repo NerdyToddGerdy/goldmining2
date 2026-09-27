@@ -1,4 +1,4 @@
-import { ROCKER_TUNING, SLUICE_TUNING, type Pan, type PanControls, type PanStepEvents, type Rocker, type RockerStroke, type Sluice, type SluiceStepEvents } from '../sim';
+import { HIGHBANKER_TUNING, ROCKER_TUNING, SLUICE_TUNING, type Highbanker, type HighbankerStepEvents, type Pan, type PanControls, type PanStepEvents, type Rocker, type RockerStroke, type Sluice, type SluiceStepEvents } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -184,6 +184,59 @@ export class RockerCoach {
     } else if (!this.toldAboutBucket && rocker.bucket === 0 && rocker.hasLoad) {
       this.toldAboutBucket = true;
       this.nudge(`The bucket is empty. ${usingTouch() ? 'Fetch water' : 'Fetch water (E)'} to keep rocking.`);
+    }
+  }
+
+  private nudge(message: string): void {
+    this.say(message);
+    this.cooldown = 8;
+  }
+}
+
+/**
+ * Nudges for the highbanker. The machine shows each problem first: no spray and air at the
+ * intake, a glowing, steaming engine, a rock wedged across the grizzly, an empty fuel gauge.
+ */
+export class HighbankerCoach {
+  private cooldown = 0;
+  private toldHot = false;
+  private toldLowFuel = false;
+  private toldAboutMoss = false;
+  private dryRunning = 0;
+
+  constructor(private readonly say: (message: string) => void) {}
+
+  update(dt: number, hb: Highbanker, events: HighbankerStepEvents | null): void {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    const key = (k: string): string => (usingTouch() ? '' : ` (${k})`);
+    // Events are said straight away: they are the machine breaking down in front of the player.
+    switch (events?.event) {
+      case 'lostPrime':
+        return this.nudge(`No spray, and the engine note has gone high: the hose is sucking air. Prime the pump again${key('P')} before it overheats.`);
+      case 'overheated':
+        return this.nudge('The engine has overheated and stalled. Let it cool, then start it again, and go easier on the throttle.');
+      case 'jammed':
+        return this.nudge(`A rock has jammed across the grizzly: nothing is going through. Clear it${key('R')}, or tap the hopper.`);
+      case 'outOfFuel':
+        return this.nudge(`The engine coughs and dies: the tank is dry. Refuel it${key('G')}.`);
+    }
+    this.dryRunning = hb.running && !hb.primed ? this.dryRunning + dt : 0;
+    if (hb.heat < 0.5) this.toldHot = false;
+    if (hb.fuel > HIGHBANKER_TUNING.tank * 0.3) this.toldLowFuel = false;
+    if (hb.sluice.mossLoading < 0.3) this.toldAboutMoss = false;
+    if (this.cooldown > 0) return;
+    if (this.dryRunning > 2) {
+      this.dryRunning = 0;
+      this.nudge(`The pump is running dry: no water, and the engine is heating fast. Prime it${key('P')} or stop the engine${key('E')}.`);
+    } else if (!this.toldHot && hb.running && hb.heat > 0.75) {
+      this.toldHot = true;
+      this.nudge('The engine is running hot and starting to steam. Ease the throttle back before it stalls.');
+    } else if (!this.toldLowFuel && hb.running && hb.fuel < HIGHBANKER_TUNING.tank * 0.15) {
+      this.toldLowFuel = true;
+      this.nudge(`The fuel gauge is nearly empty. Refuel${key('G')} before it dies.`);
+    } else if (!this.toldAboutMoss && hb.sluice.mossLoading > 0.8) {
+      this.toldAboutMoss = true;
+      this.nudge(`The moss is dark and heavy. Clean it out${key('C')} soon: a full mat lets gold through.`);
     }
   }
 

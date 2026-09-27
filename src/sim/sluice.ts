@@ -28,6 +28,12 @@ export interface SluiceSite {
   readonly slope: number;
   /** How much water the creek offers here, 0..1. */
   readonly flow: number;
+  /**
+   * How big the box is, relative to the hand sluice: a highbanker's is wider and longer, so water
+   * carries more through it and its header holds more. The mat stays the standard size, so the
+   * standard jar always holds one. Absent means 1.
+   */
+  readonly scale?: number;
 }
 
 export interface SluiceControls {
@@ -286,6 +292,15 @@ export class Sluice {
     return this.clog >= 1;
   }
 
+  private get scale(): number {
+    return this.site.scale ?? 1;
+  }
+
+  /** Before the header backs up and starts to jam. */
+  get headerCapacity(): number {
+    return SLUICE_TUNING.headerCapacity * this.scale;
+  }
+
   /** Material waiting in the header box. */
   get headerVolume(): number {
     return this.header.light + this.header.black + this.header.clay;
@@ -318,14 +333,14 @@ export class Sluice {
 
   classify(power: number): SluiceState {
     if (power > SLUICE_TUNING.overpowered) return 'overpowered';
-    if (power < SLUICE_TUNING.underpowered || this.headerVolume >= SLUICE_TUNING.headerCapacity) return 'underpowered';
+    if (power < SLUICE_TUNING.underpowered || this.headerVolume >= this.headerCapacity) return 'underpowered';
     return 'balanced';
   }
 
   /** Why a shovelful can't go in right now, if it can't. */
   get feedBlocked(): 'jammed' | 'full' | null {
     if (this.jammed) return 'jammed';
-    if (this.headerVolume >= SLUICE_TUNING.headerMax) return 'full';
+    if (this.headerVolume >= SLUICE_TUNING.headerMax * this.scale) return 'full';
     return null;
   }
 
@@ -350,7 +365,7 @@ export class Sluice {
 
   /** Room left in the header before it is brim full. */
   get headerRoom(): number {
-    return Math.max(0, SLUICE_TUNING.headerMax - this.headerVolume);
+    return Math.max(0, SLUICE_TUNING.headerMax * this.scale - this.headerVolume);
   }
 
   private addToHeader(light: number, black: number, clay: number, rocks: readonly Rock[], gold: readonly GoldPiece[]): void {
@@ -375,7 +390,7 @@ export class Sluice {
     this.lastPower = power;
 
     // Water carries material out of the header, as fast as the power allows and the clog lets it.
-    const carried = this.release(power * T.carryRate * dt * (1 - Math.min(1, this.clog)));
+    const carried = this.release(power * T.carryRate * this.scale * dt * (1 - Math.min(1, this.clog)));
     const released = carried.volume;
     let goldLost = carried.goldLost;
     let blackLost = carried.blackLost;
@@ -383,7 +398,7 @@ export class Sluice {
     this.bedLoad -= this.bedLoad * Math.min(1, power * T.bedClear * (1 - T.shallowBedClear * this.shallowness) * dt);
 
     // A backed-up header jams; strong water slowly works a partial clog loose.
-    const backlog = this.headerVolume - T.headerCapacity;
+    const backlog = this.headerVolume - this.headerCapacity;
     if (backlog > 0) this.clog += backlog * T.clogGrowth * dt;
     else this.clog = Math.max(0, this.clog - power * T.clogClear * dt);
     this.clog = Math.min(1, this.clog);
@@ -471,7 +486,7 @@ export class Sluice {
 
     // Capture over the riffles: worse when the moss is full, the riffles are packed, or clay balls roll through.
     const fullness = clamp01((this.mossLoading - T.mossFullFrom) / (1 - T.mossFullFrom)) * T.mossFullLoss;
-    const packing = this.classify(power) === 'underpowered' && held > 0.5 ? Math.min(1, held / T.headerCapacity) : 0;
+    const packing = this.classify(power) === 'underpowered' && held > 0.5 * this.scale ? Math.min(1, held / this.headerCapacity) : 0;
     const clayShare = released > 0 ? clay / released : 0;
     const keep = (1 - fullness) * (1 - T.packedLoss * packing) * (1 - clayShare * T.clayGoldCarry) * (1 - T.shallowPack * this.shallowness);
     const capture = this.kit.improvedMat ? T.improvedCapture : T.capture;

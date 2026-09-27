@@ -22,6 +22,9 @@ import {
   type LayerKind,
   type MagnetStepEvents,
   type Rocker,
+  type Highbanker,
+  type HighbankerStepEvents,
+  HIGHBANKER_TUNING,
   ROCKER_TUNING,
   needsPump,
   traitsOf,
@@ -34,7 +37,7 @@ import {
 import { BankView, type ShovelTarget } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
-import { PanCoach, RockerCoach, SluiceCoach } from './game/coach';
+import { HighbankerCoach, PanCoach, RockerCoach, SluiceCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
@@ -43,6 +46,7 @@ import { ClassifierView } from './game/classifierView';
 import { SluiceView } from './game/sluiceView';
 import { MagnetView } from './game/magnetView';
 import { RockerView } from './game/rockerView';
+import { HighbankerView } from './game/highbankerView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
 import { usingTouch } from './game/inputMode';
@@ -71,9 +75,23 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   riffleMat: 'A riffle insert and ribbed mat, fitted to your sluice. It holds fine gold better: you will see it at cleanout.',
   legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
   rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
+  highbanker: 'A highbanker. Set it up on the bank at a creek bend, gravel bar or ravine: prime the pump, start the engine, and shovel into the hopper. Buy fuel here by the can.',
   magnet: 'A magnet in a plastic sleeve. Clean your jar with it here in town or out on a stretch: close is quick, but drags fine gold up with the sand.',
   pump: 'A recirculating pump. It lets the sluice run where the creek is too thin, if you keep it fuelled: buy fuel here by the can.',
 };
+
+/** Several fixed steps in one frame, summed so nothing that happened is dropped. */
+function mergeHighbankerEvents(prev: HighbankerStepEvents | null, e: HighbankerStepEvents): HighbankerStepEvents {
+  if (!prev) return e;
+  const p = prev.sluice;
+  return {
+    ...e,
+    event: e.event ?? prev.event,
+    passed: e.passed + prev.passed,
+    rocksOff: e.rocksOff + prev.rocksOff,
+    sluice: { ...e.sluice, released: e.sluice.released + p.released, goldLost: e.sluice.goldLost + p.goldLost, blackLost: e.sluice.blackLost + p.blackLost, glints: e.sluice.glints + p.glints },
+  };
+}
 
 async function start(): Promise<void> {
   const host = document.getElementById('game');
@@ -119,6 +137,12 @@ async function start(): Promise<void> {
   let cleaningOut = false;
   let sluiceEvents: SluiceStepEvents | null = null;
   const sluiceHere = (): Sluice | null => (spot ? session.sluiceAt(creek.id, spot.id) : null);
+  /** The highbanker: set up on the bank beside a spot, its throttle, and a prime under way. */
+  const highbankerHere = (): Highbanker | null => (spot ? session.highbankerAt(creek.id, spot.id) : null);
+  let throttle = 0.6;
+  let highbankerEvents: HighbankerStepEvents | null = null;
+  let primingLeft: number | null = null;
+  let toldAboutHighbanker = false;
   /** The classifier travels with the player, but the Home Creek has no room for it. */
   const classifierHere = (): Classifier | null => (session.classifier && region.allows(creek, 'classifier') ? session.classifier : null);
   /** The rocker travels with the player too, and likewise has no room at the Home Creek. */
@@ -147,6 +171,7 @@ async function start(): Promise<void> {
     creekMap.visible = mode === 'creek';
     bankView.visible = mode === 'bank';
     sluiceView.visible = mode === 'sluice';
+    highbankerView.visible = mode === 'highbanker';
     classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
     magnetView.visible = mode === 'magnet';
@@ -175,7 +200,10 @@ async function start(): Promise<void> {
     // Dig from the bank, or straight from the close-up of the machine being fed, so feeding a run
     // doesn't mean walking back and forth.
     const fromCloseUp =
-      (into === 'classifier' && mode === 'classifier') || (into === 'sluice' && mode === 'sluice') || (into === 'rocker' && mode === 'rocker');
+      (into === 'classifier' && mode === 'classifier') ||
+      (into === 'sluice' && mode === 'sluice') ||
+      (into === 'rocker' && mode === 'rocker') ||
+      (into === 'highbanker' && mode === 'highbanker');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const blockedClaim = claimBlock();
     if (blockedClaim) return hud.toast(blockedClaim);
@@ -186,6 +214,12 @@ async function start(): Promise<void> {
       return hud.toast('You still have a pan on the go. Finish it first.');
     }
     const sluice = into === 'sluice' ? sluiceHere() : null;
+    const highbanker = into === 'highbanker' ? highbankerHere() : null;
+    if (into === 'highbanker') {
+      if (!highbanker) return;
+      if (highbanker.rinsing) return hud.toast('Finish the cleanout before feeding the hopper again.');
+      if (highbanker.hopperFull) return hud.toast("The hopper is heaped full. Let the spray work it down.");
+    }
     const classifier = into === 'classifier' ? classifierHere() : null;
     const rocker = into === 'rocker' ? rockerHere() : null;
     if (into === 'rocker') {
@@ -234,6 +268,8 @@ async function start(): Promise<void> {
       if (mode !== 'rocker') openRocker();
     } else if (result.load && sluice) {
       sluice.feed(result.load);
+    } else if (result.load && highbanker) {
+      highbanker.feed(result.load);
     } else if (result.load) {
       session.startPan(result.load);
       panSpot = spot;
@@ -376,6 +412,19 @@ async function start(): Promise<void> {
   };
   const regionMap = new RegionMapView(region, (place) => (place.kind === 'town' ? walkToTown() : goToCreek(place.creek)));
   const creekMap = new CreekMapView(creek, pickSpot);
+  const openHighbanker = (): void => {
+    if (!highbankerHere()) return;
+    highbankerView.reset();
+    setMode('highbanker');
+    if (!toldAboutHighbanker) {
+      toldAboutHighbanker = true;
+      hud.toast(
+        usingTouch()
+          ? 'Prime the pump, start the engine, then set the throttle and shovel into the hopper. Watch the heat and the fuel.'
+          : 'Prime the pump (P), start the engine (E), then set the Throttle and shovel into the hopper (F). Watch the heat and the fuel.',
+      );
+    }
+  };
   const openSluice = (): void => {
     if (!sluiceHere()) return;
     sluiceView.reset();
@@ -428,7 +477,7 @@ async function start(): Promise<void> {
       else hud.toast(usingTouch() ? 'The bucket is empty. Fetch water.' : 'The bucket is empty. Fetch water (E).');
     },
   };
-  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier, openRocker });
+  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier, openRocker, openHighbanker });
   const rockerView = new RockerView(rockerActions);
   const classifierView = new ClassifierView({
     inspectRock: (rockId) => {
@@ -440,11 +489,22 @@ async function start(): Promise<void> {
     },
   });
   const sluiceView = new SluiceView({ rake: rakeSluice });
+  const clearHighbanker = (): void => {
+    const hb = highbankerHere();
+    if (!hb) return;
+    if (hb.jammed) {
+      const rocks = hb.clearGrizzly();
+      hud.toast(`You lever the jammed rock off the grizzly${rocks > 1 ? ` and clear ${rocks - 1} more` : ''}. The hopper runs again.`);
+    } else if (hb.sluice.clog > 0) {
+      if (hb.sluice.rake()) hud.toast('The jam breaks loose and the water runs again.');
+    }
+  };
+  const highbankerView = new HighbankerView({ rake: clearHighbanker, clearGrizzly: clearHighbanker });
   const magnetView = new MagnetView();
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, classifierView, rockerView, townView, magnetView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, classifierView, rockerView, townView, magnetView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -452,6 +512,7 @@ async function start(): Promise<void> {
     creekMap.layout(width, height);
     bankView.layout(width, height);
     sluiceView.layout(width, height);
+    highbankerView.layout(width, height);
     classifierView.layout(width, height);
     rockerView.layout(width, height);
     townView.layout(width, height);
@@ -546,7 +607,85 @@ async function start(): Promise<void> {
       const material = c.pour(sluice.headerRoom);
       if (material) sluice.feedScreened(material);
     },
-    setWater: (flow) => (sluiceFlow = flow),
+    setWater: (flow) => {
+      if (highbankerHere()) throttle = flow;
+      else sluiceFlow = flow;
+    },
+    openHighbanker,
+    setUpHighbanker: () => {
+      if (!spot || mode !== 'bank') return;
+      const blockedClaim = claimBlock();
+      if (blockedClaim) return hud.toast(blockedClaim);
+      const before = session.highbankerPlace;
+      const result = session.setUpHighbanker(creek, spot);
+      if (result === 'jarFull') return hud.toast("Your jar can't hold the highbanker's mat, so it can't come down yet. Pan some of the jar first.");
+      if (result === 'noRoom') return hud.toast('No room or water for a highbanker here. It needs strong water and a stand on the bank: a creek bend, a gravel bar, or a ravine.');
+      if (result === 'occupied') return hud.toast('Your hand sluice is set up here. Take it down first, or set the highbanker up by another spot.');
+      if (result !== 'set') return;
+      primingLeft = null;
+      const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
+      hud.toast(
+        `${moved ? `You take the highbanker down at ${region.creek(before.creekId).profile.name}, wash its mat into your jar, and carry it here. ` : ''}` +
+          `The highbanker stands on the bank, its hose in the creek. ${usingTouch() ? 'Prime the pump and start the engine.' : 'Prime the pump (P) and start the engine (E).'}`,
+      );
+    },
+    takeDownHighbanker: () => {
+      if (!highbankerHere()) return;
+      if (session.takeDownHighbanker() === 'jarFull') return hud.toast("Your jar can't hold the highbanker's mat. Pan some of the jar first.");
+      primingLeft = null;
+      setMode('bank');
+      hud.toast('You shut it down and pack the highbanker. Its mat is washed into your jar; gravel in the hopper is tipped out.');
+    },
+    primePump: () => {
+      const hb = highbankerHere();
+      if (!hb || primingLeft !== null) return;
+      if (hb.primed) return hud.toast('The pump is already primed.');
+      primingLeft = HIGHBANKER_TUNING.primeSeconds;
+    },
+    toggleEngine: () => {
+      const hb = highbankerHere();
+      if (!hb) return;
+      if (hb.running) return hb.stop();
+      const result = hb.start();
+      if (result === 'noFuel') hud.toast(usingTouch() ? 'The tank is dry. Refuel it first.' : 'The tank is dry. Refuel it first (G).');
+      else if (result === 'tooHot') hud.toast('The engine is still too hot to start. Give it a minute to cool.');
+      else if (result === 'started' && !hb.primed) hud.toast("The engine catches, but the pump isn't primed: no water, and it will overheat running dry.");
+    },
+    clearHighbanker,
+    refuelHighbanker: () => {
+      if (!highbankerHere()) return;
+      const result = session.refuelHighbanker();
+      if (result === 'refuelled') hud.toast(`You fill the tank. ${session.fuelCans} can${session.fuelCans === 1 ? '' : 's'} left.`);
+      else if (result === 'noCans') hud.toast('No fuel cans left. The outfitter in town sells them.');
+      else if (result === 'full') hud.toast("The tank is still mostly full. Top it up once it's running low.");
+    },
+    highbankerCleanout: () => {
+      const hb = highbankerHere();
+      if (!hb) return;
+      hb.rinsing = true;
+      hud.toast('The hopper holds back while clean water rinses the riffles. Lift the mat when the gravel has washed off.');
+    },
+    cancelHighbankerCleanout: () => {
+      const hb = highbankerHere();
+      if (hb) hb.rinsing = false;
+    },
+    liftHighbankerMat: () => {
+      const hb = highbankerHere();
+      if (!hb?.rinsing) return;
+      if (!session.fitsInJar(hb.sluice.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
+      session.addConcentrate(hb.sluice.liftMat());
+      hb.rinsing = false;
+      highbankerView.reset();
+      hud.toast('The mat comes up dark and heavy. You wash it into your jar: pan the concentrate to see what the highbanker caught.');
+    },
+    pourIntoHighbanker: () => {
+      const c = classifierHere();
+      const hb = highbankerHere();
+      if (!c || !hb || hb.rinsing) return;
+      if (hb.hopperFull) return hud.toast('The hopper is heaped full.');
+      const material = c.pour(hb.hopperRoom);
+      if (material) hb.feedScreened(material);
+    },
     setSlope: (slope) => sluiceHere()?.setSlope(slope),
     refuelPump: () => {
       if (!sluiceHere()?.usesPump) return;
@@ -769,9 +908,10 @@ async function start(): Promise<void> {
   }
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
+  else if (screen === 'highbanker' && highbankerHere()) setMode('highbanker');
   else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
   else if (screen === 'rocker' && spot && rockerHere()) setMode('rocker');
-  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker') && spot) setMode('bank');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker' || screen === 'highbanker') && spot) setMode('bank');
   else setMode('creek');
   // Nothing is held up on the magnet between visits.
   if (session.clump.sand > 0 || session.clump.gold.length > 0) session.dropClump();
@@ -801,6 +941,7 @@ async function start(): Promise<void> {
   }
 
   const sluiceCoach = new SluiceCoach((message) => hud.toast(message));
+  const highbankerCoach = new HighbankerCoach((message) => hud.toast(message));
   const rockerCoach = new RockerCoach((message) => hud.toast(message));
 
   /** Time stops after this long without input, so an idle tab neither earns nor owes. */
@@ -814,6 +955,7 @@ async function start(): Promise<void> {
   let sluiceAccumulator = 0;
   let classifierAccumulator = 0;
   let magnetAccumulator = 0;
+  let hbAccumulator = 0;
   /** Said once per fill: sifting into a full bucket does nothing, and tipping off would lose the load. */
   let toldBucketFull = false;
   app.ticker.add((ticker) => {
@@ -853,6 +995,28 @@ async function start(): Promise<void> {
       if (mode === 'sluice') setMode('bank');
     }
     bankView.setSluice(sluice, stepped);
+
+    // The highbanker runs, like the sluice, whenever the player is at its spot.
+    const highbanker = highbankerHere();
+    if (highbanker && (mode === 'bank' || mode === 'highbanker' || mode === 'pan')) {
+      if (primingLeft !== null && (primingLeft -= dt) <= 0) {
+        primingLeft = null;
+        highbanker.prime();
+      }
+      hbAccumulator += dt;
+      let merged: HighbankerStepEvents | null = null;
+      while (hbAccumulator >= SIM_DT) {
+        hbAccumulator -= SIM_DT;
+        merged = mergeHighbankerEvents(merged, highbanker.step(SIM_DT, throttle));
+      }
+      if (merged) highbankerEvents = merged;
+      if (mode !== 'pan') highbankerCoach.update(dt, highbanker, merged);
+    } else if (!highbanker) {
+      highbankerEvents = null;
+      primingLeft = null;
+      if (mode === 'highbanker') setMode('bank');
+    }
+    bankView.setHighbanker(highbanker);
     const classifier = classifierHere();
     bankView.setClassifier(classifier);
     if (mode === 'classifier' && !classifier) setMode('bank');
@@ -898,6 +1062,8 @@ async function start(): Promise<void> {
       }
     } else if (mode === 'sluice' && sluice) {
       sluiceView.update(dt, sluice, stepped, sluiceFlow);
+    } else if (mode === 'highbanker' && highbanker) {
+      highbankerView.update(dt, highbanker, highbankerEvents, throttle, primingLeft === null ? null : 1 - primingLeft / HIGHBANKER_TUNING.primeSeconds);
     } else if (mode === 'rocker' && rocker) {
       rocker.step(dt);
       if (fetchingWater !== null && (fetchingWater -= dt) <= 0) {
@@ -938,6 +1104,10 @@ async function start(): Promise<void> {
       sluice,
       sluiceEvents,
       sluiceFlow,
+      highbanker,
+      highbankerEvents,
+      throttle,
+      priming: primingLeft !== null,
       cleaningOut,
       classifier,
       rocker,

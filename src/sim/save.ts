@@ -1,6 +1,7 @@
 import { HOME_CREEK_PROFILE } from './creek';
 import { Economy, type EconomySnapshot } from './economy';
 import { MAGNET_TUNING } from './magnet';
+import type { HighbankerSnapshot } from './highbanker';
 import { Crew, type CrewSnapshot } from './staffing';
 import { reservePanIds } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
@@ -14,9 +15,9 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
-const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker'] as const;
+const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker'] as const;
 
 /** Where the player was standing, so a reload puts them back there. */
 export interface SavedPlace {
@@ -85,6 +86,7 @@ export interface LoadedGame {
  * v10 → v11: the rocker box. Nobody had one.
  * v11 → v12: site kinds. The Home Creek is the Home Creek; every other stretch was a plain
  *   stretch or, with sluice sites, a creek bend. Leads likewise.
+ * v12 → v13: the highbanker. Nobody had one.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -199,6 +201,9 @@ function migrate(data: unknown): unknown {
       },
     };
   }
+  if (save.version === 12 && isObject(save.session)) {
+    save = { ...save, version: 13, session: { ...save.session, highbanker: null } };
+  }
   return save;
 }
 
@@ -226,6 +231,7 @@ function maxPieceId(session: SessionSnapshot, crew: CrewSnapshot): number {
     ...session.jar.gold,
     ...session.clump.gold,
     ...(session.rocker ? [...session.rocker.apron.gold, ...session.rocker.hopper.gold, ...session.rocker.hopper.rocks] : []),
+    ...(session.highbanker?.state ? highbankerIds(session.highbanker.state) : []),
     ...crew.bucket.gold,
     ...(pan ? [...pan.gold, ...pan.visible, ...pan.hidden, ...pan.rocks] : []),
   ].map((item) => item.id);
@@ -249,6 +255,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (typeof session.pumpFuel !== 'number' || typeof session.fuelCans !== 'number') return false;
   if (session.classifier !== null && !(isObject(session.classifier) && 'bucket' in session.classifier)) return false;
   if (session.rocker !== null && !(isObject(session.rocker) && 'hopper' in session.rocker)) return false;
+  if (session.highbanker !== null && !(isObject(session.highbanker) && 'placedAt' in session.highbanker)) return false;
   if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
@@ -260,4 +267,9 @@ function isSaveData(data: unknown): data is SaveData {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function highbankerIds(state: HighbankerSnapshot): { id: number }[] {
+  const { sluice, hopper } = state;
+  return [...hopper.gold, ...hopper.rocks, ...sluice.moss.gold, ...sluice.header.gold, ...sluice.header.rocks, ...sluice.lost];
 }

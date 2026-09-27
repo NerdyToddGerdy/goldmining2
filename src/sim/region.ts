@@ -2,7 +2,7 @@ import { Creek, HOME_CREEK_PROFILE, type CreekProfile, type CreekSnapshot, type 
 import { estimateAround, type Estimate } from './estimate';
 import type { PanningSession } from './panningSession';
 import { normal, type Rng } from './rng';
-import { SITE_ODDS, SITE_TRAITS, siteAllows, traitsOf, type SiteKind } from './sites';
+import { SITE_ODDS, SITE_TRAITS, siteAllows, traitsOf, type SiteGear, type SiteKind } from './sites';
 import { ECONOMY_TUNING } from './economy';
 
 /**
@@ -134,7 +134,7 @@ export class Region {
    * and stays shovel-and-pan only, forever; a ravine has no flat ground for a rocker; a dry wash
    * has no water to pan in.
    */
-  allows(creek: Creek, gear: 'pan' | 'classifier' | 'rocker' | 'magnet'): boolean {
+  allows(creek: Creek, gear: SiteGear): boolean {
     if (creek === this.home) return gear === 'pan';
     return siteAllows(creek.profile.site, gear);
   }
@@ -152,6 +152,8 @@ export class Region {
       creek.flood();
       const place = session.sluicePlace;
       if (place?.creekId === creek.id) session.sluiceAt(place.creekId, place.spotId)?.floodHit();
+      const hb = session.highbankerPlace;
+      if (hb?.creekId === creek.id) session.highbankerAt(hb.creekId, hb.spotId)?.floodHit();
       flooded.push(creek);
     }
     return flooded;

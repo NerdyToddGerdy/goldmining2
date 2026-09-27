@@ -6,7 +6,7 @@ import type { PanningSession } from './panningSession';
  * feed one. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker';
+export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker' | 'highbanker';
 
 export interface GearItem {
   readonly id: GearId;
@@ -49,6 +49,12 @@ export const OUTFITTER: readonly GearItem[] = [
     description: 'Pass it over your jar of black sand and the magnetite leaps up onto it, so the jar holds more and pans down faster. Held close it drags fine gold up too: shake the clump back before you strip it off. For use in town or on the stretches you find.',
   },
   {
+    id: 'highbanker',
+    name: 'Highbanker',
+    price: 90,
+    description: 'A sluice box on a stand with a hopper, a spray bar and a little gas engine and pump. It sets up on the bank, so you shovel straight into the hopper and it moves far more gravel than the hand sluice. Prime the pump, mind the throttle and the heat, and keep it fuelled. Needs strong water and room: a creek bend, a gravel bar, or a ravine.',
+  },
+  {
     id: 'riffleMat',
     name: 'Riffle insert and ribbed mat',
     price: 25,
@@ -71,7 +77,7 @@ export const OUTFITTER: readonly GearItem[] = [
   },
 ];
 
-/** Fuel for the pump: one can fills its tank. */
+/** Fuel for the pump or the highbanker's engine: one can fills a tank. */
 export const FUEL_CAN = { name: 'Can of fuel', price: 2, carryLimit: 6 } as const;
 
 export type BuyResult = 'bought' | 'alreadyOwned' | 'cantAfford' | 'needsBase';
@@ -90,7 +96,7 @@ export function buyGear(session: PanningSession, id: GearId): BuyResult {
 export type FuelResult = 'bought' | 'noPump' | 'full' | 'cantAfford';
 
 export function buyFuel(session: PanningSession): FuelResult {
-  if (!session.owns('pump')) return 'noPump';
+  if (!session.owns('pump') && !session.owns('highbanker')) return 'noPump';
   if (session.fuelCans >= FUEL_CAN.carryLimit) return 'full';
   if (session.cash < FUEL_CAN.price) return 'cantAfford';
   session.cash = Math.round((session.cash - FUEL_CAN.price) * 100) / 100;

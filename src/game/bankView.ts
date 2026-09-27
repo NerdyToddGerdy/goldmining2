@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import { CLASSIFIER_TUNING, ROCKER_TUNING, type Classifier, type DigSpot, type Creek, type LayerKind, type Rocker, type Sluice, type SluiceStepEvents } from '../sim';
+import { CLASSIFIER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, type Classifier, type Highbanker, type DigSpot, type Creek, type LayerKind, type Rocker, type Sluice, type SluiceStepEvents } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
@@ -11,7 +11,7 @@ import { CLASSIFIER_TUNING, ROCKER_TUNING, type Classifier, type DigSpot, type C
  * it; click a flooded hole to bail; tap the sluice or rocker for a close look.
  */
 
-export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker';
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker';
 
 export interface BankActions {
   shovel(into: ShovelTarget): void;
@@ -20,6 +20,7 @@ export interface BankActions {
   openSluice(): void;
   openClassifier(): void;
   openRocker(): void;
+  openHighbanker(): void;
 }
 
 const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
@@ -67,6 +68,8 @@ export class BankView extends Container {
   private sluiceEvents: SluiceStepEvents | null = null;
   /** The classifier on its bucket beside the hole, when the player has one and the ground allows it. */
   private classifier: Classifier | null = null;
+  /** The highbanker on its stand at the bank edge, where a sluice would sit in the creek. */
+  private highbanker: Highbanker | null = null;
   /** The rocker box, standing on the bank behind the pan, when the player has one and the ground allows it. */
   private rocker: Rocker | null = null;
   /** Concentrate the hired hand has left in the crew bucket beside the sluice. */
@@ -117,6 +120,10 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setHighbanker(highbanker: Highbanker | null): void {
+    this.highbanker = highbanker;
   }
 
   setRocker(rocker: Rocker | null): void {
@@ -239,6 +246,10 @@ export class BankView extends Container {
       this.actions.openSluice();
       return;
     }
+    if (this.highbanker && this.overSluice(x, y)) {
+      this.actions.openHighbanker();
+      return;
+    }
     if (this.classifier && this.overClassifier(x, y)) {
       this.actions.openClassifier();
       return;
@@ -273,6 +284,7 @@ export class BankView extends Container {
     const cr = this.classifierRect();
     if (this.rocker && this.overRocker(x, y)) this.actions.shovel('rocker');
     else if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
+    else if (this.highbanker && x > this.sluiceRect().x - 12) this.actions.shovel('highbanker');
     else if (x > pan.x - 40) this.actions.shovel('pan');
     else if (this.classifier && x > cr.x - 14 && x < cr.x + cr.w + 14) this.actions.shovel('classifier');
     else if (x < spoil.x + spoil.w + 30) this.actions.shovel('spoil');
@@ -318,6 +330,7 @@ export class BankView extends Container {
     if (this.rocker) this.drawRocker(g, this.rocker);
     if (this.sluice) this.drawSluice(g, this.sluice);
     if (this.sluice && this.crewBucket > 0) this.drawCrewBucket(g);
+    if (this.highbanker) this.drawHighbanker(g, this.highbanker);
     this.drawShovel(g);
 
     const fx = this.fx.clear();
@@ -487,6 +500,31 @@ export class BankView extends Container {
     if (sluice.jammed || sluice.clog > 0.5) {
       for (let i = 0; i < 4; i++) g.circle(x0 - 6 + Math.random() * 34, r.y - 4 - Math.random() * 10, 2).fill({ color: 0xdfeee9, alpha: 0.8 });
     }
+  }
+
+  /**
+   * The highbanker in miniature: hopper on a stand at the bank edge, the box running down to the
+   * water, the engine on the bank with its hose in the creek. Spray over the hopper while it runs.
+   */
+  private drawHighbanker(g: Graphics, hb: Highbanker): void {
+    const r = this.sluiceRect();
+    const hot = this.carrying !== null && this.pointer.x > r.x - 12;
+    const top = this.surfaceY - 40;
+    g.moveTo(r.x + 8, top + 30).lineTo(r.x + 4, this.surfaceY + 30).moveTo(r.x + 30, top + 34).lineTo(r.x + 34, this.surfaceY + 30).stroke({ width: 3, color: 0x3d2c1c });
+    g.poly([r.x + 20, top + 26, r.x + r.w, top + 60, r.x + r.w, top + 70, r.x + 20, top + 36]).fill(0x6b5033).stroke({ width: 1.5, color: 0x3d2c1c });
+    g.rect(r.x + 26, top + 30, r.w - 30, 4).fill(lerp(0x5f7a3c, 0x1d1a14, hb.sluice.mossLoading));
+    g.poly([r.x, top, r.x + 36, top, r.x + 30, top + 26, r.x + 6, top + 26]).fill(0x7a5a38).stroke({ width: hot ? 3 : 1.5, color: hot ? 0xe6b940 : 0x3d2c1c });
+    const fill = Math.min(1, hb.hopperVolume / HIGHBANKER_TUNING.hopperMax);
+    if (fill > 0.01) g.poly([r.x + 6, top + 24, r.x + 30, top + 24, r.x + 22, top + 24 - fill * 20, r.x + 12, top + 24 - fill * 18]).fill(0x8b8578);
+    if (hb.jammed) g.circle(r.x + 18, top + 16, 6).fill(0x7c786f).stroke({ width: 2, color: 0xe6b940 });
+    const spraying = hb.running && hb.primed;
+    if (spraying) for (let i = 0; i < 4; i++) g.circle(r.x + 6 + Math.random() * 26, top - 2 + Math.random() * 6, 1.5).fill({ color: 0xcfe8e4, alpha: 0.9 });
+    // Engine behind, hose down into the creek.
+    const ex = r.x - 36;
+    const ey = this.surfaceY - 14;
+    g.roundRect(ex, ey, 22, 14, 2).fill(hb.running ? 0xa8412f : 0x6e3a2e);
+    g.moveTo(ex + 22, ey + 8).quadraticCurveTo(r.x + 50, this.surfaceY + 40, r.x + 70, this.surfaceY + 50).stroke({ width: 3, color: 0x1e1e1e });
+    if (hb.running) g.circle(ex + 16, ey - 6 - (this.time * 20) % 10, 3).fill({ color: 0x6a6660, alpha: 0.5 });
   }
 
   /** The rocker in miniature: box on its runners, gravel on the screen, water in the box, the apron darkening. */

@@ -1,5 +1,8 @@
 import { Classifier, type ClassifierSnapshot } from './classifier';
 import { Rocker, type RockerSnapshot } from './rocker';
+import { HIGHBANKER_TUNING, Highbanker, type HighbankerSnapshot } from './highbanker';
+import { siteAllows } from './sites';
+import type { Creek } from './creek';
 import { PAN_VOLUME, Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
 import type { DigSpot } from './creek';
@@ -38,6 +41,8 @@ export interface SessionSnapshot {
   readonly classifier: ClassifierSnapshot | null;
   /** Null until a rocker box is bought. */
   readonly rocker: RockerSnapshot | null;
+  /** Null until a highbanker is bought. */
+  readonly highbanker: { readonly placedAt: SluicePlace | null; readonly state: HighbankerSnapshot | null; readonly packedFuel: number } | null;
   /** Null until a sluice is bought. */
   readonly sluice: { readonly placedAt: SluicePlace | null; readonly state: SluiceSnapshot | null } | null;
   /** Seconds of running left in the pump's tank (0 without a pump). */
@@ -52,7 +57,8 @@ export interface SluicePlace {
   readonly spotId: number;
 }
 
-export type SetUpResult = 'set' | 'notOwned' | 'noSite' | 'needsPump' | 'jarFull';
+export type SetUpResult = 'set' | 'notOwned' | 'noSite' | 'needsPump' | 'jarFull' | 'occupied';
+export type HighbankerSetUpResult = 'set' | 'notOwned' | 'noRoom' | 'gully' | 'occupied' | 'jarFull';
 
 /**
  * The player's panning: the pan (empty until a shovelful goes in), the vial of recovered gold,
@@ -73,6 +79,8 @@ export class PanningSession {
   soldMg = 0;
   /** The sluice, once owned: packed (placedAt null) or set up and running at a sluice site. */
   private sluiceGear: { placedAt: SluicePlace | null; sluice: Sluice | null } | null = null;
+  /** The highbanker, once owned: packed, or set up on the bank at a spot. */
+  private highbankerGear: { placedAt: SluicePlace | null; machine: Highbanker | null } | null = null;
   /** Simple owned gear, such as the big jar. */
   private readonly gear = new Set<GearId>();
   /** The hand classifier, once bought: its screen, what's on it, and its bucket travel with the player. */
@@ -108,6 +116,11 @@ export class PanningSession {
     this.fuelCans = saved.fuelCans;
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.rocker) this.rocker = new Rocker(rng, saved.rocker);
+    if (saved.highbanker) {
+      const state = saved.highbanker.state;
+      this.highbankerGear = { placedAt: saved.highbanker.placedAt, machine: state ? new Highbanker(rng, state, this.sluiceKit) : null };
+      this.packedHighbankerFuel = saved.highbanker.packedFuel;
+    }
     if (saved.sluice) {
       const state = saved.sluice.state;
       this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state, this.sluiceKit) : null };
@@ -127,6 +140,9 @@ export class PanningSession {
       gear: [...this.gear],
       classifier: this.classifier?.snapshot() ?? null,
       rocker: this.rocker?.snapshot() ?? null,
+      highbanker: this.highbankerGear
+        ? { placedAt: this.highbankerGear.placedAt, state: this.highbankerGear.machine?.snapshot() ?? null, packedFuel: this.packedHighbankerFuel }
+        : null,
       sluice: this.sluiceGear
         ? { placedAt: this.sluiceGear.placedAt, state: this.sluiceGear.sluice?.snapshot() ?? null }
         : null,
@@ -161,6 +177,7 @@ export class PanningSession {
     if (id === 'sluice') return this.sluiceGear !== null;
     if (id === 'classifier') return this.classifier !== null;
     if (id === 'rocker') return this.rocker !== null;
+    if (id === 'highbanker') return this.highbankerGear !== null;
     return this.gear.has(id);
   }
 
@@ -172,6 +189,8 @@ export class PanningSession {
       if (!this.classifier) this.classifier = new Classifier(this.rng);
     } else if (id === 'rocker') {
       if (!this.rocker) this.rocker = new Rocker(this.rng);
+    } else if (id === 'highbanker') {
+      if (!this.highbankerGear) this.highbankerGear = { placedAt: null, machine: null };
     } else {
       this.gear.add(id);
       this.fitKit();
@@ -221,6 +240,7 @@ export class PanningSession {
     if (!spot.sluiceSite) return 'noSite';
     if (needsPump(spot.sluiceSite) && !this.sluiceKit.pump) return 'needsPump';
     if (gear.placedAt?.creekId === creekId && gear.placedAt.spotId === spot.id) return 'set';
+    if (this.highbankerAt(creekId, spot.id)) return 'occupied';
     if (this.takeDownSluice() === 'jarFull') return 'jarFull';
     gear.placedAt = { creekId, spotId: spot.id };
     gear.sluice = new Sluice(this.rng, spot.sluiceSite, undefined, this.sluiceKit);
@@ -242,6 +262,70 @@ export class PanningSession {
     gear.placedAt = null;
     gear.sluice = null;
     return concentrate;
+  }
+
+  /** Where the highbanker is set up, if it is. */
+  get highbankerPlace(): SluicePlace | null {
+    return this.highbankerGear?.placedAt ?? null;
+  }
+
+  highbankerAt(creekId: number, spotId: number): Highbanker | null {
+    const gear = this.highbankerGear;
+    return gear?.placedAt?.creekId === creekId && gear.placedAt.spotId === spotId ? gear.machine : null;
+  }
+
+  /**
+   * Set the highbanker up on the bank beside a spot. It needs strong water to pump from and room
+   * for the stand: a creek bend, gravel bar or ravine, never a plain stretch, a dry wash, or the
+   * Home Creek. It can't share a spot with the hand sluice. Moving it takes it down first, which
+   * washes its moss into the jar. The engine's fuel stays in its tank.
+   */
+  setUpHighbanker(creek: Creek, spot: DigSpot): HighbankerSetUpResult {
+    const gear = this.highbankerGear;
+    if (!gear) return 'notOwned';
+    if (!siteAllows(creek.profile.site, 'highbanker')) return 'noRoom';
+    if (spot.gully) return 'gully';
+    if (gear.placedAt?.creekId === creek.id && gear.placedAt.spotId === spot.id) return 'set';
+    if (this.sluiceAt(creek.id, spot.id)) return 'occupied';
+    const fuel = gear.machine?.fuel ?? this.packedHighbankerFuel;
+    if (this.takeDownHighbanker() === 'jarFull') return 'jarFull';
+    gear.placedAt = { creekId: creek.id, spotId: spot.id };
+    gear.machine = new Highbanker(this.rng, undefined, this.sluiceKit);
+    gear.machine.fuel = fuel;
+    return 'set';
+  }
+
+  /** Fuel left in the highbanker's tank while it's packed. */
+  private packedHighbankerFuel = 0;
+
+  /**
+   * Take the highbanker down: the mat is washed into the jar, the hopper and header tipped out.
+   * Waits (returns 'jarFull') if the jar has no room for the mat.
+   */
+  takeDownHighbanker(): Concentrate | 'jarFull' | null {
+    const gear = this.highbankerGear;
+    const machine = gear?.machine;
+    if (!gear || !machine) return null;
+    if (!this.fitsInJar(machine.sluice.matVolume)) return 'jarFull';
+    machine.emptyHopper();
+    machine.sluice.emptyHeader();
+    const concentrate = machine.sluice.liftMat();
+    this.addConcentrate(concentrate);
+    this.packedHighbankerFuel = machine.fuel;
+    gear.placedAt = null;
+    gear.machine = null;
+    return concentrate;
+  }
+
+  /** Pour a can into the highbanker's tank. Refused with it packed, no cans, or a tank still mostly full. */
+  refuelHighbanker(): 'refuelled' | 'notSetUp' | 'noCans' | 'full' {
+    const machine = this.highbankerGear?.machine;
+    if (!machine) return 'notSetUp';
+    if (machine.fuel > HIGHBANKER_TUNING.tank * 0.75) return 'full';
+    if (this.fuelCans <= 0) return 'noCans';
+    this.fuelCans -= 1;
+    machine.refuel();
+    return 'refuelled';
   }
 
   /** True when the pan can take a new shovelful: none yet, or the last one is finished. */
