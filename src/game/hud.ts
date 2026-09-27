@@ -12,6 +12,7 @@ import {
   type JobKind,
   type Role,
   type FinancialState,
+  type SiteKind,
   OPERATOR_JOBS,
   type Economy,
   FUEL_CAN,
@@ -1128,8 +1129,42 @@ export class Hud {
 
 function leadHeader(lead: Lead): string {
   const { low, high } = lead.richness;
-  const hint = lead.hint ? `<p class="small">${lead.hint}</p>` : '';
-  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${hint}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
+  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${describeGround(lead)}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
+}
+
+/** How each source puts what it says about the ground, and how far to trust it. */
+const GROUND_VOICE: Record<LeadSource, { says: string; trust: string }> = {
+  colourTrail: { says: 'You followed the colour to', trust: '' },
+  clue: { says: 'The clue points to', trust: 'sometimes wrong' },
+  rumour: { says: 'Talk has it it’s', trust: 'often wrong' },
+  claimRecord: { says: 'Recorded as', trust: 'usually right' },
+  mapFragment: { says: 'Marked on the map as', trust: 'rarely wrong' },
+};
+
+const GROUND_NAMES: Record<SiteKind, string> = {
+  homeCreek: 'the Home Creek',
+  creekStretch: 'a plain creek stretch',
+  creekBend: 'a creek bend',
+  gravelBar: 'a gravel bar',
+  ravine: 'a narrow ravine',
+  dryWash: 'a dry wash',
+};
+
+/**
+ * What a lead says about the ground: the kind (or two it might be), what that means for the work,
+ * any thin-water bench, and how far this kind of source can be trusted. Never presented as fact.
+ */
+function describeGround(lead: Lead): string {
+  const ground = lead.ground;
+  if (!ground) return '<p class="small">Says nothing about the ground.</p>';
+  const voice = GROUND_VOICE[lead.source];
+  const kinds = ground.kinds.map((k) => GROUND_NAMES[k]).join(' or ');
+  const trust = voice.trust ? ` <span class="small">(${voice.trust})</span>` : '';
+  const notes = ground.kinds
+    .map((k) => (ground.kinds.length > 1 ? `${GROUND_NAMES[k].replace(/^an? /, '').replace(/^./, (c) => c.toUpperCase())}: ${traitsOf(k).groundNote}.` : `${traitsOf(k).groundNote.replace(/^./, (c) => c.toUpperCase())}.`))
+    .join(' ');
+  const bench = ground.bench ? ' Mentions a thin-water bench: a sluice could run there with a pump.' : '';
+  return `<p>${voice.says} ${kinds}.${trust}</p><p class="small">${notes}${bench}</p>`;
 }
 
 function describeOffer(session: PanningSession): string {

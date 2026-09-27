@@ -42,8 +42,8 @@ export interface SiteTraits {
   readonly fee: number;
   /** Most hired hands the ground has room and work for (see "Staff capacity by site scale"). */
   readonly crewMax: number;
-  /** What a lead says about ground like this, when it says anything. */
-  readonly hint: string;
+  /** What ground like this means for the work, as a lead or the notebook puts it. */
+  readonly groundNote: string;
 }
 
 const EVEN: Record<LayerKind, number> = { overburden: 1, gravel: 1, payStreak: 1, bedrock: 1 };
@@ -70,7 +70,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 0,
     crewMax: 0,
-    hint: '',
+    groundNote: 'shovel and pan ground',
   },
   creekStretch: {
     label: 'Creek stretch',
@@ -93,7 +93,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 7,
     fee: 1,
     crewMax: 2,
-    hint: '',
+    groundNote: 'shovel, pan and rocker ground, no steady water for a sluice',
   },
   creekBend: {
     label: 'Creek bend',
@@ -116,7 +116,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 2,
     crewMax: 2,
-    hint: 'Mentions a bend with steady water and room on the bank: room for a sluice.',
+    groundNote: 'steady water and room on the bank: sluice ground',
   },
   gravelBar: {
     label: 'Gravel bar',
@@ -140,7 +140,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 3,
     crewMax: 4,
-    hint: 'Mentions a broad gravel bar, wide open and shallow. High water comes through now and then.',
+    groundNote: 'wide and shallow, with sluice sites and room for a big crew, but high water comes through',
   },
   ravine: {
     label: 'Narrow ravine',
@@ -164,7 +164,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 2,
     crewMax: 2,
-    hint: 'Mentions a steep, narrow ravine with fast water: hard going, but rich pockets on the bedrock.',
+    groundNote: 'fast water and rich bedrock, but hard going and no room for a rocker',
   },
   dryWash: {
     label: 'Dry wash',
@@ -188,7 +188,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 20,
     fee: 1,
     crewMax: 3,
-    hint: 'Mentions a dry wash: good ground, but no water in it most of the year.',
+    groundNote: 'good ground with no water: drywasher country',
   },
 };
 

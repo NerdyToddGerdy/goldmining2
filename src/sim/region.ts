@@ -23,15 +23,27 @@ export interface Lead {
   /** What the lead suggests about richness, relative to the Home Creek. Never exact. */
   readonly richness: Estimate;
   /**
-   * What the lead says about the ground, e.g. that there is room and steady water for a sluice.
-   * Like the richness, it can be wrong.
+   * What the lead says about the ground: what kind of ground it is (vaguer sources name two
+   * possibilities), and whether there's a thin-water bench a sluice could run on with a pump.
+   * Like the richness, it can be wrong, and better sources are wrong less often. Null for leads
+   * made before leads described the ground.
    */
-  readonly hint: string | null;
+  readonly ground: GroundReading | null;
   status: LeadStatus;
   /** The creek found by following it. */
   creekId: number | null;
-  /** Hidden truth: whether there is anything there, how rich it really is, and what kind of ground. */
-  readonly truth: { readonly real: boolean; readonly richness: number; readonly site: SiteKind };
+  /**
+   * Hidden truth: whether there is anything there, how rich it really is, what kind of ground, and
+   * (for a plain stretch) whether it has a thin-water bench. `bench` is absent on older leads.
+   */
+  readonly truth: { readonly real: boolean; readonly richness: number; readonly site: SiteKind; readonly bench?: boolean };
+}
+
+export interface GroundReading {
+  /** One kind of ground, or two it might be. */
+  readonly kinds: readonly SiteKind[];
+  /** The lead mentions a thin-water bench. */
+  readonly bench: boolean;
 }
 
 export interface LeadOffer {
@@ -46,15 +58,18 @@ interface SourceTraits {
   readonly vagueness: number;
   /** How much the source talks things up. */
   readonly optimism: number;
+  /** How many kinds of ground the source names, and how often the true one is among them. */
+  readonly groundKinds: 1 | 2;
+  readonly groundAccuracy: number;
   readonly price: readonly [number, number];
 }
 
 export const LEAD_SOURCES: Record<LeadSource, SourceTraits> = {
-  colourTrail: { reliability: 1, vagueness: 0.5, optimism: 1, price: [0, 0] },
-  clue: { reliability: 0.75, vagueness: 1.4, optimism: 1.1, price: [0, 0] },
-  rumour: { reliability: 0.55, vagueness: 2, optimism: 1.6, price: [2, 4] },
-  claimRecord: { reliability: 0.85, vagueness: 1, optimism: 1.1, price: [8, 12] },
-  mapFragment: { reliability: 0.95, vagueness: 0.6, optimism: 1, price: [15, 25] },
+  colourTrail: { reliability: 1, vagueness: 0.5, optimism: 1, price: [0, 0], groundKinds: 1, groundAccuracy: 0.9 },
+  clue: { reliability: 0.75, vagueness: 1.4, optimism: 1.1, price: [0, 0], groundKinds: 2, groundAccuracy: 0.8 },
+  rumour: { reliability: 0.55, vagueness: 2, optimism: 1.6, price: [2, 4], groundKinds: 2, groundAccuracy: 0.7 },
+  claimRecord: { reliability: 0.85, vagueness: 1, optimism: 1.1, price: [8, 12], groundKinds: 1, groundAccuracy: 0.8 },
+  mapFragment: { reliability: 0.95, vagueness: 0.6, optimism: 1, price: [15, 25], groundKinds: 1, groundAccuracy: 0.92 },
 };
 
 export const REGION_TUNING = {
@@ -232,7 +247,7 @@ export class Region {
       gullyCount: this.rng.int(...traits.gullies),
       sourceChance: traits.sourceChance,
       sluiceSites: this.rng.int(...traits.sluiceSites),
-      pumpSites: this.rng.next() < traits.pumpSiteChance ? 1 : 0,
+      pumpSites: (lead.truth.bench ?? this.rng.next() < traits.pumpSiteChance) ? 1 : 0,
     };
     const creek = new Creek(this.rng, undefined, profile);
     this.creeks.push(creek);
@@ -249,26 +264,20 @@ export class Region {
     // A dud still claims something: what it says is invented, around a typical stretch.
     const claimed = (real ? richness : REGION_TUNING.stretchRichness) * traits.optimism * rng.range(0.75, 1.3);
     const notes = NOTES[source];
-    // What kind of ground it is, and whether the lead says so. Better sources are more likely to
-    // describe real ground and less likely to invent a description.
+    // What kind of ground it is, and what the lead says about it.
     const site = pickSite(rng);
-    const truthful = SITE_TRAITS[site].hint;
-    let hint: string | null = null;
-    if (truthful && rng.next() < 0.4 + 0.5 * traits.reliability) hint = truthful;
-    else if (rng.next() < (1 - traits.reliability) * 0.4) {
-      const others = SITE_ODDS.map(([kind]) => SITE_TRAITS[kind].hint).filter((h) => h && h !== truthful);
-      hint = others[rng.int(0, others.length - 1)] ?? null;
-    }
+    const bench = rng.next() < SITE_TRAITS[site].pumpSiteChance;
+    const ground = readGround(rng, site, bench, traits);
     return {
       id: nextLeadId++,
       source,
       name: `${NAME_FIRST[rng.int(0, NAME_FIRST.length - 1)]} ${NAME_SECOND[rng.int(0, NAME_SECOND.length - 1)]}`,
       note: notes[rng.int(0, notes.length - 1)]!,
       richness: estimateAround(claimed, traits.vagueness),
-      hint,
+      ground,
       status: 'open',
       creekId: null,
-      truth: { real, richness, site },
+      truth: { real, richness, site, bench },
     };
   }
 }
@@ -279,4 +288,28 @@ function pickSite(rng: Rng): SiteKind {
     if ((roll -= odds) < 0) return kind;
   }
   return 'creekStretch';
+}
+
+/**
+ * What a source says about the ground. It names one kind (or two, for vaguer sources); the true
+ * kind is among them as often as the source is accurate, otherwise the names are wrong. It
+ * mentions a thin-water bench when there is one about as often, and now and then invents one.
+ */
+function readGround(rng: Rng, site: SiteKind, bench: boolean, traits: SourceTraits): GroundReading {
+  const others = (exclude: readonly SiteKind[]): SiteKind => {
+    const pool = SITE_ODDS.filter(([kind]) => !exclude.includes(kind));
+    return pool[rng.int(0, pool.length - 1)]![0];
+  };
+  const right = rng.next() < traits.groundAccuracy;
+  let kinds: SiteKind[];
+  if (traits.groundKinds === 1) kinds = [right ? site : others([site])];
+  else if (right) {
+    const other = others([site]);
+    kinds = rng.next() < 0.5 ? [site, other] : [other, site];
+  } else {
+    const first = others([site]);
+    kinds = [first, others([site, first])];
+  }
+  const mentionsBench = bench ? rng.next() < traits.groundAccuracy : rng.next() < (1 - traits.groundAccuracy) * 0.3;
+  return { kinds, bench: mentionsBench && kinds.includes('creekStretch') };
 }

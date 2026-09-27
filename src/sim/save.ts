@@ -16,7 +16,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher'] as const;
 
@@ -94,6 +94,8 @@ export interface LoadedGame {
  *   sluice job wherever the sluice was set up, with the crew bucket there; with no sluice set up,
  *   they wait in town and their bucket comes back to town with them.
  * v15 → v16: financial decline and recovery. Nobody had been shut down.
+ * v16 → v17: leads read the ground (kind, and any thin-water bench) instead of an optional hint.
+ *   Older leads say nothing about it.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -227,6 +229,23 @@ function migrate(data: unknown): unknown {
   }
   if (save.version === 15) {
     save = { ...save, version: 16, finance: FRESH_FINANCE };
+  }
+  if (save.version === 16 && isObject(save.region)) {
+    const region = save.region;
+    const leadV17 = (lead: unknown): unknown => {
+      if (!isObject(lead)) return lead;
+      const { hint: _hint, ...rest } = lead;
+      return { ...rest, ground: null };
+    };
+    save = {
+      ...save,
+      version: 17,
+      region: {
+        ...region,
+        leads: Array.isArray(region.leads) ? region.leads.map(leadV17) : region.leads,
+        offers: Array.isArray(region.offers) ? region.offers.map((o) => (isObject(o) ? { ...o, lead: leadV17(o.lead) } : o)) : region.offers,
+      },
+    };
   }
   return save;
 }

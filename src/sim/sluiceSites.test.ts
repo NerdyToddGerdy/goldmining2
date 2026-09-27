@@ -50,35 +50,59 @@ describe('sluice sites', () => {
     expect(thin / counts.creekStretch!).toBeCloseTo(SITE_TRAITS.creekStretch.pumpSiteChance, 1);
   });
 
-  it('are hinted at by leads: better sources mention real bars more and invent them less', () => {
+  it('are read by every lead, more surely by better sources, never for certain', () => {
     const stats = (source: LeadSource) => {
       const region = new Region(createRng(3));
+      let right = 0;
+      let named = 0;
       let bends = 0;
-      let bendsMentioned = 0;
-      let narrows = 0;
-      let narrowsMentioned = 0;
-      for (let i = 0; i < 2000; i++) {
+      let benches = 0;
+      let benchesMentioned = 0;
+      let benchesInvented = 0;
+      let noBench = 0;
+      for (let i = 0; i < 3000; i++) {
         const lead = makeLead(region, source);
-        const bendHint = lead.hint === SITE_TRAITS.creekBend.hint;
-        if (lead.truth.site === 'creekBend') {
-          bends++;
-          if (bendHint) bendsMentioned++;
+        const ground = lead.ground!;
+        named += ground.kinds.length;
+        if (ground.kinds.includes(lead.truth.site)) right++;
+        if (lead.truth.site === 'creekBend') bends++;
+        if (lead.truth.bench) {
+          benches++;
+          if (ground.bench) benchesMentioned++;
         } else {
-          narrows++;
-          if (bendHint) narrowsMentioned++;
+          noBench++;
+          if (ground.bench) benchesInvented++;
         }
       }
-      return { found: bendsMentioned / bends, invented: narrowsMentioned / narrows, bendShare: bends / 2000 };
+      return { right: right / 3000, perLead: named / 3000, bendShare: bends / 3000, benchFound: benchesMentioned / benches, benchInvented: benchesInvented / noBench };
     };
     const rumour = stats('rumour');
+    const record = stats('claimRecord');
     const map = stats('mapFragment');
-    expect(map.found).toBeGreaterThan(rumour.found);
-    expect(map.invented).toBeLessThan(rumour.invented);
-    // Hints stay fallible: rumours invent bars, and even maps miss some real ones.
-    expect(rumour.invented).toBeGreaterThan(0.03);
-    expect(map.found).toBeLessThan(1);
+    // Vague sources name two possibilities; firm ones name one, and are right more often.
+    expect(rumour.perLead).toBe(2);
+    expect(map.perLead).toBe(1);
+    expect(map.right).toBeGreaterThan(record.right);
+    expect(record.right).toBeGreaterThan(rumour.right - 0.05);
+    expect(rumour.right).toBeCloseTo(LEAD_SOURCES.rumour.groundAccuracy, 1);
+    // Uncertainty is reduced, never eliminated.
+    expect(map.right).toBeLessThan(1);
+    // Thin-water benches are mentioned now, more often by better sources, and invented less.
+    expect(map.benchInvented).toBeLessThan(rumour.benchInvented + 1e-9);
+    expect(map.benchFound).toBeGreaterThan(0.5);
     expect(rumour.bendShare).toBeCloseTo(SITE_ODDS.find(([k]) => k === 'creekBend')![1], 1);
-    expect(LEAD_SOURCES.mapFragment.reliability).toBeGreaterThan(LEAD_SOURCES.rumour.reliability);
+  });
+
+  it('decide the bench before the lead is followed, so the reading and the stretch agree', () => {
+    const region = new Region(createRng(9));
+    for (let i = 0; i < 300; i++) {
+      const lead = region.clueFound();
+      (lead as { truth: { real: boolean } }).truth = { ...lead.truth, real: true };
+      const result = region.follow(lead.id);
+      if (!result.found) continue;
+      const hasBench = result.creek.sluiceSpots.some((s) => s.sluiceSite!.flow < 0.4);
+      expect(hasBench).toBe(Boolean(lead.truth.bench));
+    }
   });
 
   it('survive a save', () => {
@@ -123,7 +147,7 @@ describe('sluice sites', () => {
       expect(creek.sluiceSpots).toHaveLength(0);
     }
     for (const lead of loaded!.region.leads) {
-      expect(lead.hint).toBeNull();
+      expect(lead.ground).toBeNull();
       expect(lead.truth.site).toBe('creekStretch');
     }
   });

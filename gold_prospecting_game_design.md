@@ -159,7 +159,13 @@ This supports the idea that a claim may be depleted for a pan but profitable aga
 
 ### In the game: site kinds
 
-Every stretch found by following a lead is one of these. What it is decides what can be done there. Leads may describe the ground, and better sources describe it truly more often and invent it less.
+Every stretch found by following a lead is one of these. What it is decides what can be done there. Every lead reads the ground, with the same kind of uncertainty as its richness range:
+
+- **Vague sources name two kinds:** a rumour or a clue says "a creek bend or a gravel bar". The truth is among them about 70% (rumours) or 80% (clues) of the time.
+- **Firm sources name one:** a claim record or map fragment is right about 80% or 92% of the time. Firmer, never certain.
+- **Benches:** a lead mentions a thin-water bench (sluice ground with a pump) about as reliably, and now and then invents one.
+- **Plain words:** each reading is tagged by source ("talk has it", "recorded as", "marked on the map as") with a plain trust word ("often wrong", "usually right", "rarely wrong"), and says what each kind of ground means for the work.
+- **Consistency:** the bench is decided when the lead is made, so the reading and the stretch agree when it's true.
 
 | Kind | How often | Ground | Gear it takes | Hazard | Fee a day |
 |---|---:|---|---|---|---:|
@@ -418,7 +424,7 @@ The Home Creek is also how the player finds their next site. Leads point to furt
 | Old claim record | $8–12 | ~85% real | Moderate |
 | Map fragment | $15–25 | ~95% real | Narrow |
 
-About a third of stretches are **creek bends**: one or two spots with steady water, a usable drop, and room on the bank for a sluice. Some leads mention "a wide gravel bar with steady water". Better sources mention real bars more often and invent them less, but the mention can still be wrong. Whether a sluice can be set is a property of the ground: the Home Creek never has a sluice site, and owning a sluice doesn't create one.
+About a third of stretches are **creek bends**: one or two spots with steady water, a usable drop, and room on the bank for a sluice. Leads say what they think the ground is (see "In the game: site kinds"); better sources are right more often, but can still be wrong. Whether a sluice can be set is a property of the ground: the Home Creek never has a sluice site, and owning a sluice doesn't create one.
 
 On the region map, found stretches are tributaries spread evenly along the river in the order found, in staggered rows. The spacing tightens and the labels shrink as more are found, so the map sets no limit. Claim holding costs are meant to keep the count sensible.
 
