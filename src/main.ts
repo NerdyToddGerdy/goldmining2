@@ -141,8 +141,16 @@ async function start(): Promise<void> {
   // The first click is also the user gesture browsers require before audio can play. Listen right
   // away, before the renderer loads, so a quick click on a slow connection isn't lost.
   const overlay = document.getElementById('start');
-  if (overlay && matchMedia('(pointer: coarse)').matches) overlay.textContent = 'Tap to start at the creek';
+  const prompt = overlay?.querySelector('.start-prompt');
+  if (prompt) {
+    // A saved game carries on; a new one starts at the Home Creek.
+    const verb = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
+    prompt.textContent = readSave() ? `${verb} to carry on` : `${verb} to start at the creek`;
+  }
   overlay?.addEventListener('click', () => overlay.remove(), { once: true });
+  overlay?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') overlay.remove();
+  });
 
   const app = new Application();
   // Render at the screen's real pixel density so phones and tablets are sharp; cap at 2x for speed.

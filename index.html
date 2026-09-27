@@ -17,10 +17,31 @@
         --edge-t: max(10px, env(safe-area-inset-top));
       }
       #game { position: fixed; inset: 0; }
+      /* Title card: a gold pan with a little colour in it, the name, and how to begin. */
       #start {
-        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-        background: rgba(20, 26, 18, 0.85); color: #efe6cf; cursor: pointer; z-index: 10;
-        font: 600 22px/1.4 Georgia, serif; letter-spacing: 0.02em; user-select: none;
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        padding: 16px; text-align: center; background: rgba(20, 26, 18, 0.88); color: #efe6cf; cursor: pointer; z-index: 10; user-select: none;
+      }
+      .start-pan {
+        position: relative; width: 112px; height: 112px; border-radius: 50%;
+        background: radial-gradient(circle at 50% 50%, #3b3f3a 0 44%, #2a2d29 45% 62%, #4a4d48 63% 70%, #1f211e 71%);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 0 0 2px #5a5e57;
+      }
+      .start-pan i { position: absolute; width: 5px; height: 4px; border-radius: 50%; background: #f3d77a; box-shadow: 0 0 4px rgba(243, 215, 122, 0.8); }
+      .start-pan i:nth-child(1) { left: 49px; top: 58px; width: 7px; height: 5px; }
+      .start-pan i:nth-child(2) { left: 60px; top: 53px; }
+      .start-pan i:nth-child(3) { left: 55px; top: 64px; width: 3px; height: 3px; }
+      .start-pan i:nth-child(4) { left: 43px; top: 51px; width: 3px; height: 3px; }
+      .start-name { margin: 0; font: 700 clamp(30px, 6vw, 46px)/1.1 Georgia, serif; color: #f3d77a; letter-spacing: 0.01em; text-shadow: 0 2px 6px #000; }
+      .start-line { margin: 0; max-width: 32em; font: 16px/1.5 Georgia, serif; opacity: 0.8; }
+      .start-prompt {
+        margin-top: 8px; padding: 9px 18px; border: 1px solid rgba(239, 230, 207, 0.5); border-radius: 4px;
+        font: 600 16px system-ui, sans-serif; background: rgba(20, 26, 18, 0.7);
+      }
+      @media (max-height: 500px) {
+        #start { gap: 8px; }
+        .start-pan { transform: scale(0.64); margin: -20px 0; }
+        .start-line { font-size: 14px; }
       }
       .hud { position: fixed; inset: 0; pointer-events: none; color: #efe6cf; font: 14px/1.4 system-ui, sans-serif; }
       .hud button, .hud input { pointer-events: auto; }
@@ -261,12 +282,16 @@
       .tablet-body .messages li { padding: 3px 0; border-top: 1px solid rgba(239, 230, 207, 0.1); }
       .tablet-body .messages li:first-child { border-top: none; }
       .tablet-body .messages .small { display: inline; margin-right: 8px; }
+      /* Live readouts on a small screen of the tablet's family: same glass, same bezel. */
       .hud-inspect {
-        position: absolute; left: var(--edge-l); top: 48px; min-width: 210px; padding: 8px 10px;
-        background: rgba(12, 16, 11, 0.8); border-radius: 4px; font-size: 13px;
+        position: absolute; left: var(--edge-l); top: calc(var(--edge-t) + 44px); min-width: 200px; padding: 5px 10px 6px;
+        background: #1e2a22; border: 3px solid #3a3a36; border-radius: 9px; font-size: 13px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45), inset 0 0 0 1px #5a6b5c;
       }
-      .hud-inspect div { display: flex; justify-content: space-between; gap: 16px; }
-      .hud-inspect b { font-weight: 600; }
+      .hud-inspect div { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
+      .hud-inspect div + div { border-top: 1px solid rgba(239, 230, 207, 0.07); }
+      .hud-inspect span { color: rgba(239, 230, 207, 0.65); }
+      .hud-inspect b { font-weight: 600; color: #f3d77a; font-variant-numeric: tabular-nums; }
       .hud-bar {
         position: absolute; left: var(--edge-l); right: 120px; bottom: var(--edge-b);
         display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -275,16 +300,33 @@
       .hud-pan-controls[hidden] { display: none; }
       .hud-water[hidden], .hud-tilt[hidden] { display: none; }
       .hud-tilt { display: flex; align-items: center; gap: 6px; text-shadow: 0 1px 2px #000; }
-      .hud-tilt input { width: 120px; }
+      /* Sliders: a worn groove with a brass knob, not the browser's default. */
+      .hud-tilt input {
+        -webkit-appearance: none; appearance: none; width: 120px; height: 24px; margin: 0; background: none; cursor: pointer;
+      }
+      .hud-tilt input::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: rgba(20, 26, 18, 0.8); box-shadow: inset 0 1px 2px #000, 0 0 0 1px rgba(239, 230, 207, 0.35); }
+      .hud-tilt input::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(20, 26, 18, 0.8); box-shadow: inset 0 1px 2px #000, 0 0 0 1px rgba(239, 230, 207, 0.35); }
+      .hud-tilt input::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #f3d77a, #a8822f); border: 1px solid #5a4318; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      .hud-tilt input::-moz-range-thumb {
+        width: 18px; height: 18px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #f3d77a, #a8822f); border: 1px solid #5a4318; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      .hud-tilt input:focus-visible { outline: 2px solid #f3d77a; outline-offset: 2px; border-radius: 4px; }
       .hud-actions { display: flex; flex-wrap: wrap; gap: 8px; }
       #fullscreen {
         position: fixed; right: var(--edge-r); bottom: var(--edge-b); padding: 6px 10px;
-        background: rgba(0, 0, 0, 0.35); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.4);
+        background: rgba(20, 26, 18, 0.85); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.45);
         border-radius: 4px; font: 13px system-ui, sans-serif; cursor: pointer;
       }
+      @media (hover: hover) { #fullscreen:hover { background: rgba(60, 70, 50, 0.9); } }
       /* Touch: a slider and buttons big enough for a thumb. */
       @media (pointer: coarse) {
         .hud-tilt input { width: 170px; height: 32px; }
+        .hud-tilt input::-webkit-slider-thumb { width: 26px; height: 26px; margin-top: -10px; }
+        .hud-tilt input::-moz-range-thumb { width: 26px; height: 26px; }
         .hud button { min-height: 40px; }
       }
       /* Short screens (phones held sideways): smaller type, two-line hints, tighter bars. */
@@ -298,7 +340,7 @@
         .hud-result { top: 14%; font-size: 17px; }
         .hud-result.hud-result-town { top: 46%; font-size: 14px; padding: 6px 12px; }
         .hud-toast { top: 44px; font-size: 13px; max-width: 70vw; }
-        .hud-inspect { top: 40px; font-size: 12px; }
+        .hud-inspect { top: calc(var(--edge-t) + 36px); font-size: 12px; padding: 3px 8px 4px; }
         #fullscreen { padding: 4px 8px; font-size: 12px; }
       }
       /* Phones held upright: the game is laid out landscape, so ask for a turn. */
@@ -315,7 +357,12 @@
   <body>
     <div id="game"></div>
     <!-- Browsers block audio until a user gesture, so play starts from a click. -->
-    <div id="start">Click to start at the creek</div>
+    <div id="start" role="button" tabindex="0">
+      <div class="start-pan" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <h1 class="start-name">Gold Prospecting</h1>
+      <p class="start-line">A creek, a shovel and a pan. Read the ground, work the gravel, and follow the colour.</p>
+      <div class="start-prompt">Click to start at the creek</div>
+    </div>
     <button id="fullscreen" type="button">Fullscreen</button>
     <div id="rotate" role="alert">
       <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="4" width="20" height="40" rx="4" fill="none" stroke="#e6b940" stroke-width="3" /><circle cx="24" cy="38" r="2" fill="#e6b940" /></svg>
