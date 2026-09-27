@@ -634,6 +634,12 @@ Shovel load of gravel
 | Balanced | Light sand sheets off the lip; dark layer stays put | Good speed with minimal loss | Continue |
 | Aggressive | Dark streaks go over the lip; the pan empties quickly | Fast, but fine gold and black sand are lost | Level the pan and re-stratify |
 
+**Sand grain varies from pan to pan,** so no single remembered tilt is right for every pan:
+- **The range:** each shovelful's sand runs from fine silt to coarse grit, typical of its layer (topsoil fine, gravel coarse, pay streak in between, crushed bedrock coarse-ish) and varying shovelful to shovelful.
+- **Fine silt** washes about 30% faster but lets the heavies go at a shallower tip. **Coarse grit** holds at a steeper tip but washes slower.
+- **So "balanced" moves:** the balanced tilt shifts by roughly ±30%, and the player reads it from the pan. The grains are drawn smaller and paler or chunkier and tanner, the inspection panel names the sand, and the "gold over the lip" nudge on a fine pan says why.
+- **Exceptions:** concentrate from the jar and screened material from the classifier are medium.
+
 Shaking does both jobs. Held level, it breaks up the clay and settles the heavies; tipped, it washes. Washing churns the layers back together, and the steeper the tip, the more it churns. The skill is finding how far to tip: a moderate tip washes quickly and stays settled, while a steep one outruns the settling and sends gold over the lip.
 
 ### Key player controls

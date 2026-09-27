@@ -16,6 +16,9 @@ const COLORS = {
   panBody: 0x2c2b29,
   panFloor: 0x363431,
   light: [0xc8b891, 0xb3a37e, 0xd6c9a4, 0x9e906f],
+  /** Fine silt reads paler and smaller; coarse grit tanner and chunkier. */
+  silt: [0xd3cab3, 0xc4bca5, 0xdcd4bf],
+  grit: [0xad9a72, 0x9e8a63, 0xb8a47a, 0x8f7d5b],
   dark: [0x24211f, 0x302b28, 0x3b3530],
   /** Black sand being washed off a concentrate pan: magnetite with the odd red garnet. */
   concentrate: [0x1c1a19, 0x26221f, 0x2f2a26, 0x5a2e2a],
@@ -132,9 +135,10 @@ export class PanView extends Container {
     const fullness = Math.min(1, pan.initialLightSand / 0.7);
     this.lightCount = Math.max(20, Math.round(LIGHT_GRAINS * fullness));
     const pileRadius = concentrate ? 0.35 + 0.55 * Math.sqrt(fullness) : 0.9;
-    this.light = Array.from({ length: this.lightCount }, () =>
-      grain(pileRadius, 1.4, concentrate ? 2.4 : 3.2, pick(concentrate ? COLORS.concentrate : COLORS.light)),
-    );
+    // The sand's grain shows: fine silt as small pale specks, coarse grit as chunky tan grains.
+    const size = concentrate ? 1 : 0.55 + 0.9 * pan.grain;
+    const palette = concentrate ? COLORS.concentrate : pan.grain < 0.35 ? COLORS.silt : pan.grain > 0.65 ? COLORS.grit : COLORS.light;
+    this.light = Array.from({ length: this.lightCount }, () => grain(pileRadius, 1.4 * size, (concentrate ? 2.4 : 3.2) * size, pick(palette)));
     this.dark = Array.from({ length: DARK_GRAINS }, () =>
       grain(concentrate ? pileRadius * 0.8 : 0.75, 1.2, 2.4, pick(concentrate ? COLORS.residue : COLORS.dark)),
     );

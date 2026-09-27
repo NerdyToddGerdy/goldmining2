@@ -51,7 +51,9 @@ export class PanCoach {
       this.nudge(
         pan.kind === 'concentrate'
           ? 'Gold is going over the lip. Black sand is heavy: tip the pan only slightly, and sift level now and then to settle it.'
-          : 'Gold is going over the lip. Tip the pan less, or sift it level for a moment to settle it.',
+          : pan.grain < 0.35
+            ? 'Gold is going over the lip. This sand is fine and silty: it washes quick but won’t take much tip. Tip less, or sift level to settle it.'
+            : 'Gold is going over the lip. Tip the pan less, or sift it level for a moment to settle it.',
       );
     } else if (!this.toldAboutClay && this.tippedWithClay > 2) {
       this.toldAboutClay = true;

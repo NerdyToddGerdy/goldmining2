@@ -652,7 +652,12 @@ export class Hud {
     if (mode === 'town') {
       const offer = quoteSale(session.vial);
       const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
-      return [...sell, ...this.magnetButton(state), ['Back to the creek (Esc)', () => this.on.walkCreek()]];
+      return [
+        ...sell,
+        ...this.magnetButton(state),
+        ['Region map (Esc)', () => this.on.openRegion()],
+        [`Back to ${state.creek.profile.name}`, () => this.on.walkCreek()],
+      ];
     }
     if (mode === 'region') {
       return [[`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()], ['Start over', () => this.on.newCreek()]];
@@ -934,7 +939,7 @@ export class Hud {
     } else if (state.mode === 'town') {
       if (key === 'x') this.on.openMagnet();
       else if (key === 's') this.on.sell();
-      else if (key === 'escape') this.on.walkCreek();
+      else if (key === 'escape' || key === 'm') this.on.openRegion();
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
@@ -1027,6 +1032,7 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+        ...(pan.kind === 'gravel' ? [['Sand', pan.grain < 0.35 ? 'fine silt' : pan.grain > 0.65 ? 'coarse grit' : 'medium'] as [string, string]] : []),
       ];
     } else if (mode === 'drywasher' && state.drywasher) {
       const dw = state.drywasher;

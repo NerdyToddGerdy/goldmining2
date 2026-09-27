@@ -46,6 +46,11 @@ export interface PanLoad {
   readonly clayiness: number;
   /** 0..1 */
   readonly rockiness: number;
+  /**
+   * The sand's grain, 0 fine silt to 1 coarse grit. Fine sand washes fast but lets the heavies go
+   * at a shallower tip; coarse sand holds at a steeper tip but washes slowly. Absent means medium.
+   */
+  readonly grain?: number;
 }
 
 /** What visibly happened during one step, for the renderer to draw. */
@@ -112,6 +117,14 @@ export const PAN_TUNING = {
   concentrateSafeScale: 0.7,
   /** Share of poured concentrate that is the finest, heaviest sand, left when worked down. */
   concentrateResidue: 0.15,
+  /**
+   * How a gravel pan's grain moves it: the safe tip scales from fineSafe (silt) to fineSafe +
+   * grainSafe (grit), and the wash rate from fineWash down by grainWash.
+   */
+  fineSafe: 0.7,
+  grainSafe: 0.6,
+  fineWash: 1.3,
+  grainWash: 0.6,
 } as const;
 
 let nextId = 1;
@@ -139,6 +152,8 @@ export interface PanSnapshot {
   readonly hidden: readonly GoldPiece[];
   /** How muddy the water it's panned in is (a wash tub), 0 clear. Absent means clear creek water. */
   readonly waterMurk?: number;
+  /** The sand's grain; absent means medium. */
+  readonly grain?: number;
 }
 
 export class Pan {
@@ -165,6 +180,8 @@ export class Pan {
 
   readonly initialLightSand: number;
   readonly kind: PanKind;
+  /** The sand's grain, 0 fine silt to 1 coarse grit (0.5 for concentrate and screened material). */
+  readonly grain: number;
 
   /**
    * A pan of creek gravel from `load`, or, with `pour`, black sand from the concentrate jar.
@@ -176,6 +193,7 @@ export class Pan {
     load: PanLoad,
     pour?: ConcentratePour,
   ) {
+    this.grain = pour ? 0.5 : Math.min(1, Math.max(0, load.grain ?? 0.5));
     if (pour) {
       this.kind = 'concentrate';
       this.clay = 0;
@@ -215,6 +233,7 @@ export class Pan {
       visible: this.visible,
       hidden: this.hidden,
       ...(this.waterMurk > 0 ? { waterMurk: this.waterMurk } : {}),
+      ...(this.grain !== 0.5 ? { grain: this.grain } : {}),
     };
   }
 
@@ -243,9 +262,10 @@ export class Pan {
   static restore(rng: Rng, snap: PanSnapshot): Pan {
     const pan = new Pan(rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0, gold: [] });
     // kind and initialLightSand are fixed for a pan's life; restoring is the one place they are set after construction.
-    const fixed = pan as { kind: PanKind; initialLightSand: number };
+    const fixed = pan as { kind: PanKind; initialLightSand: number; grain: number };
     fixed.kind = snap.kind;
     fixed.initialLightSand = snap.initialLightSand;
+    fixed.grain = snap.grain ?? 0.5;
     pan.lightSand = snap.lightSand;
     pan.blackSand = snap.blackSand;
     pan.clay = snap.clay;
@@ -280,8 +300,9 @@ export class Pan {
 
   /** Wash beyond which black sand and gold start going over the lip. */
   get safeLimit(): number {
-    const limit = PAN_TUNING.safeLimitBase + PAN_TUNING.safeLimitPerStrat * this.stratification;
-    return this.kind === 'concentrate' ? limit * PAN_TUNING.concentrateSafeScale : limit;
+    const T = PAN_TUNING;
+    const limit = T.safeLimitBase + T.safeLimitPerStrat * this.stratification;
+    return this.kind === 'concentrate' ? limit * T.concentrateSafeScale : limit * (T.fineSafe + T.grainSafe * this.grain);
   }
 
   effectiveWash(controls: PanControls): number {
@@ -323,7 +344,7 @@ export class Pan {
     this.turbidity = Math.max(0, this.turbidity - this.turbidity * (T.turbidityDecay + wash) * dt);
     const murk = 1 - Math.min(0.5, this.turbidity * 0.5);
 
-    const washRate = T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale : 1);
+    const washRate = T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale : T.fineWash - T.grainWash * this.grain);
     const lightSpilled = Math.min(this.lightSand, wash * washRate * murk * dt);
     this.lightSand -= lightSpilled;
 

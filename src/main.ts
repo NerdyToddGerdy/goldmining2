@@ -966,7 +966,11 @@ async function start(): Promise<void> {
       setMode('creek');
     },
     walkToTown,
-    openRegion: () => setMode('region'),
+    openRegion: () => {
+      // Leaving town is a walk out, whichever way the player heads from the map.
+      if (mode === 'town') passTime(ECONOMY_TUNING.travel.town);
+      setMode('region');
+    },
     buyLead: (leadId) => {
       const no = refused('lead');
       if (no) return hud.toast(no);

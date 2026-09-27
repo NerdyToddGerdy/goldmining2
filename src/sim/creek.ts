@@ -117,6 +117,9 @@ export const CREEK_TUNING = {
   layerRichness: { overburden: 0.08, gravel: 0.5, payStreak: 2.2, bedrock: 4 } as Record<LayerKind, number>,
   layerClay: { overburden: 0.7, gravel: 0.3, payStreak: 0.5, bedrock: 0.4 } as Record<LayerKind, number>,
   layerRock: { overburden: 0.1, gravel: 0.8, payStreak: 0.6, bedrock: 0.1 } as Record<LayerKind, number>,
+  /** Typical sand grain by layer (0 fine silt, 1 coarse grit), and how far a shovelful strays from it. */
+  layerGrain: { overburden: 0.25, gravel: 0.7, payStreak: 0.5, bedrock: 0.6 } as Record<LayerKind, number>,
+  grainSpread: 0.25,
   /** Water seeping in per shovelful, by layer, scaled by the spot's water table. */
   seepPerLoad: { overburden: 0, gravel: 0.06, payStreak: 0.14, bedrock: 0.2 } as Record<LayerKind, number>,
   bailAmount: 0.3,
@@ -461,10 +464,12 @@ export class Creek {
   }
 
   private loadFrom(layer: Layer): PanLoad {
+    const T = CREEK_TUNING;
     return {
       richness: layer.richness * this.rng.range(0.6, 1.4),
       clayiness: layer.clayiness,
       rockiness: layer.rockiness,
+      grain: Math.min(1, Math.max(0, T.layerGrain[layer.kind] + this.rng.range(-T.grainSpread, T.grainSpread))),
     };
   }
 

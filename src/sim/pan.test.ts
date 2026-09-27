@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Pan, totalMg, type PanLoad, type PanControls } from './pan';
+import { PAN_TUNING as PAN_T, Pan, totalMg, type PanLoad, type PanControls } from './pan';
+import { Creek } from './creek';
 import { createRng } from './rng';
 
 const SPOT: PanLoad = { richness: 4, clayiness: 0.5, rockiness: 0.5 };
@@ -154,5 +155,66 @@ describe('Pan', () => {
     const blocked = rocky.effectiveWash(controls);
     for (const rock of [...rocky.rocks]) rocky.rakeRock(rock.id);
     expect(rocky.effectiveWash(controls)).toBeGreaterThan(blocked);
+  });
+});
+
+describe('sand grain (each pan reads a little differently)', () => {
+  const settled = (grain: number): Pan => {
+    const pan = new Pan(createRng(5), { richness: 4, clayiness: 0, rockiness: 0, grain });
+    for (let t = 0; t < 4; t += DT) pan.step(DT, { tilt: 0, shake: 1 });
+    return pan;
+  };
+
+  it('lets coarse grit take a steeper tip than fine silt before gold goes over the lip', () => {
+    const fine = settled(0.05);
+    const coarse = settled(0.95);
+    expect(coarse.safeLimit).toBeGreaterThan(fine.safeLimit * 1.4);
+    // The same memorized tilt is balanced on one and aggressive on the other.
+    const wash = (fine.safeLimit + coarse.safeLimit) / 2;
+    expect(fine.classify(wash)).toBe('aggressive');
+    expect(coarse.classify(wash)).toBe('balanced');
+  });
+
+  it('washes fine silt faster than coarse grit at the same gentle tip', () => {
+    const fine = settled(0.05);
+    const coarse = settled(0.95);
+    const before = [fine.lightSand, coarse.lightSand];
+    for (let t = 0; t < 5; t += DT) {
+      fine.step(DT, { tilt: 0.15, shake: 1 });
+      coarse.step(DT, { tilt: 0.15, shake: 1 });
+    }
+    expect(before[0]! - fine.lightSand).toBeGreaterThan((before[1]! - coarse.lightSand) * 1.5);
+  });
+
+  it('varies from shovelful to shovelful, finer in the topsoil than the gravel, so no one tilt fits every pan', () => {
+    const creek = new Creek(createRng(12));
+    const byLayer: Record<string, number[]> = {};
+    for (const spot of creek.creekSpots) {
+      for (let i = 0; i < 40 && !creek.isWorkedOut(spot); i++) {
+        spot.boulder = null;
+        spot.water = 0;
+        const layer = spot.slumped > 0 ? 'slump' : creek.currentLayer(spot)!.kind;
+        const r = creek.shovel(spot.id, 'pan');
+        if (r.ok && r.load) (byLayer[layer] ??= []).push(r.load.grain!);
+      }
+    }
+    const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+    expect(mean(byLayer.overburden!)).toBeLessThan(mean(byLayer.gravel!) - 0.2);
+    // A wash just inside the safe limit of a well-settled medium pan: memorize it, and it's too
+    // much for a good share of pans, and needlessly timid-ish for the rest.
+    const safeAt = (grain: number): number => (PAN_T.safeLimitBase + PAN_T.safeLimitPerStrat * 0.8) * (PAN_T.fineSafe + PAN_T.grainSafe * grain);
+    const memorized = safeAt(0.5) * 0.95;
+    const all = Object.values(byLayer).flat();
+    const tooMuch = all.filter((grain) => safeAt(grain) < memorized);
+    expect(tooMuch.length).toBeGreaterThan(all.length * 0.15);
+    expect(tooMuch.length).toBeLessThan(all.length * 0.85);
+  });
+
+  it('keeps its grain through a save; concentrate and old saves are medium', () => {
+    const pan = new Pan(createRng(3), { richness: 4, clayiness: 0.2, rockiness: 0.2, grain: 0.83 });
+    expect(Pan.restore(createRng(4), JSON.parse(JSON.stringify(pan.snapshot()))).grain).toBe(0.83);
+    const { grain: _grain, ...old } = pan.snapshot();
+    expect(Pan.restore(createRng(4), old).grain).toBe(0.5);
+    expect(new Pan(createRng(5), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.2, gold: [] }).grain).toBe(0.5);
   });
 });
