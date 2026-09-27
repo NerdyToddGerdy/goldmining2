@@ -323,6 +323,9 @@ export class Hud {
   /** Open: game time stands still while the player reads it. */
   tabletOpen = false;
   /** Small screens start with the notebook and claims board folded up. */
+  /** Followed and dud leads, and released claims, are folded away unless opened. */
+  private showOldLeads = false;
+  private showReleased = false;
   private panelCollapsed = matchMedia('(max-width: 700px), (max-height: 500px)').matches;
   /** Which tab of the town's side menu is open; remembered between visits. */
   private townTab: 'outfitter' | 'claims' | 'office' = 'outfitter';
@@ -452,6 +455,9 @@ export class Hud {
       if (target.dataset.action === 'restake') this.on.restakeClaim(Number(target.dataset.creek));
       if (target.dataset.action === 'buy') this.on.buyLead(id);
       if (target.dataset.action === 'follow') this.on.followLead(id);
+      if (target.dataset.action === 'oldleads') this.showOldLeads = !this.showOldLeads;
+      if (target.dataset.action === 'released') this.showReleased = !this.showReleased;
+      if (target.dataset.action === 'oldleads' || target.dataset.action === 'released') this.panelKey = '';
     });
 
     this.tilt.addEventListener('input', () => on.setTilt(Number(this.tilt.value)));
@@ -780,7 +786,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${this.showOldLeads}:${this.showReleased}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -847,15 +853,25 @@ export class Hud {
           : `<div class="board">${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}</div><p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
       this.panel.innerHTML = `${tabs}<div class="tab-body tab-${this.townTab}">${body}</div>`;
     } else {
-      const leads = [...region.leads].reverse().map((lead) => {
+      // Leads still to follow come first; followed and dud ones fold away at the back of the book.
+      const entry = (lead: Lead): string => {
         const action =
           lead.status === 'open' ? `<button type="button" data-action="follow" data-lead="${lead.id}">Follow it</button>`
           : lead.status === 'dud' ? '<span class="pencil">Nothing there.</span>'
           : '<span class="pencil">Found it. On the map.</span>';
         return `<div class="lead ${lead.status}">${leadHeader(lead)}${action}</div>`;
-      });
-      const open = region.leads.filter((l) => l.status === 'open').length;
-      this.panel.innerHTML = `<h3>Notebook <span class="count">${open ? `${open} to follow` : region.leads.length}</span></h3>${leads.join('') || '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'}`;
+      };
+      const newest = [...region.leads].reverse();
+      const openLeads = newest.filter((l) => l.status === 'open');
+      const old = newest.filter((l) => l.status !== 'open');
+      const body =
+        region.leads.length === 0
+          ? '<p>No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>'
+          : (openLeads.map(entry).join('') || '<p class="pencil">Nothing left to follow. Pan, dig for clues, or buy a lead in town.</p>') +
+            (old.length
+              ? `<button type="button" class="fold" data-action="oldleads" aria-expanded="${this.showOldLeads}">${this.showOldLeads ? 'Hide' : 'Show'} old leads (${old.length})</button>${this.showOldLeads ? old.map(entry).join('') : ''}`
+              : '');
+      this.panel.innerHTML = `<h3>Notebook <span class="count">${openLeads.length ? `${openLeads.length} to follow` : 'nothing to follow'}</span></h3>${body}`;
     }
   }
 
@@ -896,15 +912,12 @@ export class Hud {
   private ledger(state: HudState): string {
     const { economy, crew, region } = state;
     const cents = (n: number): string => (n > 0.004 ? (Math.ceil(n * 100 - 1e-6) / 100).toFixed(2) : '—');
-    const rows = economy.allClaims.map((claim) => {
+    const rows = economy.allClaims.filter((c) => c.status !== 'released').map((claim) => {
       const creek = region.creek(claim.creekId);
-      const released = claim.status === 'released';
-      const note = released
-        ? 'released'
-        : economy.isLapsed(claim)
-          ? '<span class="lapsed">lapsed</span>'
-          : `${traitsOf(creek.profile.site).label.toLowerCase()}, ${creek.groundLeft <= 0 ? 'worked out' : `${Math.max(10, Math.round(creek.groundLeft * 10) * 10)}% ground left`}`;
-      return `<tr class="${released ? 'released' : ''}"><td><span class="entry">${creek.profile.name}</span><span class="note">${note}</span></td><td>${released ? '—' : claim.fee.toFixed(2)}</td><td>${released ? '—' : cents(claim.owed)}</td></tr>`;
+      const note = economy.isLapsed(claim)
+        ? '<span class="lapsed">lapsed</span>'
+        : `${traitsOf(creek.profile.site).label.toLowerCase()}, ${creek.groundLeft <= 0 ? 'worked out' : `${Math.max(10, Math.round(creek.groundLeft * 10) * 10)}% ground left`}`;
+      return `<tr><td><span class="entry">${creek.profile.name}</span><span class="note">${note}</span></td><td>${claim.fee.toFixed(2)}</td><td>${cents(claim.owed)}</td></tr>`;
     });
     const home = `<tr><td><span class="entry">${region.home.profile.name}</span><span class="note">free, always yours</span></td><td>—</td><td>—</td></tr>`;
     const payroll = crew.workers.length
@@ -970,8 +983,9 @@ export class Hud {
     }
     parts.push(`<div class="lead">${crewLines.join('')}</div>`);
 
-    // Each claim: its hands and jobs, fees, release.
-    const claims = economy.allClaims.map((claim) => {
+    // Each claim: its hands and jobs, fees, release. Released claims fold away at the end.
+    const released = economy.allClaims.filter((c) => c.status === 'released');
+    const claims = [...economy.allClaims.filter((c) => c.status !== 'released'), ...(this.showReleased ? released : [])].map((claim) => {
       const creek = region.creek(claim.creekId);
       const name = creek.profile.name;
       const kind = traitsOf(creek.profile.site).label.toLowerCase();
@@ -1033,6 +1047,13 @@ export class Hud {
       lines.push(`<button type="button" data-action="release" data-creek="${claim.creekId}">Release</button>`);
       return `<div class="lead">${lines.join('')}</div>`;
     });
+    if (released.length) {
+      claims.push(
+        `<button type="button" class="fold" data-action="released" aria-expanded="${this.showReleased}">${this.showReleased ? 'Hide' : 'Show'} released claims (${released.length})</button>`,
+      );
+      // Open, the released claims sit below the toggle rather than above it.
+      if (this.showReleased) claims.push(...claims.splice(claims.length - 1 - released.length, released.length));
+    }
     parts.push(
       claims.length
         ? `${claims.join('')}<p class="small">Releasing a claim writes off what it owes and brings its crew back to town. A claim more than ${ECONOMY_TUNING.graceDays} days behind lapses and can't be worked until it's paid.</p>`
@@ -1195,7 +1216,7 @@ export class Hud {
     }
 
     if (this.tabletTab === 'leads') {
-      const leads = [...region.leads].reverse().map((lead) => {
+      const leads = [...region.leads].reverse().filter((l) => l.status === 'open').map((lead) => {
         const status =
           lead.status === 'open' ? '<span class="small">Not followed yet: follow it from the region map.</span>'
           : lead.status === 'dud' ? '<span class="dud">Nothing there.</span>'
@@ -1203,7 +1224,10 @@ export class Hud {
         return `<div class="tablet-group">${leadHeader(lead)}${status}</div>`;
       });
       const offers = region.offers.length ? `<p class="small">${region.offers.length} lead${region.offers.length === 1 ? '' : 's'} for sale in town.</p>` : '';
-      this.tabletBody.innerHTML = offers + (leads.join('') || '<p class="small">No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.</p>');
+      const old = region.leads.length - leads.length;
+      const oldLine = old ? `<p class="small">${old} old lead${old === 1 ? '' : 's'} (found or duds) kept at the back of the notebook, on the region map.</p>` : '';
+      this.tabletBody.innerHTML =
+        offers + (leads.join('') || `<p class="small">${region.leads.length ? 'Nothing left to follow.' : 'No leads yet. Pan along the creek and watch where the colour gets stronger, look for clues while digging, or buy a lead in town.'}</p>`) + oldLine;
       return;
     }
 
@@ -1369,6 +1393,16 @@ export class Hud {
       `</table><ul class="jobs-list">${jobs}</ul>` +
       `<button type="button" data-go="${v.creekId}">Walk there</button></div>`
     );
+  }
+
+  /**
+   * Where the inspection panel reaches on screen (right and bottom edges, in CSS pixels), or null
+   * when it's closed: machine views keep their controls clear of it.
+   */
+  inspectBounds(): { readonly right: number; readonly bottom: number } | null {
+    if (!this.inspectOpen || this.inspect.hidden) return null;
+    const r = this.inspect.getBoundingClientRect();
+    return r.width > 0 ? { right: r.right, bottom: r.bottom } : null;
   }
 
   private toggleInspect(): void {

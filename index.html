@@ -91,6 +91,19 @@
        * outfitter's wares (a red stamp on what you own), leads posted as index cards, and the claims
        * office's ledger page.
        */
+      /* Folds away old leads and released claims: a quiet text toggle, not an action. */
+      .hud .hud-panel button.fold {
+        display: block; width: 100%; margin: 10px 0 4px; padding: 6px 0; min-height: 0; text-align: left;
+        background: none; border: none; border-top: 1px solid rgba(239, 230, 207, 0.2); border-radius: 0;
+        font: 600 12px system-ui, sans-serif; color: rgba(239, 230, 207, 0.7);
+      }
+      .hud .hud-panel button.fold::after { content: ' ▸'; }
+      .hud .hud-panel button.fold[aria-expanded="true"]::after { content: ' ▾'; }
+      @media (hover: hover) { .hud .hud-panel button.fold:hover { background: none; color: #efe6cf; } }
+      .hud .hud-panel.notebook button.fold {
+        height: var(--line); margin: var(--line) 0 0; padding: 0; line-height: var(--line); border: none;
+        font: 400 16px/var(--line) Kalam, cursive; color: var(--graphite); background: none;
+      }
       .hud-panel .ware { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid rgba(239, 230, 207, 0.12); }
       .hud-panel .tab-body > .ware:first-child { border-top: none; padding-top: 4px; }
       .hud-panel .ware p { margin: 2px 0 0; }
@@ -148,7 +161,6 @@
       .hud-panel .ledger .entry { display: block; font: 700 16px/1.2 Kalam, cursive; }
       .hud-panel .ledger .note { display: block; font: 11px system-ui, sans-serif; opacity: 0.7; }
       .hud-panel .ledger .lapsed { color: #b0321f; font-weight: 700; opacity: 1; }
-      .hud-panel .ledger tr.released .entry { text-decoration: line-through 1.5px; opacity: 0.6; }
       .hud-panel .ledger tr.total td { border-bottom: 3px double rgba(36, 49, 80, 0.6); font-weight: 700; }
       /*
        * On the region map the panel is the prospector's field book: an all-weather notebook with a

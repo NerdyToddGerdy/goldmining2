@@ -164,9 +164,16 @@ export class SluiceView extends Container {
 
   // ---- geometry ----
 
+  /** The inspection panel's reach (top-left), when open: the header moves right to stay clear of it. */
+  keepOut: { readonly right: number; readonly bottom: number } | null = null;
+
   get start(): { x: number; y: number } {
     // A highbanker's hopper sits over the header; keep it clear of the inspection panel top-left.
-    return { x: this.width_ * (this.pumpFed ? 0.34 : 0.2), y: this.height_ * 0.36 };
+    const y = this.height_ * 0.36;
+    let x = this.width_ * (this.pumpFed ? 0.34 : 0.2);
+    // Header art spans 90px left of the start and 70px above it (see headerRect), plus a margin.
+    if (this.keepOut && y - 70 - 8 < this.keepOut.bottom) x = Math.max(x, this.keepOut.right + 90 + 12);
+    return { x: Math.min(x, this.width_ * 0.5), y };
   }
 
   /** The exit end drops further the steeper the box is set. */

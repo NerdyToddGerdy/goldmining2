@@ -1358,6 +1358,7 @@ async function start(): Promise<void> {
         hud.toast(`The bucket is full, so nothing more can fall through. Pan from the bucket${sluiceHere() ? ' or pour it into the sluice' : ''} to make room; tipping off now would lose the unsifted gravel.`);
       }
     } else if (mode === 'sluice' && sluice) {
+      sluiceView.keepOut = hud.inspectBounds();
       sluiceView.update(dt, sluice, stepped, sluiceFlow);
     } else if (mode === 'drywasher' && drywasher) {
       dwAccumulator += dt;

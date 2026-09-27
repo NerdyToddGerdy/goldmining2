@@ -313,7 +313,7 @@ Low-cost recovery options:
 - **Paying:** fees and wages come out of cash automatically in town, as far as the cash goes, on arriving and after each sale.
 - **Lapsing:** a claim more than three days behind lapses. It can't be dug, the sluice can't be set up on it, and a hand won't work it until it's paid up.
 - **Ground left:** each claim in the Claims & crew tab shows roughly how much of the stretch is left to dig, to the nearest 10% ("About 60% of its ground left to dig", "Untouched", "Worked out"). It measures digging left, not gold left, so what the ground holds stays hidden.
-- **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down.
+- **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down. Released claims leave the ledger and fold into a "released claims" list at the end of Claims & crew, still there to re-stake, since ground given up for a pan can pay later for a better machine.
 - **Being behind** (any claim lapsed, or wages more than a day overdue) blocks new gear, leads and hires. Nothing owned is ever taken, and fuel can still be bought. The Home Creek is never a claim and never costs anything, so panning it always pays the way back.
 
 ### In the game: going under and coming back
@@ -564,7 +564,7 @@ Example warning:
   - **Claims:** a card for each held claim, sorted by what needs attention: Trouble (lapsed, crew idle on wages, no jobs, or likely costing more than it brings in by the player's own notes), Needs a look (bucket nearly full, out of fuel, waiting for a crew unit or an operator, fees owed, ground nearly worked out, no field notes), Steady, and No crew. The Home Creek is always listed: free, always yours. Tapping a card shows the crew, each job's state, costs a day, ground left, the rough take, what's waiting to collect, and a "Walk there" button.
   - **What waiting shows:** how full the crew bucket is, and pieces in the poke. Gold still in the bucket's concentrate is never counted: it's unknown until panned.
   - **Crew:** who is at each stretch, their wages, jobs left unfilled, who is waiting in town, and spare crew gear; with nobody hired, what hiring would get you.
-  - **Leads:** the notebook (on the region map, drawn as a paper field book: leads pencilled in, duds struck out, finds circled), read-only here, and how many leads are for sale in town.
+  - **Leads:** the notebook (on the region map, drawn as a paper field book: leads pencilled in, duds struck out, finds circled; only leads still to follow are shown, with followed and dud leads folded away as "old leads" at the back), read-only here, and how many leads are for sale in town.
   - **Costs:** cash, fees and wages a day, how long cash lasts at that rate, what's owed, and the financial state with the countdown to shutdown when insolvent.
   - Not yet: accident and maintenance risk (not modelled), and setting crew policy from the tablet (see "Crew policies").
 - **Town, on paper:** in town the side panel is the counter. The outfitter's wares carry manila price tags that are also the buy buttons (saying what's short, or why not), with a red stamp on gear the player owns; leads for sale are pinned index cards; and the claims office opens on a ledger page of every claim's fee a day and what it owes, the payroll, and the total.
