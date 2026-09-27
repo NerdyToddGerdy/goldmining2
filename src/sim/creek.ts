@@ -1,6 +1,7 @@
 import type { PanLoad } from './pan';
 import type { SluiceSite } from './sluice';
 import { normal, type Rng } from './rng';
+import { traitsOf, type SiteKind } from './sites';
 
 /**
  * A short stretch of creek with a handful of dig spots: the Home Creek, or a stretch found by
@@ -136,6 +137,8 @@ export const CREEK_TUNING = {
 /** What kind of stretch a creek is. */
 export interface CreekProfile {
   readonly name: string;
+  /** What kind of ground this is: it decides room, water, depth, hazards and what gear fits. */
+  readonly site: SiteKind;
   /** Multiplies every spot's hidden quality. */
   readonly richness: number;
   /** Only the Home Creek renews with high water; stretches found by leads are finite. */
@@ -158,6 +161,7 @@ export interface CreekProfile {
 
 export const HOME_CREEK_PROFILE: CreekProfile = {
   name: 'Home Creek',
+  site: 'homeCreek',
   richness: 1,
   renewing: true,
   spotCount: 6,
@@ -216,10 +220,11 @@ export class Creek {
 
     // Sluice sites go at creek spots; never on a renewing (Home) creek, whatever the profile says.
     if (profile.renewing) return;
+    const traits = traitsOf(profile.site);
     const siteCount = Math.min(profile.sluiceSites, count);
     const candidates = shuffle(rng, [...this.creekSpots]);
     for (const spot of candidates.slice(0, siteCount)) {
-      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(0.15, 0.95), flow: rng.range(0.6, 1) };
+      (spot as { sluiceSite: SluiceSite | null }).sluiceSite = { slope: rng.range(...traits.sluiceSlope), flow: rng.range(...traits.sluiceFlow) };
     }
     // Thin-water sites: a bench with room and a drop, but only a trickle of creek beside it.
     for (const spot of candidates.slice(siteCount, siteCount + profile.pumpSites)) {
@@ -312,7 +317,7 @@ export class Creek {
 
       const next = this.currentLayer(spot);
       if (next?.kind === 'bedrock' && layer.kind !== 'bedrock') event = 'reachedBedrock';
-      if ((layer.kind === 'gravel' || layer.kind === 'payStreak') && rng.next() < layer.rockiness * T.boulderChance) {
+      if ((layer.kind === 'gravel' || layer.kind === 'payStreak') && rng.next() < layer.rockiness * T.boulderChance * traitsOf(this.profile.site).boulders) {
         const pries = rng.int(2, 4);
         spot.boulder = { pries, initialPries: pries };
         event = 'boulder';
@@ -372,6 +377,36 @@ export class Creek {
     this.highWater();
   }
 
+  /**
+   * High water sweeps a gravel bar: open holes are half buried in fresh gravel, and worked-out
+   * spots get a thin new layer to dig. Returns how many holes were buried.
+   */
+  flood(): number {
+    const T = CREEK_TUNING;
+    let buried = 0;
+    for (const spot of this.creekSpots) {
+      const dug = spot.spoil > 0 || spot.layers.some((l) => l.loads < l.initialLoads);
+      if (!dug) continue;
+      buried += 1;
+      spot.boulder = null;
+      spot.water = 0;
+      if (this.isWorkedOut(spot)) {
+        const loads = this.rng.int(1, 3);
+        spot.layers.unshift({
+          kind: 'gravel',
+          loads,
+          initialLoads: loads,
+          richness: T.baseRichness * T.highWaterRichness * this.profile.richness * this.rng.range(0.5, 1.5),
+          clayiness: T.layerClay.gravel,
+          rockiness: T.layerRock.gravel,
+        });
+      } else {
+        spot.slumped += this.rng.int(1, 3);
+      }
+    }
+    return buried;
+  }
+
   highWater(): void {
     const T = CREEK_TUNING;
     this.highWaterEvents += 1;
@@ -419,6 +454,7 @@ export class Creek {
 
     const outcrop = signs.includes('bedrockOutcrop');
     const rockBoost = signs.includes('boulderTrap') ? 0.2 : 0;
+    const traits = traitsOf(this.profile.site);
     // Gully floors are shallow: a few test pans' worth.
     const thickness: Record<LayerKind, [number, number]> = gully
       ? { overburden: [1, 1], gravel: [2, 3], payStreak: [1, 2], bedrock: [1, 1] }
@@ -431,12 +467,13 @@ export class Creek {
     const kinds: LayerKind[] = ['overburden', 'gravel', 'payStreak', 'bedrock'];
     const layers = kinds.map((kind): Layer => {
       const [min, max] = thickness[kind];
-      const loads = rng.int(min, max);
+      const scale = gully ? 1 : traits.layerLoads[kind];
+      const loads = Math.max(1, Math.round(rng.int(min, max) * scale));
       return {
         kind,
         loads,
         initialLoads: loads,
-        richness: T.baseRichness * quality * T.layerRichness[kind] * rng.range(0.7, 1.3),
+        richness: T.baseRichness * quality * T.layerRichness[kind] * (gully ? 1 : traits.layerRichness[kind]) * rng.range(0.7, 1.3),
         clayiness: T.layerClay[kind],
         rockiness: Math.min(1, T.layerRock[kind] + rockBoost),
       };
@@ -453,8 +490,8 @@ export class Creek {
       boulder: null,
       water: 0,
       spoil: 0,
-      waterTable: rng.range(0.4, 1.2),
-      instability: rng.range(0.2, 1),
+      waterTable: rng.range(...traits.waterTable),
+      instability: rng.range(...traits.instability),
     };
   }
 }

@@ -498,6 +498,21 @@ export class Sluice {
   }
 
   /**
+   * High water comes through: the header's gravel is swept away, the moss is stripped of about
+   * half of what it held, and the intake is left choked with debris to rake clear. The emergency
+   * cleanout the design calls for: chaotic and wasteful, but the sluice itself is still there.
+   */
+  floodHit(): void {
+    this.emptyHeader();
+    this.loseFromMoss((size) => (size === 'picker' ? 0.1 : 0.5));
+    const stripped = this.moss.black * 0.6;
+    this.moss.black -= stripped;
+    this.lostBlack += stripped;
+    this.moss.light *= 0.4;
+    this.clog = 1;
+  }
+
+  /**
    * Tip out whatever gravel is still in the header, as when taking the sluice down. Its gold
    * goes with it. Returns how many pieces were lost.
    */

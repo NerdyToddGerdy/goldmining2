@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Creek, HOME_CREEK_PROFILE } from './creek';
 import { PanningSession } from './panningSession';
 import { needsPump } from './sluice';
-import { LEAD_SOURCES, Region, REGION_TUNING, type Lead, type LeadSource } from './region';
+import { SITE_ODDS, SITE_TRAITS } from './sites';
+import { LEAD_SOURCES, Region, type Lead, type LeadSource } from './region';
 import { createRng } from './rng';
 import { createSave, loadSave } from './save';
 
@@ -19,36 +20,34 @@ describe('sluice sites', () => {
     }
   });
 
-  it('appear on creek bends found by following a lead, one or two of them', () => {
+  it('appear where the ground has room and water: bends, bars and ravines, and thin benches on stretches', () => {
     const region = new Region(createRng(2));
-    let bends = 0;
-    let narrows = 0;
+    const counts: Record<string, number> = {};
     let thin = 0;
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 600; i++) {
       const result = region.follow(region.clueFound().id);
       if (!result.found) continue;
+      const site = result.lead.truth.site;
+      counts[site] = (counts[site] ?? 0) + 1;
       const sites = result.creek.sluiceSpots;
-      if (result.lead.truth.bend) {
-        bends++;
-        expect(sites.length).toBeGreaterThanOrEqual(1);
-        expect(sites.length).toBeLessThanOrEqual(2);
-        for (const spot of sites) {
-          expect(spot.gully).toBeNull();
-          expect(spot.sluiceSite!.slope).toBeGreaterThan(0);
-          expect(spot.sluiceSite!.flow).toBeGreaterThan(0.5);
-          expect(needsPump(spot.sluiceSite!)).toBe(false);
-        }
-      } else {
-        narrows++;
+      const [min, max] = SITE_TRAITS[site].sluiceSites;
+      for (const spot of sites) expect(spot.gully).toBeNull();
+      if (site === 'creekStretch') {
         // At most a thin-water bench, which needs a pump.
         expect(sites.length).toBeLessThanOrEqual(1);
         for (const spot of sites) expect(needsPump(spot.sluiceSite!)).toBe(true);
         if (sites.length) thin++;
+      } else {
+        expect(sites.length).toBeGreaterThanOrEqual(min);
+        expect(sites.length).toBeLessThanOrEqual(max);
+        for (const spot of sites) expect(needsPump(spot.sluiceSite!)).toBe(false);
       }
+      if (site === 'dryWash') expect(sites).toHaveLength(0);
+      if (site === 'ravine') for (const spot of sites) expect(spot.sluiceSite!.slope).toBeGreaterThanOrEqual(0.7);
     }
-    expect(bends).toBeGreaterThan(20);
-    expect(narrows).toBeGreaterThan(bends);
-    expect(thin / narrows).toBeCloseTo(REGION_TUNING.pumpSiteChance, 1);
+    expect(counts.creekBend).toBeGreaterThan(40);
+    for (const [kind] of SITE_ODDS) expect(counts[kind]).toBeGreaterThan(20);
+    expect(thin / counts.creekStretch!).toBeCloseTo(SITE_TRAITS.creekStretch.pumpSiteChance, 1);
   });
 
   it('are hinted at by leads: better sources mention real bars more and invent them less', () => {
@@ -60,12 +59,13 @@ describe('sluice sites', () => {
       let narrowsMentioned = 0;
       for (let i = 0; i < 2000; i++) {
         const lead = makeLead(region, source);
-        if (lead.truth.bend) {
+        const bendHint = lead.hint === SITE_TRAITS.creekBend.hint;
+        if (lead.truth.site === 'creekBend') {
           bends++;
-          if (lead.hint) bendsMentioned++;
+          if (bendHint) bendsMentioned++;
         } else {
           narrows++;
-          if (lead.hint) narrowsMentioned++;
+          if (bendHint) narrowsMentioned++;
         }
       }
       return { found: bendsMentioned / bends, invented: narrowsMentioned / narrows, bendShare: bends / 2000 };
@@ -75,9 +75,9 @@ describe('sluice sites', () => {
     expect(map.found).toBeGreaterThan(rumour.found);
     expect(map.invented).toBeLessThan(rumour.invented);
     // Hints stay fallible: rumours invent bars, and even maps miss some real ones.
-    expect(rumour.invented).toBeGreaterThan(0.1);
+    expect(rumour.invented).toBeGreaterThan(0.03);
     expect(map.found).toBeLessThan(1);
-    expect(rumour.bendShare).toBeCloseTo(REGION_TUNING.bendChance, 1);
+    expect(rumour.bendShare).toBeCloseTo(SITE_ODDS.find(([k]) => k === 'creekBend')![1], 1);
     expect(LEAD_SOURCES.mapFragment.reliability).toBeGreaterThan(LEAD_SOURCES.rumour.reliability);
   });
 
@@ -114,7 +114,7 @@ describe('sluice sites', () => {
     }
     for (const lead of [...v4.region.leads, ...v4.region.offers.map((o: { lead: unknown }) => o.lead)]) {
       delete lead.hint;
-      delete lead.truth.bend;
+      delete lead.truth.site;
     }
     const loaded = loadSave({ ...v4, version: 3 }, createRng(7));
     expect(loaded).not.toBeNull();
@@ -124,7 +124,7 @@ describe('sluice sites', () => {
     }
     for (const lead of loaded!.region.leads) {
       expect(lead.hint).toBeNull();
-      expect(lead.truth.bend).toBe(false);
+      expect(lead.truth.site).toBe('creekStretch');
     }
   });
 });

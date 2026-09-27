@@ -1,8 +1,10 @@
 import { Classifier, type ClassifierSnapshot } from './classifier';
+import { Rocker, type RockerSnapshot } from './rocker';
 import { PAN_VOLUME, Pan, totalMg, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import { quoteSale, type SaleQuote } from './market';
 import type { DigSpot } from './creek';
 import type { GearId } from './outfitter';
+import { MAGNET_TUNING, magnetStep, shakeBack, stripOff, type Clump, type MagnetStepEvents } from './magnet';
 import { SLUICE_TUNING, Sluice, bareKit, needsPump, type Concentrate, type SluiceKit, type SluiceSnapshot } from './sluice';
 import type { Rng } from './rng';
 
@@ -21,7 +23,10 @@ export const MIN_CONCENTRATE = 0.005;
 /** The player's panning state as plain data, for saving. */
 export interface SessionSnapshot {
   readonly vial: readonly GoldPiece[];
-  readonly jar: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
+  /** `magnetite` is how much of the jar's black sand the magnet could still lift. */
+  readonly jar: { readonly blackSand: number; readonly magnetite: number; readonly gold: readonly GoldPiece[] };
+  /** Sand and gold hanging on the magnet's sleeve, not yet shaken back or stripped off. */
+  readonly clump: Clump;
   readonly pansWorked: number;
   readonly pan: PanSnapshot | null;
   readonly cash: number;
@@ -31,6 +36,8 @@ export interface SessionSnapshot {
   readonly gear: readonly GearId[];
   /** Null until a classifier is bought. */
   readonly classifier: ClassifierSnapshot | null;
+  /** Null until a rocker box is bought. */
+  readonly rocker: RockerSnapshot | null;
   /** Null until a sluice is bought. */
   readonly sluice: { readonly placedAt: SluicePlace | null; readonly state: SluiceSnapshot | null } | null;
   /** Seconds of running left in the pump's tank (0 without a pump). */
@@ -54,7 +61,9 @@ export type SetUpResult = 'set' | 'notOwned' | 'noSite' | 'needsPump' | 'jarFull
 export class PanningSession {
   pan: Pan | null = null;
   readonly vial: GoldPiece[] = [];
-  readonly jar: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
+  readonly jar: { blackSand: number; magnetite: number; gold: GoldPiece[] } = { blackSand: 0, magnetite: 0, gold: [] };
+  /** What the magnet is holding up over the tray. */
+  readonly clump: Clump = { sand: 0, gold: [] };
   /** Pans of creek gravel worked; re-panned concentrate is not counted. */
   pansWorked = 0;
   /** Dollars on hand. */
@@ -68,8 +77,12 @@ export class PanningSession {
   private readonly gear = new Set<GearId>();
   /** The hand classifier, once bought: its screen, what's on it, and its bucket travel with the player. */
   classifier: Classifier | null = null;
+  /** The rocker box, once bought: it travels with the player, hopper, apron, bucket and all. */
+  rocker: Rocker | null = null;
   /** Upgrades for the sluice, shared with it while it is set up. */
   readonly sluiceKit: SluiceKit = bareKit();
+  /** Magnetite share of the last jar pour, so what goes back keeps it. */
+  private pourMagnetiteShare: number = MAGNET_TUNING.share;
   fuelCans = 0;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
@@ -80,7 +93,10 @@ export class PanningSession {
     if (!saved) return;
     this.vial.push(...saved.vial);
     this.jar.blackSand = saved.jar.blackSand;
+    this.jar.magnetite = saved.jar.magnetite;
     this.jar.gold.push(...saved.jar.gold);
+    this.clump.sand = saved.clump.sand;
+    this.clump.gold.push(...saved.clump.gold);
     this.pansWorked = saved.pansWorked;
     this.cash = saved.cash;
     this.earned = saved.earned;
@@ -91,6 +107,7 @@ export class PanningSession {
     if (this.sluiceKit.pump) this.sluiceKit.pump.fuel = saved.pumpFuel;
     this.fuelCans = saved.fuelCans;
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
+    if (saved.rocker) this.rocker = new Rocker(rng, saved.rocker);
     if (saved.sluice) {
       const state = saved.sluice.state;
       this.sluiceGear = { placedAt: saved.sluice.placedAt, sluice: state ? new Sluice(rng, state.site, state, this.sluiceKit) : null };
@@ -101,6 +118,7 @@ export class PanningSession {
     return structuredClone({
       vial: this.vial,
       jar: this.jar,
+      clump: this.clump,
       pansWorked: this.pansWorked,
       pan: this.pan?.snapshot() ?? null,
       cash: this.cash,
@@ -108,6 +126,7 @@ export class PanningSession {
       soldMg: this.soldMg,
       gear: [...this.gear],
       classifier: this.classifier?.snapshot() ?? null,
+      rocker: this.rocker?.snapshot() ?? null,
       sluice: this.sluiceGear
         ? { placedAt: this.sluiceGear.placedAt, state: this.sluiceGear.sluice?.snapshot() ?? null }
         : null,
@@ -141,6 +160,7 @@ export class PanningSession {
   owns(id: GearId): boolean {
     if (id === 'sluice') return this.sluiceGear !== null;
     if (id === 'classifier') return this.classifier !== null;
+    if (id === 'rocker') return this.rocker !== null;
     return this.gear.has(id);
   }
 
@@ -150,6 +170,8 @@ export class PanningSession {
       if (!this.sluiceGear) this.sluiceGear = { placedAt: null, sluice: null };
     } else if (id === 'classifier') {
       if (!this.classifier) this.classifier = new Classifier(this.rng);
+    } else if (id === 'rocker') {
+      if (!this.rocker) this.rocker = new Rocker(this.rng);
     } else {
       this.gear.add(id);
       this.fitKit();
@@ -253,9 +275,44 @@ export class PanningSession {
    */
   addConcentrate(concentrate: Concentrate): boolean {
     if (!this.fitsInJar(concentrate.blackSand)) return false;
-    this.jar.blackSand += concentrate.blackSand;
-    this.jar.gold.push(...concentrate.gold);
+    this.addToJar(concentrate.blackSand, MAGNET_TUNING.share, concentrate.gold);
     return true;
+  }
+
+  /** Black sand into the jar, with the share of it that is magnetite. */
+  private addToJar(blackSand: number, magnetiteShare: number, gold: readonly GoldPiece[]): void {
+    this.jar.blackSand += blackSand;
+    this.jar.magnetite += blackSand * magnetiteShare;
+    this.jar.gold.push(...gold);
+  }
+
+  /** Share of the jar still magnetite. */
+  get jarMagnetiteShare(): number {
+    return this.jar.blackSand > 1e-9 ? this.jar.magnetite / this.jar.blackSand : 0;
+  }
+
+  /** Pass the magnet over the jar's sand spread in the tray. Needs the magnet. */
+  passMagnet(dt: number, closeness: number): MagnetStepEvents {
+    if (!this.gear.has('magnet')) return { lifted: 0, goldLifted: 0 };
+    return magnetStep(this.rng, this.jar, this.clump, dt, closeness);
+  }
+
+  shakeClumpBack(): void {
+    shakeBack(this.rng, this.jar, this.clump);
+  }
+
+  /** Strip the clump onto the discard pile. Returns the gold that went with it (never shown). */
+  stripClump(): GoldPiece[] {
+    return stripOff(this.clump);
+  }
+
+  /** Put everything on the sleeve back in the tray, as when the magnet is set down mid-job. */
+  dropClump(): void {
+    this.jar.blackSand += this.clump.sand;
+    this.jar.magnetite += this.clump.sand;
+    this.jar.gold.push(...this.clump.gold);
+    this.clump.sand = 0;
+    this.clump.gold = [];
   }
 
   /**
@@ -270,6 +327,8 @@ export class PanningSession {
     const kept: GoldPiece[] = [];
     for (const piece of this.jar.gold) (share >= 1 || this.rng.next() < share ? poured : kept).push(piece);
     this.jar.gold = kept;
+    this.pourMagnetiteShare = this.jarMagnetiteShare;
+    this.jar.magnetite -= this.jar.magnetite * share;
     this.jar.blackSand -= amount;
     this.pan = new Pan(this.rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: amount, gold: poured });
     return this.pan;
@@ -290,8 +349,8 @@ export class PanningSession {
     if (saveBlackSand && !this.pan.residueSpent && !this.fitsInJar(this.pan.blackSand)) return null;
     const { collected, toJar, blackSand } = this.pan.collect(saveBlackSand);
     this.vial.push(...collected);
-    this.jar.gold.push(...toJar);
-    this.jar.blackSand += blackSand;
+    // Black sand from gravel is fresh; a jar pour going back keeps whatever share it came out with.
+    this.addToJar(blackSand, this.pan.kind === 'gravel' ? MAGNET_TUNING.share : this.pourMagnetiteShare, toJar);
     if (this.pan.kind === 'gravel') this.pansWorked += 1;
     return collected;
   }

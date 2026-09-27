@@ -1,5 +1,6 @@
 import { HOME_CREEK_PROFILE } from './creek';
 import { Economy, type EconomySnapshot } from './economy';
+import { MAGNET_TUNING } from './magnet';
 import { Crew, type CrewSnapshot } from './staffing';
 import { reservePanIds } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
@@ -13,9 +14,9 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 12;
 
-const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier'] as const;
+const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker'] as const;
 
 /** Where the player was standing, so a reload puts them back there. */
 export interface SavedPlace {
@@ -79,6 +80,11 @@ export interface LoadedGame {
  *   sluice already set up keeps its site's slope.
  * v8 → v9: the game clock, claims and crew. The clock starts now, nobody has staff, and every
  *   found stretch is staked (on load) with nothing owed.
+ * v9 → v10: the magnet. The jar's black sand is fresh (the usual magnetite share), and nothing is
+ *   on the magnet.
+ * v10 → v11: the rocker box. Nobody had one.
+ * v11 → v12: site kinds. The Home Creek is the Home Creek; every other stretch was a plain
+ *   stretch or, with sluice sites, a creek bend. Leads likewise.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -162,6 +168,37 @@ function migrate(data: unknown): unknown {
   if (save.version === 8) {
     save = { ...save, version: 9, economy: { clock: 0, claims: [] }, crew: EMPTY_CREW };
   }
+  if (save.version === 9 && isObject(save.session) && isObject(save.session.jar)) {
+    const jar = save.session.jar;
+    const magnetite = typeof jar.blackSand === 'number' ? jar.blackSand * MAGNET_TUNING.share : 0;
+    save = { ...save, version: 10, session: { ...save.session, jar: { ...jar, magnetite }, clump: { sand: 0, gold: [] } } };
+  }
+  if (save.version === 10 && isObject(save.session)) {
+    save = { ...save, version: 11, session: { ...save.session, rocker: null } };
+  }
+  if (save.version === 11 && isObject(save.region) && Array.isArray(save.region.creeks)) {
+    const region = save.region;
+    const siteOf = (bend: unknown): string => (bend ? 'creekBend' : 'creekStretch');
+    const leadV12 = (lead: unknown): unknown => {
+      if (!isObject(lead) || !isObject(lead.truth)) return lead;
+      const { bend, ...truth } = lead.truth;
+      return { ...lead, truth: { ...truth, site: siteOf(bend) } };
+    };
+    save = {
+      ...save,
+      version: 12,
+      region: {
+        ...region,
+        creeks: (region.creeks as unknown[]).map((creek, i) =>
+          isObject(creek) && isObject(creek.profile)
+            ? { ...creek, profile: { ...creek.profile, site: i === 0 ? 'homeCreek' : siteOf(Number(creek.profile.sluiceSites) > 0) } }
+            : creek,
+        ),
+        leads: Array.isArray(region.leads) ? region.leads.map(leadV12) : region.leads,
+        offers: Array.isArray(region.offers) ? region.offers.map((o) => (isObject(o) ? { ...o, lead: leadV12(o.lead) } : o)) : region.offers,
+      },
+    };
+  }
   return save;
 }
 
@@ -187,6 +224,8 @@ function maxPieceId(session: SessionSnapshot, crew: CrewSnapshot): number {
   const ids = [
     ...session.vial,
     ...session.jar.gold,
+    ...session.clump.gold,
+    ...(session.rocker ? [...session.rocker.apron.gold, ...session.rocker.hopper.gold, ...session.rocker.hopper.rocks] : []),
     ...crew.bucket.gold,
     ...(pan ? [...pan.gold, ...pan.visible, ...pan.hidden, ...pan.rocks] : []),
   ].map((item) => item.id);
@@ -203,11 +242,13 @@ function isSaveData(data: unknown): data is SaveData {
     if (!creek.spots.every((s) => isObject(s) && typeof s.id === 'number' && Array.isArray(s.layers))) return false;
   }
   if (!isObject(session) || !Array.isArray(session.vial) || !isObject(session.jar)) return false;
-  if (typeof session.jar.blackSand !== 'number' || !Array.isArray(session.jar.gold)) return false;
+  if (typeof session.jar.blackSand !== 'number' || typeof session.jar.magnetite !== 'number' || !Array.isArray(session.jar.gold)) return false;
+  if (!isObject(session.clump) || !Array.isArray(session.clump.gold)) return false;
   if (typeof session.cash !== 'number' || typeof session.earned !== 'number' || typeof session.soldMg !== 'number') return false;
   if (!Array.isArray(session.gear)) return false;
   if (typeof session.pumpFuel !== 'number' || typeof session.fuelCans !== 'number') return false;
   if (session.classifier !== null && !(isObject(session.classifier) && 'bucket' in session.classifier)) return false;
+  if (session.rocker !== null && !(isObject(session.rocker) && 'hopper' in session.rocker)) return false;
   if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;

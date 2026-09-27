@@ -16,7 +16,7 @@ function withBend(seed: number): { region: Region; bend: Creek } {
   const region = new Region(createRng(seed));
   for (let i = 0; i < 300; i++) {
     const result = region.follow(region.clueFound().id);
-    if (result.found && result.lead.truth.bend) return { region, bend: result.creek };
+    if (result.found && result.lead.truth.site === 'creekBend') return { region, bend: result.creek };
   }
   throw new Error('no bend found');
 }
@@ -108,7 +108,7 @@ describe('setting up the sluice', () => {
     let secondCreek = bend;
     for (let i = 0; !second && i < 300; i++) {
       const result = region.follow(region.clueFound().id);
-      if (result.found && result.lead.truth.bend) {
+      if (result.found && result.lead.truth.site === 'creekBend') {
         secondCreek = result.creek;
         second = result.creek.sluiceSpots[0];
       }

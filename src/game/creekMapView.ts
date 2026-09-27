@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
-import { needsPump, type DigSpot, type FieldNotes, type GroundSign, type Creek } from '../sim';
+import { needsPump, traitsOf, type DigSpot, type FieldNotes, type GroundSign, type Creek } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -94,7 +94,14 @@ export class CreekMapView extends Container {
   setStatus(status: string | null): void {
     if (status === this.status) return;
     this.status = status;
-    this.title.text = status ? `${this.creek.profile.name} (${status})` : this.creek.profile.name;
+    this.title.text = this.titleText();
+  }
+
+  /** The stretch's name, what kind of ground it is, and any claim note. */
+  private titleText(): string {
+    const site = this.creek.profile.site;
+    const kind = site === 'homeCreek' || site === 'creekStretch' ? '' : ` · ${traitsOf(site).label.toLowerCase()}`;
+    return `${this.creek.profile.name}${kind}${this.status ? ` (${this.status})` : ''}`;
   }
 
   setCreek(creek: Creek): void {
@@ -109,7 +116,7 @@ export class CreekMapView extends Container {
     this.width_ = width;
     this.height_ = height;
     this.hitArea = new Rectangle(0, 0, width, height);
-    this.title.text = this.status ? `${this.creek.profile.name} (${this.status})` : this.creek.profile.name;
+    this.title.text = this.titleText();
     this.title.position.set(width / 2, this.short ? 36 : 58);
     this.labels.removeChildren().forEach((c) => c.destroy());
     const style = { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' };
@@ -133,20 +140,42 @@ export class CreekMapView extends Container {
     g.rect(0, 0, W, H).fill(BANK);
     for (let i = 0; i < 80; i++) g.circle((i * 131.7) % W, (i * 71.3) % H, 2 + (i % 3)).fill(i % 2 ? 0x686440 : 0x4f4c2f);
 
-    // Creek channel.
+    // Creek channel: its width and look follow the ground. A ravine is a narrow torrent between
+    // rock walls, a gravel bar a wide channel with pale bars in it, a dry wash a sandy bed.
+    const site = this.creek.profile.site;
+    const width = site === 'ravine' ? 20 : site === 'gravelBar' ? 52 : 34;
+    const top = 17 - width / 2;
     const steps = 60;
     const points: number[] = [];
     for (let i = 0; i <= steps; i++) {
       const x = (i / steps) * W;
-      points.push(x, this.creekY(x));
+      points.push(x, this.creekY(x) + top);
     }
-    g.poly([...points, W, this.creekY(W) + 34, ...reversePairs(points).map((v, j) => (j % 2 ? v + 34 : v))]).fill(WATER);
-    for (let i = 0; i < 12; i++) {
-      const x = ((this.time * 50 + i * 97) % (W + 60)) - 30;
-      const y = this.creekY(x) + 10 + (i % 3) * 7;
-      g.moveTo(x, y).lineTo(x + 22, this.creekY(x + 22) + 10 + (i % 3) * 7);
+    if (site === 'ravine') {
+      // Rock walls hemming the torrent in on both sides.
+      for (const offset of [-9, width + 9]) {
+        g.moveTo(points[0]!, points[1]! + offset);
+        for (let j = 2; j < points.length; j += 2) g.lineTo(points[j]!, points[j + 1]! + offset);
+        g.stroke({ width: 16, color: 0x4d4a45 });
+      }
     }
-    g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.4 });
+    const channel = [...points, W, this.creekY(W) + top + width, ...reversePairs(points).map((v, j) => (j % 2 ? v + width : v))];
+    g.poly(channel).fill(site === 'dryWash' ? 0xb8a57c : WATER);
+    if (site === 'gravelBar') {
+      for (let i = 0; i < 5; i++) {
+        const x = W * (0.12 + i * 0.19);
+        g.ellipse(x, this.creekY(x) + 17, 40, 8).fill({ color: 0xb7a57c, alpha: 0.85 });
+      }
+    }
+    if (site !== 'dryWash') {
+      const speed = site === 'ravine' ? 110 : 50;
+      for (let i = 0; i < 12; i++) {
+        const x = ((this.time * speed + i * 97) % (W + 60)) - 30;
+        const y = this.creekY(x) + 17 + ((i % 3) - 1) * Math.min(7, width / 5);
+        g.moveTo(x, y).lineTo(x + 22, this.creekY(x + 22) + 17 + ((i % 3) - 1) * Math.min(7, width / 5));
+      }
+      g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.4 });
+    }
 
     for (const spot of this.creek.gullySpots) this.drawGully(g, spot);
     for (const spot of this.creek.spots) this.drawSpot(g, spot);

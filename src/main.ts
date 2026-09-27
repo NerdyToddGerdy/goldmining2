@@ -20,6 +20,12 @@ import {
   type FollowResult,
   type GearId,
   type LayerKind,
+  type MagnetStepEvents,
+  type Rocker,
+  ROCKER_TUNING,
+  needsPump,
+  traitsOf,
+  MIN_CONCENTRATE,
   type PanStepEvents,
   type ShovelResult,
   type Sluice,
@@ -28,15 +34,18 @@ import {
 import { BankView, type ShovelTarget } from './game/bankView';
 import { CreekMapView } from './game/creekMapView';
 import { CreekScene } from './game/creekScene';
-import { PanCoach, SluiceCoach } from './game/coach';
+import { PanCoach, RockerCoach, SluiceCoach } from './game/coach';
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
 import { RegionMapView } from './game/regionMapView';
 import { ClassifierView } from './game/classifierView';
 import { SluiceView } from './game/sluiceView';
+import { MagnetView } from './game/magnetView';
+import { RockerView } from './game/rockerView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
+import { usingTouch } from './game/inputMode';
 
 /** Simulation runs on a fixed step so outcomes do not depend on frame rate. */
 const SIM_DT = 1 / 60;
@@ -61,6 +70,8 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   classifier: 'A hand classifier. Use it on the stretches you find; the Home Creek is too narrow for it.',
   riffleMat: 'A riffle insert and ribbed mat, fitted to your sluice. It holds fine gold better: you will see it at cleanout.',
   legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
+  rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
+  magnet: 'A magnet in a plastic sleeve. Clean your jar with it here in town or out on a stretch: close is quick, but drags fine gold up with the sand.',
   pump: 'A recirculating pump. It lets the sluice run where the creek is too thin, if you keep it fuelled: buy fuel here by the can.',
 };
 
@@ -109,7 +120,23 @@ async function start(): Promise<void> {
   let sluiceEvents: SluiceStepEvents | null = null;
   const sluiceHere = (): Sluice | null => (spot ? session.sluiceAt(creek.id, spot.id) : null);
   /** The classifier travels with the player, but the Home Creek has no room for it. */
-  const classifierHere = (): Classifier | null => (session.classifier && region.allowsHandGear(creek) ? session.classifier : null);
+  const classifierHere = (): Classifier | null => (session.classifier && region.allows(creek, 'classifier') ? session.classifier : null);
+  /** The rocker travels with the player too, and likewise has no room at the Home Creek. */
+  const rockerHere = (): Rocker | null => (session.rocker && region.allows(creek, 'rocker') ? session.rocker : null);
+  /** A dry wash has no water to pan in. */
+  const canPanHere = (): boolean => inTown() || region.allows(creek, 'pan');
+  const NO_PAN_WATER = 'There is no water here to pan in. Haul water to a rocker box, or carry what you dig somewhere wetter.';
+  /** Floods that happened while the player was elsewhere, to hear about on arrival. */
+  const floodNews = new Set<number>();
+  /** Fetching a bucket for the rocker: seconds left, and how long the trip takes here. */
+  let fetchingWater: number | null = null;
+  let fetchTotal = 1;
+  let toldAboutRocker = false;
+  /** Where the magnet was picked up from, to go back to when done. */
+  let magnetReturn: 'town' | 'bank' = 'town';
+  let toldAboutMagnet = false;
+  /** In town, or at the magnet table there: time is covered by the trip, and the player isn't at any stretch. */
+  const inTown = (): boolean => mode === 'town' || (mode === 'magnet' && magnetReturn === 'town');
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
@@ -122,8 +149,11 @@ async function start(): Promise<void> {
     sluiceView.visible = mode === 'sluice';
     classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
+    magnetView.visible = mode === 'magnet';
     scene.visible = panView.visible = mode === 'pan';
-    input.enabled = mode === 'pan' || mode === 'classifier';
+    rockerView.visible = mode === 'rocker';
+    if (mode !== 'rocker') fetchingWater = null; // Walking off abandons the trip for water.
+    input.enabled = mode === 'pan' || mode === 'classifier' || mode === 'magnet';
   };
 
   /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
@@ -144,12 +174,27 @@ async function start(): Promise<void> {
   const shovel = (into: ShovelTarget): void => {
     // Dig from the bank, or straight from the close-up of the machine being fed, so feeding a run
     // doesn't mean walking back and forth.
-    const fromCloseUp = (into === 'classifier' && mode === 'classifier') || (into === 'sluice' && mode === 'sluice');
+    const fromCloseUp =
+      (into === 'classifier' && mode === 'classifier') || (into === 'sluice' && mode === 'sluice') || (into === 'rocker' && mode === 'rocker');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const blockedClaim = claimBlock();
     if (blockedClaim) return hud.toast(blockedClaim);
+    if (into === 'pan' && !canPanHere()) return hud.toast(NO_PAN_WATER);
+    // A pan left half-washed (Esc back to the hole) has to be finished before another goes in.
+    if (into === 'pan' && !session.panIsFree) {
+      setMode('pan');
+      return hud.toast('You still have a pan on the go. Finish it first.');
+    }
     const sluice = into === 'sluice' ? sluiceHere() : null;
     const classifier = into === 'classifier' ? classifierHere() : null;
+    const rocker = into === 'rocker' ? rockerHere() : null;
+    if (into === 'rocker') {
+      if (!rocker) return;
+      if (rocker.hopperFull) {
+        openRocker();
+        return hud.toast('The screen is heaped full. Rock it through first.');
+      }
+    }
     if (into === 'classifier') {
       if (!classifier) return;
       if (classifier.hasLoad) {
@@ -184,6 +229,9 @@ async function start(): Promise<void> {
     if (result.load && classifier) {
       classifier.load(rollShovelful(rng, result.load));
       openClassifier();
+    } else if (result.load && rocker) {
+      rocker.feed(result.load);
+      if (mode !== 'rocker') openRocker();
     } else if (result.load && sluice) {
       sluice.feed(result.load);
     } else if (result.load) {
@@ -247,7 +295,20 @@ async function start(): Promise<void> {
         const lead = region.clueFound();
         hud.toast(`Word from your hand: the shovel turned something up. ${lead.note} It points to ${lead.name}. Noted in your notebook.`);
       });
+      for (const flooded of region.weather(chunk, session)) {
+        if (flooded === creek && !inTown() && mode !== 'region') hud.toast(floodMessage(flooded, true));
+        else floodNews.add(flooded.id);
+      }
     }
+  };
+
+  const floodMessage = (flooded: Creek, here: boolean): string => {
+    const sluice = session.sluicePlace?.creekId === flooded.id;
+    return (
+      (here ? `High water sweeps down ${flooded.profile.name}! ` : `High water came through ${flooded.profile.name} while you were away. `) +
+      'Open holes are half buried in fresh gravel, and worked-out ground has a new layer to dig.' +
+      (sluice ? ' Your sluice took a beating: its header was swept clean, its moss stripped, and its intake choked with debris.' : '')
+    );
   };
 
   /** Where the hand would work: wherever the sluice is set up, unless something stops them. */
@@ -257,7 +318,7 @@ async function start(): Promise<void> {
     const siteCreek = region.creek(place.creekId);
     const sluice = session.sluiceAt(place.creekId, place.spotId);
     if (!sluice) return null;
-    const here = creek.id === place.creekId && mode !== 'town' && mode !== 'region';
+    const here = creek.id === place.creekId && !inTown() && mode !== 'region';
     const stopped = here ? 'playerHere' : !economy.canWork(place.creekId) ? 'claimLapsed' : null;
     return { creek: siteCreek, spot: siteCreek.spot(place.spotId), sluice, session, stopped };
   };
@@ -273,11 +334,12 @@ async function start(): Promise<void> {
   const goToCreek = (next: Creek): void => {
     if (next !== creek) {
       spot = null;
-      passTime(ECONOMY_TUNING.travel.creek);
+      passTime(ECONOMY_TUNING.travel.creek + traitsOf(next.profile.site).access);
     }
     creek = next;
     creekMap.setCreek(next);
     setMode('creek');
+    if (floodNews.delete(next.id)) hud.toast(floodMessage(next, false));
     // Back at the stretch the hand is working: hear what they did.
     if (crew.hand && session.sluicePlace?.creekId === next.id) {
       const report = crew.takeReport();
@@ -330,7 +392,44 @@ async function start(): Promise<void> {
     input.shakeHeld = false;
     setMode('classifier');
   };
-  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier });
+  const openRocker = (): void => {
+    if (!rockerHere()) return;
+    rockerView.reset();
+    setMode('rocker');
+    if (!toldAboutRocker) {
+      toldAboutRocker = true;
+      hud.toast(
+        usingTouch()
+          ? 'Ladle water over the screen, then tap Rock on a steady beat, about once a second. Too fast or too wet and gold goes out the end.'
+          : 'Ladle water over the screen (L), then rock it with Space on a steady beat, about once a second. Too fast or too wet and gold goes out the end.',
+      );
+    }
+  };
+  /** Steady creek water nearby (a bend) makes for a short trip to fill the bucket; a thin creek, a long one. */
+  /** Seconds to fill the rocker's bucket here: quick by steady water, slow by a thin creek, slowest hauling to a dry wash. */
+  const fetchSecondsHere = (): number => {
+    const site = creek.profile.site;
+    // A plain stretch with a steady sluice site nearby (a save from before site kinds) counts as steady water.
+    if (site === 'creekStretch' && creek.sluiceSpots.some((s) => !needsPump(s.sluiceSite!))) return traitsOf('creekBend').fetchSeconds;
+    return traitsOf(site).fetchSeconds;
+  };
+  const rockerActions = {
+    rock: (): void => {
+      const rocker = rockerHere();
+      if (!rocker || mode !== 'rocker' || fetchingWater !== null) return;
+      const stroke = rocker.rock();
+      rockerView.stroked(stroke);
+      rockerCoach.stroke(stroke, rocker);
+    },
+    ladle: (): void => {
+      const rocker = rockerHere();
+      if (!rocker || mode !== 'rocker' || fetchingWater !== null) return;
+      if (rocker.ladle()) rockerView.poured();
+      else hud.toast(usingTouch() ? 'The bucket is empty. Fetch water.' : 'The bucket is empty. Fetch water (E).');
+    },
+  };
+  const bankView = new BankView(creek, { shovel, pry, bail, openSluice, openClassifier, openRocker });
+  const rockerView = new RockerView(rockerActions);
   const classifierView = new ClassifierView({
     inspectRock: (rockId) => {
       const picker = classifierHere()?.inspectRock(rockId);
@@ -341,10 +440,11 @@ async function start(): Promise<void> {
     },
   });
   const sluiceView = new SluiceView({ rake: rakeSluice });
+  const magnetView = new MagnetView();
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, classifierView, townView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, classifierView, rockerView, townView, magnetView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -353,7 +453,9 @@ async function start(): Promise<void> {
     bankView.layout(width, height);
     sluiceView.layout(width, height);
     classifierView.layout(width, height);
+    rockerView.layout(width, height);
     townView.layout(width, height);
+    magnetView.layout(width, height);
     scene.resize(width, height);
     panView.layout(width, height, width / 2, scene.waterTop + (height - scene.waterTop) * 0.45);
   };
@@ -391,10 +493,47 @@ async function start(): Promise<void> {
     },
     panBucket: () => {
       if (!classifierHere() || !session.panIsFree) return;
+      if (!canPanHere()) return hud.toast(NO_PAN_WATER);
       if (!session.startScreenedPan()) return;
       panSpot = spot;
       panLayer = null;
       startPanning();
+    },
+    openRocker,
+    rock: rockerActions.rock,
+    ladle: rockerActions.ladle,
+    fetchWater: () => {
+      const rocker = rockerHere();
+      if (!rocker || mode !== 'rocker' || fetchingWater !== null) return;
+      if (rocker.bucket >= ROCKER_TUNING.bucketLadles) return hud.toast('The bucket is already full.');
+      fetchTotal = fetchSecondsHere();
+      fetchingWater = fetchTotal;
+      if (traitsOf(creek.profile.site).water === 'dry') hud.toast('No water in a dry wash: this is a long haul to fill the bucket.');
+      else if (fetchTotal > traitsOf('creekBend').fetchSeconds) hud.toast('The creek runs thin here: it takes a while to fill the bucket.');
+    },
+    tipRocker: () => {
+      const rocker = rockerHere();
+      if (!rocker?.hasLoad || mode !== 'rocker') return;
+      const unwashed = !rocker.screened;
+      const rocks = rocker.hopperRocks;
+      rocker.tipOff();
+      hud.toast(unwashed ? 'You tip the screen off, unwashed gravel and all.' : `You tip ${rocks} rock${rocks === 1 ? '' : 's'} off the screen.`);
+    },
+    cleanUpRocker: () => {
+      const rocker = rockerHere();
+      if (!rocker || mode !== 'rocker') return;
+      if (rocker.apronVolume < 0.001 && rocker.apronGoldCount === 0) return hud.toast('The apron is clean: nothing to wash up yet.');
+      if (!session.fitsInJar(rocker.apronVolume)) return hud.toast('Your jar is too full for the apron. Pan some of the jar down first (J).');
+      session.addConcentrate(rocker.cleanUp());
+      hud.toast('You lift the apron and scrape the riffles, and wash it all into your jar. Pan it to see what the rocker caught.');
+    },
+    pourIntoRocker: () => {
+      const c = classifierHere();
+      const rocker = rockerHere();
+      if (!c || !rocker || mode !== 'rocker') return;
+      if (rocker.hopperFull) return hud.toast('The screen is heaped full. Rock it through first.');
+      const material = c.pour(rocker.hopperRoom);
+      if (material) rocker.feedScreened(material);
     },
     pourIntoSluice: (): void => {
       const c = classifierHere();
@@ -520,6 +659,39 @@ async function start(): Promise<void> {
       saveBlocked = true; // Stop the autosave (and pagehide) from writing this game back before the reload.
       window.location.reload();
     },
+    openMagnet: () => {
+      if (!session.owns('magnet')) return;
+      if (mode !== 'town' && !(mode === 'bank' && region.allows(creek, 'magnet'))) {
+        return hud.toast('The Home Creek bank is too narrow to spread out a tray. Use the magnet in town or on a stretch you found.');
+      }
+      if (session.jar.blackSand < MIN_CONCENTRATE) return hud.toast('Your jar is empty: nothing for the magnet to work on.');
+      magnetReturn = mode === 'town' ? 'town' : 'bank';
+      magnetView.reset();
+      input.tilt = 0.4;
+      input.shakeHeld = false;
+      setMode('magnet');
+      if (!toldAboutMagnet) {
+        toldAboutMagnet = true;
+        hud.toast('Hold Pass (or Space) to sweep the magnet over the sand. Closer strips faster but drags fine gold up too. Shake the clump back before you strip it off.');
+      }
+    },
+    shakeClump: () => {
+      if (mode !== 'magnet' || session.clump.sand <= 0) return;
+      session.shakeClumpBack();
+    },
+    stripClump: () => {
+      if (mode !== 'magnet' || session.clump.sand <= 0) return;
+      magnetView.stripped(session.clump.sand);
+      session.stripClump(); // Whatever gold was in it goes with it, unannounced.
+    },
+    closeMagnet: () => {
+      if (mode !== 'magnet') return;
+      if (session.clump.sand > 0) {
+        session.dropClump();
+        hud.toast('You tap the clump back into the tray and pour it all into the jar.');
+      }
+      setMode(magnetReturn);
+    },
     hireHand: () => {
       const result = crew.hire(session, economy, region.home.id, restricted());
       const hand = crew.hand;
@@ -561,6 +733,7 @@ async function start(): Promise<void> {
     },
     panConcentrate: () => {
       if (!session.canPanConcentrate || mode === 'creek') return;
+      if (!canPanHere()) return hud.toast(NO_PAN_WATER);
       session.startConcentratePan();
       startPanning();
       hud.toast('Black sand is heavy and holds fine gold. Settle it, then sift with only a slight tip: a light touch keeps the gold in the pan.');
@@ -597,15 +770,18 @@ async function start(): Promise<void> {
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
   else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
-  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier') && spot) setMode('bank');
+  else if (screen === 'rocker' && spot && rockerHere()) setMode('rocker');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker') && spot) setMode('bank');
   else setMode('creek');
+  // Nothing is held up on the magnet between visits.
+  if (session.clump.sand > 0 || session.clump.gold.length > 0) session.dropClump();
   if (loaded) hud.toast(`Welcome back. ${session.vialMg.toFixed(1)} mg in the vial.`);
 
   let saveBlocked = false;
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(region, session, { screen: mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew }));
+    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew }));
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -625,6 +801,7 @@ async function start(): Promise<void> {
   }
 
   const sluiceCoach = new SluiceCoach((message) => hud.toast(message));
+  const rockerCoach = new RockerCoach((message) => hud.toast(message));
 
   /** Time stops after this long without input, so an idle tab neither earns nor owes. */
   const IDLE_AFTER_MS = 20_000;
@@ -636,6 +813,7 @@ async function start(): Promise<void> {
   let accumulator = 0;
   let sluiceAccumulator = 0;
   let classifierAccumulator = 0;
+  let magnetAccumulator = 0;
   /** Said once per fill: sifting into a full bucket does nothing, and tipping off would lose the load. */
   let toldBucketFull = false;
   app.ticker.add((ticker) => {
@@ -644,7 +822,7 @@ async function start(): Promise<void> {
 
     // Game time runs while the player is out working and has touched something lately; not in
     // town or on the map (those are paid for as travel), and not while the game sits idle.
-    if (mode !== 'town' && mode !== 'region' && performance.now() - lastInput < IDLE_AFTER_MS) passTime(dt);
+    if (!inTown() && mode !== 'region' && performance.now() - lastInput < IDLE_AFTER_MS) passTime(dt);
     const place = session.sluicePlace;
     creekMap.setStatus(claimBlock() ? (economy.claim(creek.id)?.status === 'released' ? 'claim released' : 'claim lapsed: pay fees in town') : null);
     regionMap.setClaimStatus((c) => (economy.claim(c.id)?.status === 'released' ? 'released' : economy.canWork(c.id) ? 'held' : 'lapsed'));
@@ -678,6 +856,9 @@ async function start(): Promise<void> {
     const classifier = classifierHere();
     bankView.setClassifier(classifier);
     if (mode === 'classifier' && !classifier) setMode('bank');
+    const rocker = rockerHere();
+    bankView.setRocker(rocker);
+    if (mode === 'rocker' && !rocker) setMode('bank');
 
     let events: PanStepEvents | null = null;
     const pan = session.pan;
@@ -717,6 +898,27 @@ async function start(): Promise<void> {
       }
     } else if (mode === 'sluice' && sluice) {
       sluiceView.update(dt, sluice, stepped, sluiceFlow);
+    } else if (mode === 'rocker' && rocker) {
+      rocker.step(dt);
+      if (fetchingWater !== null && (fetchingWater -= dt) <= 0) {
+        fetchingWater = null;
+        rocker.fillBucket();
+      }
+      rockerCoach.update(dt, rocker);
+      rockerView.update(dt, rocker, fetchingWater === null ? null : 1 - fetchingWater / fetchTotal);
+    } else if (mode === 'magnet') {
+      magnetAccumulator += dt;
+      let lifted = 0;
+      let goldLifted = 0;
+      while (magnetAccumulator >= SIM_DT) {
+        magnetAccumulator -= SIM_DT;
+        if (controls.shake <= 0) continue;
+        const e = session.passMagnet(SIM_DT, controls.tilt);
+        lifted += e.lifted;
+        goldLifted += e.goldLifted;
+      }
+      const magnetEvents: MagnetStepEvents = { lifted, goldLifted };
+      magnetView.update(dt, session, controls.shake > 0, controls.tilt, magnetEvents);
     } else if (mode === 'region') {
       regionMap.update(creek);
     } else if (mode === 'town') {
@@ -738,6 +940,9 @@ async function start(): Promise<void> {
       sluiceFlow,
       cleaningOut,
       classifier,
+      rocker,
+      fetchingWater: fetchingWater !== null,
+      canPan: canPanHere(),
       economy,
       crew,
       restricted: restricted(),

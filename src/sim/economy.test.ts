@@ -25,9 +25,13 @@ describe('claims and fees', () => {
     expect(economy.canWork(region.home.id)).toBe(true);
   });
 
-  it('charge more for ground that can take a sluice', () => {
-    expect(feeFor({ sluiceSites: 1, pumpSites: 0 })).toBeGreaterThan(feeFor({ sluiceSites: 0, pumpSites: 0 }));
-    expect(feeFor({ sluiceSites: 0, pumpSites: 1 })).toBe(feeFor({ sluiceSites: 1, pumpSites: 0 }));
+  it('charge by the ground: more where a sluice fits, most for a gravel bar, nothing for the Home Creek', () => {
+    const plain = feeFor({ site: 'creekStretch', sluiceSites: 0, pumpSites: 0 });
+    const bend = feeFor({ site: 'creekBend', sluiceSites: 1, pumpSites: 0 });
+    expect(bend).toBeGreaterThan(plain);
+    expect(feeFor({ site: 'creekStretch', sluiceSites: 0, pumpSites: 1 })).toBe(bend);
+    expect(feeFor({ site: 'gravelBar', sluiceSites: 2, pumpSites: 0 })).toBeGreaterThan(bend);
+    expect(feeFor({ site: 'homeCreek', sluiceSites: 0, pumpSites: 0 })).toBe(0);
   });
 
   it('run up fees by the game day, and lapse past the grace period', () => {
@@ -63,7 +67,7 @@ describe('claims and fees', () => {
     let bend = region.creeks.find((c) => c.sluiceSpots.some((s) => s.sluiceSite!.flow >= 0.4));
     for (let i = 0; !bend && i < 300; i++) {
       const r = region.follow(region.clueFound().id);
-      if (r.found && r.lead.truth.bend) bend = r.creek;
+      if (r.found && r.lead.truth.site === 'creekBend') bend = r.creek;
     }
     economy.stakeFound(region);
     session.cash = 40;

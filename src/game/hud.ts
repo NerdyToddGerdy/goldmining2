@@ -7,7 +7,11 @@ import {
   type Economy,
   type IdleReason,
   FUEL_CAN,
+  MAGNET_TUNING,
+  MIN_CONCENTRATE,
   OUTFITTER,
+  ROCKER_TUNING,
+  type Rocker,
   SLUICE_TUNING,
   quoteSale,
   type GearId,
@@ -26,7 +30,7 @@ import {
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker';
 
 export interface HudActions {
   // Pan
@@ -41,7 +45,7 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier'): void;
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker'): void;
   openClassifier(): void;
   // Classifier
   swapScreen(): void;
@@ -75,6 +79,19 @@ export interface HudActions {
   releaseClaim(creekId: number): void;
   restakeClaim(creekId: number): void;
   washCrewBucket(): void;
+  // Rocker
+  openRocker(): void;
+  rock(): void;
+  ladle(): void;
+  fetchWater(): void;
+  tipRocker(): void;
+  cleanUpRocker(): void;
+  pourIntoRocker(): void;
+  // Magnet
+  openMagnet(): void;
+  shakeClump(): void;
+  stripClump(): void;
+  closeMagnet(): void;
   // Region
   followLead(leadId: number): void;
 }
@@ -97,6 +114,12 @@ export interface HudState {
   readonly cleaningOut: boolean;
   /** The classifier, when the player has one and this creek allows it (never the Home Creek). */
   readonly classifier: Classifier | null;
+  /** The rocker box, when the player has one and this creek allows it (never the Home Creek). */
+  readonly rocker: Rocker | null;
+  /** Off fetching a bucket of water for the rocker. */
+  readonly fetchingWater: boolean;
+  /** There is water here to pan in (not at a dry wash). */
+  readonly canPan: boolean;
   readonly economy: Economy;
   readonly crew: Crew;
   /** Behind on fees or wages: expansion is blocked until paid. */
@@ -120,6 +143,8 @@ const HINTS: Record<Mode, string> = {
   pan: 'Hold Space or the pan to sift · sift level until the water clears, then tip with W/S or the wheel to wash · click rocks to rake them out',
   sluice: 'Set the intake with the Water slider · feed it from the hole · click the header to rake a clog · clean out before the moss fills',
   classifier: 'Hold Space or the screen to sift · click a rock to check it for a wedged picker · tip off the oversize when only rocks are left',
+  magnet: 'Hold Space or Pass to sweep the magnet over the sand · W/S or the wheel sets how close · shake the clump back (B), then strip it off (T)',
+  rocker: 'Ladle water over the screen (L) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -131,6 +156,8 @@ const TOUCH_HINTS: Record<Mode, string> = {
   pan: 'Hold the pan or Sift · sift level until the water clears, then tip with the slider to wash · tap rocks to rake them out',
   sluice: 'Water slider sets the intake · tap the header to rake a clog · clean out before the moss fills',
   classifier: 'Hold the screen or Sift · tap a rock to check it for a picker · tip off the oversize when only rocks are left',
+  magnet: 'Hold Pass to sweep the magnet · the slider sets how close · shake the clump back, then strip it off',
+  rocker: 'Ladle water over the screen · tap Rock on a steady beat · tip the rocks off · clean up the apron before it loads up',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -252,7 +279,11 @@ export class Hud {
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
     this.inspectToggle = this.root.querySelector('.hud-inspect-toggle') as HTMLElement;
     this.inspectToggle.addEventListener('click', () => this.toggleInspect());
-    window.addEventListener('keydown', (e) => this.handleKey(e.key.toLowerCase()));
+    window.addEventListener('keydown', (e) => {
+      // Space rocks the rocker one stroke per press; don't let it scroll or press a focused button.
+      if (e.key === ' ' && this.state?.mode === 'rocker') e.preventDefault();
+      this.handleKey(e.key.toLowerCase(), e.repeat);
+    });
   }
 
   toast(message: string): void {
@@ -270,7 +301,15 @@ export class Hud {
     const inspectLabel = forInput('Inspect (I)');
     if (this.inspectToggle.textContent !== inspectLabel) this.inspectToggle.textContent = inspectLabel;
     const hint =
-      mode === 'bank' && state.classifier && !state.sluice
+      mode === 'bank' && !state.canPan
+        ? usingTouch()
+          ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile.'
+          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (T).'
+        : mode === 'bank' && state.rocker && !state.sluice
+        ? usingTouch()
+          ? 'Drag shovelfuls up to the rocker behind the pan, to the pan, or to the spoil pile. Tap the rocker for a close look.'
+          : 'Drag shovelfuls up to the rocker behind the pan (H), to the pan (P), or to the spoil pile (T). Click the rocker for a close look.'
+        : mode === 'bank' && state.classifier && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
           : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (T). Click the classifier for a close look.'
@@ -287,8 +326,14 @@ export class Hud {
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;
-    this.panControls.hidden = !classifying && (mode !== 'pan' || pan?.phase !== 'working');
+    const magnet = mode === 'magnet';
+    this.panControls.hidden = !classifying && !magnet && (mode !== 'pan' || pan?.phase !== 'working');
     this.tiltLabel.hidden = classifying;
+    // The magnet reuses the pan's controls: Pass instead of Sift, and closeness instead of tilt.
+    const siftText = magnet ? 'Pass' : 'Sift';
+    if (this.sift.textContent !== siftText) this.sift.textContent = siftText;
+    const tiltText = magnet ? 'Closeness ' : 'Tilt ';
+    if (this.tiltLabel.firstChild && this.tiltLabel.firstChild.textContent !== tiltText) this.tiltLabel.firstChild.textContent = tiltText;
     this.water.hidden = !(state.sluice && (mode === 'bank' || mode === 'sluice'));
     if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(state.sluiceFlow);
     // Adjustable legs: the slider covers only as far as the legs reach at this site.
@@ -299,9 +344,11 @@ export class Hud {
       this.slopeInput.max = String(max);
       this.slopeInput.value = String(state.sluice.slope);
     }
-    if (mode === 'pan' && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
+    if ((mode === 'pan' || magnet) && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
     // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
-    const siftedOut = classifying
+    const siftedOut = magnet
+      ? session.jar.magnetite < 0.002
+      : classifying
       ? !state.classifier!.hasLoad || state.classifier!.screened
       : pan?.phase === 'working' && pan.siftedOut;
     if (siftedOut && !this.sift.disabled) this.on.setShake(false);
@@ -367,13 +414,18 @@ export class Hud {
       const blocked = creek.blockedBy(spot);
       const list: [string, () => void][] = [];
       if (blocked === null) {
-        list.push(['Shovel into pan (P)', () => this.on.shovel('pan')], ['Toss aside (T)', () => this.on.shovel('spoil')]);
+        if (state.canPan) list.push(['Shovel into pan (P)', () => this.on.shovel('pan')]);
+        list.push(['Toss aside (T)', () => this.on.shovel('spoil')]);
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
       if (state.classifier) {
         if (blocked === null) list.push(['Shovel onto the classifier (K)', () => this.on.shovel('classifier')]);
         list.push(['Classifier (C)', () => this.on.openClassifier()]);
+      }
+      if (state.rocker) {
+        if (blocked === null) list.push(['Shovel onto the rocker (H)', () => this.on.shovel('rocker')]);
+        list.push(['Rocker (O)', () => this.on.openRocker()]);
       }
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
@@ -382,7 +434,7 @@ export class Hud {
       } else if (spot.sluiceSite && session.owns('sluice')) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
-      list.push(...this.jarButton(session));
+      list.push(...this.jarButton(session), ...this.magnetButton(state));
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
       return list;
     }
@@ -397,6 +449,25 @@ export class Hud {
       if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (P)', () => this.on.panBucket()]);
       if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (F)', () => this.on.pourIntoSluice()]);
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
+      return list;
+    }
+    if (mode === 'rocker' && state.rocker) {
+      const r = state.rocker;
+      if (state.fetchingWater) return [['Back to the hole (Esc)', () => this.on.backToHole()]];
+      const list: [string, () => void][] = [['Rock (Space)', () => this.on.rock()]];
+      if (r.bucket > 0) list.push([`Ladle water (L) · ${r.bucket} left`, () => this.on.ladle()]);
+      if (r.bucket < ROCKER_TUNING.bucketLadles) list.push(['Fetch water (E)', () => this.on.fetchWater()]);
+      if (r.hasLoad) list.push([r.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipRocker()]);
+      if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (H)', () => this.on.shovel('rocker')]);
+      if (state.classifier && state.classifier.bucketVolume > 0.005 && !r.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoRocker()]);
+      if (r.apronVolume > 0.001 || r.apronGoldCount > 0) list.push(['Clean up the apron (C)', () => this.on.cleanUpRocker()]);
+      list.push(...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
+      return list;
+    }
+    if (mode === 'magnet') {
+      const list: [string, () => void][] = [];
+      if (session.clump.sand > 0) list.push(['Shake the clump back (B)', () => this.on.shakeClump()], ['Strip off the clump (T)', () => this.on.stripClump()]);
+      list.push(['Done (Esc)', () => this.on.closeMagnet()]);
       return list;
     }
     if (mode === 'sluice' && state.sluice) {
@@ -419,7 +490,7 @@ export class Hud {
     if (mode === 'town') {
       const offer = quoteSale(session.vial);
       const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
-      return [...sell, ['Back to the creek (Esc)', () => this.on.walkCreek()]];
+      return [...sell, ...this.magnetButton(state), ['Back to the creek (Esc)', () => this.on.walkCreek()]];
     }
     if (mode === 'region') {
       return [[`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()], ['Start over', () => this.on.newCreek()]];
@@ -598,11 +669,19 @@ export class Hud {
     return parts.join('');
   }
 
-  private jarButton(session: PanningSession): [string, () => void][] {
-    return session.canPanConcentrate ? [['Pan the concentrate jar (J)', () => this.on.panConcentrate()]] : [];
+  /** In town, or on a stretch the player found (never the Home Creek), with something in the jar. */
+  private magnetButton(state: HudState): [string, () => void][] {
+    const { session, mode } = state;
+    const place = mode === 'town' || (mode === 'bank' && state.region.allows(state.creek, 'magnet'));
+    if (!place || !session.owns('magnet') || session.jar.blackSand < MIN_CONCENTRATE) return [];
+    return [['Clean the jar with the magnet (X)', () => this.on.openMagnet()]];
   }
 
-  private handleKey(key: string): void {
+  private jarButton(session: PanningSession): [string, () => void][] {
+    return session.canPanConcentrate && this.state?.canPan !== false ? [['Pan the concentrate jar (J)', () => this.on.panConcentrate()]] : [];
+  }
+
+  private handleKey(key: string, repeat = false): void {
     if (key === 'i') return this.toggleInspect();
     const state = this.state;
     if (!state) return;
@@ -614,8 +693,23 @@ export class Hud {
       else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
+    } else if (state.mode === 'rocker') {
+      if (key === ' ' && !repeat) this.on.rock();
+      else if (key === 'l') this.on.ladle();
+      else if (key === 'e') this.on.fetchWater();
+      else if (key === 't') this.on.tipRocker();
+      else if (key === 'c') this.on.cleanUpRocker();
+      else if (key === 'h') this.on.shovel('rocker');
+      else if (key === 'b') this.on.pourIntoRocker();
+      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'magnet') {
+      if (key === 'b') this.on.shakeClump();
+      else if (key === 't') this.on.stripClump();
+      else if (key === 'escape') this.on.closeMagnet();
     } else if (state.mode === 'town') {
-      if (key === 's') this.on.sell();
+      if (key === 'x') this.on.openMagnet();
+      else if (key === 's') this.on.sell();
       else if (key === 'escape') this.on.walkCreek();
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
@@ -653,6 +747,9 @@ export class Hud {
       else if (key === 'a') this.on.bail();
       else if (key === 'escape') this.on.walkCreek();
       else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'x') this.on.openMagnet();
+      else if (key === 'h' && state.rocker) this.on.shovel('rocker');
+      else if (key === 'o' && state.rocker) this.on.openRocker();
     }
   }
 
@@ -679,6 +776,26 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+      ];
+    } else if (mode === 'rocker' && state.rocker) {
+      const r = state.rocker;
+      const water = r.water;
+      const apron = r.apronLoading;
+      rows = [
+        ['Rocking', state.fetchingWater ? 'fetching water' : { stalled: 'stalled', steady: 'steady', sloshing: 'sloshing' }[r.state]],
+        ['Water in the box', water > ROCKER_TUNING.floodFrom ? 'flooding' : water > ROCKER_TUNING.goodWater ? 'plenty' : water > ROCKER_TUNING.lowWater ? 'low' : 'dry'],
+        ['Bucket', `${r.bucket} of ${ROCKER_TUNING.bucketLadles} ladles`],
+        ['Screen', !r.hasLoad ? 'empty' : r.screened ? 'only rocks left' : 'gravel'],
+        ['Apron', apron > 0.85 ? 'full' : apron > 0.6 ? 'heavy' : apron > 0.25 ? 'loading' : 'fresh'],
+      ];
+    } else if (mode === 'magnet') {
+      const fill = session.jar.blackSand / session.jarCapacity;
+      const share = session.jarMagnetiteShare / MAGNET_TUNING.share;
+      const clump = session.clump.sand / MAGNET_TUNING.clumpMax;
+      rows = [
+        ['Jar', fill > 0.9 ? 'full' : fill > 0.5 ? 'over half' : fill > 0.2 ? 'part full' : fill > 0.01 ? 'a little' : 'empty'],
+        ['Magnetite left', share > 0.75 ? 'most' : share > 0.4 ? 'some' : share > 0.12 ? 'a little' : 'hardly any'],
+        ['On the magnet', clump >= 0.99 ? 'full: strip it off' : clump > 0.5 ? 'a heavy clump' : clump > 0.02 ? 'a clump' : 'nothing'],
       ];
     } else if (mode === 'classifier' && state.classifier) {
       const c = state.classifier;

@@ -66,7 +66,21 @@ export class RegionMapView extends Container {
     g.moveTo(0, riverY).bezierCurveTo(W * 0.3, riverY - 30, W * 0.6, riverY + 30, W, riverY - 10).stroke({ width: 10, color: RIVER });
     for (const creek of this.region.creeks) {
       const p = this.creekPos(creek);
-      g.moveTo(p.x, p.y).quadraticCurveTo(p.x - 40, (p.y + riverY) / 2, p.x + 20, riverY).stroke({ width: 3, color: RIVER });
+      const site = creek.profile.site;
+      // A dry wash is drawn as a dashed line: water only runs in it after a storm.
+      if (site === 'dryWash') {
+        for (let t = 0; t < 1; t += 0.08) {
+          const a = bezier(p, riverY, t);
+          const b = bezier(p, riverY, Math.min(1, t + 0.04));
+          g.moveTo(a.x, a.y).lineTo(b.x, b.y);
+        }
+        g.stroke({ width: 3, color: 0xa08a5a });
+      } else {
+        g.moveTo(p.x, p.y).quadraticCurveTo(p.x - 40, (p.y + riverY) / 2, p.x + 20, riverY).stroke({ width: site === 'gravelBar' ? 6 : site === 'ravine' ? 2 : 3, color: RIVER });
+      }
+      // Ravines get a pair of steep contour ticks; gravel bars a pale bar by their dot.
+      if (site === 'ravine') g.moveTo(p.x - 14, p.y + 16).lineTo(p.x - 6, p.y + 2).moveTo(p.x + 14, p.y + 16).lineTo(p.x + 6, p.y + 2).stroke({ width: 2, color: INK, alpha: 0.6 });
+      if (site === 'gravelBar') g.ellipse(p.x + 16, p.y + 4, 9, 4).fill({ color: 0xb8a57c });
     }
 
     const town = this.townPos();
@@ -177,4 +191,11 @@ export class RegionMapView extends Container {
     }
     return null;
   }
+}
+
+/** A point along a tributary's curve (matching the quadratic drawn for wet creeks). */
+function bezier(p: { x: number; y: number }, riverY: number, t: number): { x: number; y: number } {
+  const c = { x: p.x - 40, y: (p.y + riverY) / 2 };
+  const e = { x: p.x + 20, y: riverY };
+  return { x: (1 - t) ** 2 * p.x + 2 * (1 - t) * t * c.x + t ** 2 * e.x, y: (1 - t) ** 2 * p.y + 2 * (1 - t) * t * c.y + t ** 2 * e.y };
 }

@@ -1,4 +1,4 @@
-import { SLUICE_TUNING, type Pan, type PanControls, type PanStepEvents, type Sluice, type SluiceStepEvents } from '../sim';
+import { ROCKER_TUNING, SLUICE_TUNING, type Pan, type PanControls, type PanStepEvents, type Rocker, type RockerStroke, type Sluice, type SluiceStepEvents } from '../sim';
 import { usingTouch } from './inputMode';
 
 /**
@@ -133,6 +133,57 @@ export class SluiceCoach {
     } else if (!this.toldAboutMoss && sluice.mossLoading > 0.8) {
       this.toldAboutMoss = true;
       this.nudge('The moss is dark and heavy with concentrate. Clean it out soon: a full mat lets gold through.');
+    }
+  }
+
+  private nudge(message: string): void {
+    this.say(message);
+    this.cooldown = 8;
+  }
+}
+
+/**
+ * Nudges for the rocker box. Each names something the player can already see: a dry floor,
+ * water slopping over the sides, sand spraying off the end, a dark apron, an empty bucket.
+ */
+export class RockerCoach {
+  private cooldown = 0;
+  private dryStrokes = 0;
+  private quickStrokes = 0;
+  private toldAboutApron = false;
+  private toldAboutBucket = false;
+  private toldAboutFlood = false;
+
+  constructor(private readonly say: (message: string) => void) {}
+
+  stroke(stroke: RockerStroke, rocker: Rocker): void {
+    this.dryStrokes = rocker.water < ROCKER_TUNING.lowWater && rocker.hasLoad ? this.dryStrokes + 1 : 0;
+    this.quickStrokes = stroke.state === 'sloshing' && rocker.water <= ROCKER_TUNING.floodFrom ? this.quickStrokes + 1 : 0;
+    if (this.cooldown > 0) return;
+    if (this.dryStrokes >= 3) {
+      this.dryStrokes = 0;
+      this.nudge(`The box is dry: nothing moves. ${usingTouch() ? 'Ladle' : 'Ladle (L)'} some water over the screen.`);
+    } else if (this.quickStrokes >= 5) {
+      this.quickStrokes = 0;
+      this.nudge('Easy: rocking that fast throws everything out the end, gold too. Find a steady beat, about once a second.');
+    }
+  }
+
+  update(dt: number, rocker: Rocker): void {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (rocker.apronLoading < 0.3) this.toldAboutApron = false;
+    if (rocker.bucket > 0) this.toldAboutBucket = false;
+    if (rocker.water < ROCKER_TUNING.floodFrom) this.toldAboutFlood = false;
+    if (this.cooldown > 0) return;
+    if (!this.toldAboutFlood && rocker.water > ROCKER_TUNING.floodFrom) {
+      this.toldAboutFlood = true;
+      this.nudge('Too much water: it is pouring over the sides and stripping the apron. Let it run down before ladling more.');
+    } else if (!this.toldAboutApron && rocker.apronLoading > 0.8) {
+      this.toldAboutApron = true;
+      this.nudge(`The apron is dark and heavy. ${usingTouch() ? 'Clean it up' : 'Clean it up (C)'} soon: a loaded apron lets gold through.`);
+    } else if (!this.toldAboutBucket && rocker.bucket === 0 && rocker.hasLoad) {
+      this.toldAboutBucket = true;
+      this.nudge(`The bucket is empty. ${usingTouch() ? 'Fetch water' : 'Fetch water (E)'} to keep rocking.`);
     }
   }
 

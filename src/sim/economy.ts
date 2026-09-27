@@ -1,4 +1,5 @@
 import type { CreekProfile } from './creek';
+import { traitsOf } from './sites';
 import type { PanningSession } from './panningSession';
 import type { Region } from './region';
 
@@ -19,8 +20,6 @@ import type { Region } from './region';
 export const ECONOMY_TUNING = {
   /** Seconds of active play in a game day. */
   daySeconds: 600,
-  /** Holding fee per day: a plain stretch, and one with ground for a sluice. */
-  fee: { stretch: 1, sluiceGround: 2 },
   /** A claim this many days' fees behind lapses. */
   graceDays: 3,
   /** Re-staking a released claim: the recording fee. */
@@ -45,9 +44,14 @@ export interface EconomySnapshot {
   readonly claims: readonly Claim[];
 }
 
-/** The daily holding fee for a stretch: more where the ground can take a sluice. */
-export function feeFor(profile: Pick<CreekProfile, 'sluiceSites' | 'pumpSites'>): number {
-  return profile.sluiceSites + profile.pumpSites > 0 ? ECONOMY_TUNING.fee.sluiceGround : ECONOMY_TUNING.fee.stretch;
+/**
+ * The daily holding fee for a stretch, by the kind of ground: more for a bend or bench that can
+ * take a sluice, most for a broad gravel bar.
+ */
+export function feeFor(profile: Pick<CreekProfile, 'site' | 'sluiceSites' | 'pumpSites'>): number {
+  const base = traitsOf(profile.site).fee;
+  // A plain stretch with a thin-water bench can take a sluice (with a pump): it's worth more.
+  return profile.site === 'creekStretch' && profile.pumpSites > 0 ? traitsOf('creekBend').fee : base;
 }
 
 export type ReleaseResult = 'released' | 'notHeld' | 'sluiceThere';
@@ -74,7 +78,7 @@ export class Economy {
   }
 
   /** Stake a newly found stretch. Idempotent. */
-  stake(creekId: number, profile: Pick<CreekProfile, 'sluiceSites' | 'pumpSites'>): Claim {
+  stake(creekId: number, profile: Pick<CreekProfile, 'site' | 'sluiceSites' | 'pumpSites'>): Claim {
     const existing = this.claims.get(creekId);
     if (existing) return existing;
     const claim: Claim = { creekId, status: 'held', fee: feeFor(profile), owed: 0 };

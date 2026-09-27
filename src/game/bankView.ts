@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
-import { CLASSIFIER_TUNING, type Classifier, type DigSpot, type Creek, type LayerKind, type Sluice, type SluiceStepEvents } from '../sim';
+import { CLASSIFIER_TUNING, ROCKER_TUNING, type Classifier, type DigSpot, type Creek, type LayerKind, type Rocker, type Sluice, type SluiceStepEvents } from '../sim';
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
@@ -7,10 +7,11 @@ import { CLASSIFIER_TUNING, type Classifier, type DigSpot, type Creek, type Laye
  *
  * Shovel gesture: press in the hole, drag the shovelful to the pan (right) to pan it, to the
  * sluice in the creek (far right) when one is set up here, or to the spoil pile (left) to toss
- * it. Click a boulder to pry it; click a flooded hole to bail; tap the sluice for a close look.
+ * it. With a rocker box, drop it on the rocker standing behind the pan. Click a boulder to pry
+ * it; click a flooded hole to bail; tap the sluice or rocker for a close look.
  */
 
-export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier';
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker';
 
 export interface BankActions {
   shovel(into: ShovelTarget): void;
@@ -18,6 +19,7 @@ export interface BankActions {
   bail(): void;
   openSluice(): void;
   openClassifier(): void;
+  openRocker(): void;
 }
 
 const LAYER_COLORS: Record<LayerKind | 'slump', number> = {
@@ -65,6 +67,8 @@ export class BankView extends Container {
   private sluiceEvents: SluiceStepEvents | null = null;
   /** The classifier on its bucket beside the hole, when the player has one and the ground allows it. */
   private classifier: Classifier | null = null;
+  /** The rocker box, standing on the bank behind the pan, when the player has one and the ground allows it. */
+  private rocker: Rocker | null = null;
   /** Concentrate the hired hand has left in the crew bucket beside the sluice. */
   private crewBucket = 0;
 
@@ -113,6 +117,10 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setRocker(rocker: Rocker | null): void {
+    this.rocker = rocker;
   }
 
   setCrewBucket(blackSand: number): void {
@@ -195,6 +203,17 @@ export class BankView extends Container {
     return { x: this.width_ * 0.81, y: this.surfaceY - 34, w: this.width_ * 0.17, h: 70 };
   }
 
+  /** The rocker stands on the bank behind the pan: drop a shovelful up there to put it on the screen. */
+  private rockerRect(): { x: number; y: number; w: number; h: number } {
+    const pan = this.panRect();
+    return { x: pan.x, y: this.surfaceY - 100, w: 96, h: 50 };
+  }
+
+  private overRocker(x: number, y: number): boolean {
+    const r = this.rockerRect();
+    return x > r.x - 14 && x < r.x + r.w + 14 && y > r.y - 20 && y < r.y + r.h + 8;
+  }
+
   private spoilRect(): { x: number; y: number; w: number; h: number } {
     return { x: this.width_ * 0.06, y: this.surfaceY - 60, w: this.width_ * 0.2, h: 60 };
   }
@@ -224,6 +243,10 @@ export class BankView extends Container {
       this.actions.openClassifier();
       return;
     }
+    if (this.rocker && this.overRocker(x, y)) {
+      this.actions.openRocker();
+      return;
+    }
     if (!this.inHole(x, y, spot)) return;
     const blocked = this.creek.blockedBy(spot);
     if (blocked === 'boulder') {
@@ -244,11 +267,12 @@ export class BankView extends Container {
     const carrying = this.carrying;
     this.carrying = null;
     if (!carrying) return;
-    const { x } = e.global;
+    const { x, y } = e.global;
     const pan = this.panRect();
     const spoil = this.spoilRect();
     const cr = this.classifierRect();
-    if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
+    if (this.rocker && this.overRocker(x, y)) this.actions.shovel('rocker');
+    else if (this.sluice && x > this.sluiceRect().x - 12) this.actions.shovel('sluice');
     else if (x > pan.x - 40) this.actions.shovel('pan');
     else if (this.classifier && x > cr.x - 14 && x < cr.x + cr.w + 14) this.actions.shovel('classifier');
     else if (x < spoil.x + spoil.w + 30) this.actions.shovel('spoil');
@@ -268,22 +292,30 @@ export class BankView extends Container {
     // Far bank and sky strip, then the ground in cross-section.
     g.rect(0, 0, W, sy).fill(SKY_BANK);
     g.rect(0, sy, W, H - sy).fill(UNKNOWN_GROUND);
-    // Creek on the right.
+    // Creek on the right: a dry wash has only a sandy bed, and a ravine's far wall is bare rock.
+    const site = this.creek.profile.site;
     const creekX = W * 0.8;
-    g.rect(creekX, sy + 14, W - creekX, H - sy).fill(WATER);
-    for (let i = 0; i < 6; i++) {
-      const y = sy + 30 + i * 22;
-      const drift = ((this.time * 40 + i * 53) % (W - creekX)) + creekX;
-      g.moveTo(drift, y).lineTo(Math.min(W, drift + 30), y);
+    if (site === 'ravine') g.rect(0, 0, W, sy * 0.75).fill(0x4d4a45);
+    if (site === 'dryWash') {
+      g.rect(creekX, sy + 14, W - creekX, H - sy).fill(0xb8a57c);
+      for (let i = 0; i < 30; i++) g.circle(creekX + ((i * 37.3) % (W - creekX)), sy + 24 + ((i * 53.7) % (H - sy - 30)), 2).fill(0x9a8a62);
+    } else {
+      g.rect(creekX, sy + 14, W - creekX, H - sy).fill(WATER);
+      for (let i = 0; i < 6; i++) {
+        const y = sy + 30 + i * 22;
+        const drift = ((this.time * (site === 'ravine' ? 90 : 40) + i * 53) % (W - creekX)) + creekX;
+        g.moveTo(drift, y).lineTo(Math.min(W, drift + 30), y);
+      }
+      g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.35 });
     }
-    g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.35 });
-    g.rect(0, sy - 4, creekX, 6).fill(0x4d6b35);
+    g.rect(0, sy - 4, creekX, 6).fill(site === 'dryWash' ? 0x8a7d5a : site === 'gravelBar' ? 0xa99b76 : 0x4d6b35);
 
     this.drawSigns(g, spot);
     this.drawHole(g, spot);
     this.drawSpoil(g, spot);
     this.drawPan(g);
     if (this.classifier) this.drawClassifier(g, this.classifier);
+    if (this.rocker) this.drawRocker(g, this.rocker);
     if (this.sluice) this.drawSluice(g, this.sluice);
     if (this.sluice && this.crewBucket > 0) this.drawCrewBucket(g);
     this.drawShovel(g);
@@ -455,6 +487,23 @@ export class BankView extends Container {
     if (sluice.jammed || sluice.clog > 0.5) {
       for (let i = 0; i < 4; i++) g.circle(x0 - 6 + Math.random() * 34, r.y - 4 - Math.random() * 10, 2).fill({ color: 0xdfeee9, alpha: 0.8 });
     }
+  }
+
+  /** The rocker in miniature: box on its runners, gravel on the screen, water in the box, the apron darkening. */
+  private drawRocker(g: Graphics, rocker: Rocker): void {
+    const r = this.rockerRect();
+    const hot = this.carrying !== null && this.overRocker(this.pointer.x, this.pointer.y);
+    const floor = r.y + r.h - 12;
+    g.moveTo(r.x + 6, floor + 2).quadraticCurveTo(r.x + 30, floor + 14, r.x + 54, floor + 2).stroke({ width: 3, color: 0x3d2c1c });
+    g.moveTo(r.x + 44, floor + 2).quadraticCurveTo(r.x + 68, floor + 14, r.x + 92, floor + 2).stroke({ width: 3, color: 0x3d2c1c });
+    g.poly([r.x, r.y + 18, r.x + r.w, r.y + 26, r.x + r.w, floor, r.x, floor - 4]).fill(0x7a5a38).stroke({ width: hot ? 3 : 1.5, color: hot ? 0xe6b940 : 0x3d2c1c });
+    g.rect(r.x + 30, floor - 8, r.w - 36, 4).fill(lerp(0xb9ab86, 0x2a241c, rocker.apronLoading));
+    if (rocker.water > 0.05) g.rect(r.x + 28, floor - 4 - Math.min(14, rocker.water * 14), r.w - 30, Math.min(14, rocker.water * 14)).fill({ color: 0x4f8a8c, alpha: 0.55 });
+    // Hopper at the high end.
+    g.rect(r.x - 2, r.y, 30, 20).stroke({ width: 2, color: 0x3d2c1c });
+    const heap = Math.min(1, rocker.hopperVolume / ROCKER_TUNING.hopperMax);
+    if (heap > 0.01) g.poly([r.x + 1, r.y + 18, r.x + 25, r.y + 18, r.x + 18, r.y + 18 - heap * 16, r.x + 8, r.y + 18 - heap * 14]).fill(0x8b8578);
+    for (let i = 0; i < Math.min(4, rocker.hopperRocks); i++) g.circle(r.x + 6 + i * 6, r.y + 12 - heap * 10, 3).fill(0x7c786f);
   }
 
   /** The hand's bucket of cleanouts on the bank by the sluice header, dark to the fill line. */

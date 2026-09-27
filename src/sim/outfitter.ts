@@ -6,7 +6,7 @@ import type { PanningSession } from './panningSession';
  * feed one. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump';
+export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker';
 
 export interface GearItem {
   readonly id: GearId;
@@ -25,6 +25,12 @@ export const OUTFITTER: readonly GearItem[] = [
     description: 'A screen over a bucket, with coarse and fine mesh. Shake your gravel through it: rocks stay on top to be checked for wedged pickers, and clean, even material goes to the pan or sluice. Too much for the narrow Home Creek; use it on the stretches you find.',
   },
   {
+    id: 'rocker',
+    name: 'Rocker box',
+    price: 20,
+    description: 'A box on curved rockers, with a screen, a canvas apron and riffles. Ladle water over the gravel and rock it on a steady beat: quicker than panning, and it needs no sluice site, only the water you carry. Rock too fast or flood it and gold goes out the end. For the stretches you find, not the narrow Home Creek.',
+  },
+  {
     id: 'sluice',
     name: 'Hand sluice',
     price: 40,
@@ -35,6 +41,12 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Big concentrate jar',
     price: 10,
     description: 'Holds three times as much black sand as your jar, so you can save more pans and sluice cleanouts before stopping to pan it down.',
+  },
+  {
+    id: 'magnet',
+    name: 'Magnet in a sleeve',
+    price: 6,
+    description: 'Pass it over your jar of black sand and the magnetite leaps up onto it, so the jar holds more and pans down faster. Held close it drags fine gold up too: shake the clump back before you strip it off. For use in town or on the stretches you find.',
   },
   {
     id: 'riffleMat',

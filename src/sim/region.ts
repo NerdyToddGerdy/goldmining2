@@ -2,6 +2,8 @@ import { Creek, HOME_CREEK_PROFILE, type CreekProfile, type CreekSnapshot, type 
 import { estimateAround, type Estimate } from './estimate';
 import type { PanningSession } from './panningSession';
 import { normal, type Rng } from './rng';
+import { SITE_ODDS, SITE_TRAITS, siteAllows, traitsOf, type SiteKind } from './sites';
+import { ECONOMY_TUNING } from './economy';
 
 /**
  * The region around the Home Creek: the creeks the player knows, the leads they hold, and the
@@ -28,8 +30,8 @@ export interface Lead {
   status: LeadStatus;
   /** The creek found by following it. */
   creekId: number | null;
-  /** Hidden truth: whether there is anything there, and how rich it really is. */
-  readonly truth: { readonly real: boolean; readonly richness: number; readonly bend: boolean };
+  /** Hidden truth: whether there is anything there, how rich it really is, and what kind of ground. */
+  readonly truth: { readonly real: boolean; readonly richness: number; readonly site: SiteKind };
 }
 
 export interface LeadOffer {
@@ -62,13 +64,7 @@ export const REGION_TUNING = {
   /** Real stretches: lognormal richness around this, relative to the Home Creek. */
   stretchRichness: 1.3,
   stretchRichnessSigma: 0.5,
-  /** Share of stretches that are creek bends, with room and water for a sluice. */
-  bendChance: 0.35,
-  /** Chance a stretch that isn't a bend has a thin-water bench a sluice could run on with a pump. */
-  pumpSiteChance: 0.45,
 } as const;
-
-const BEND_HINT = 'Mentions a wide gravel bar with steady water: room for a sluice.';
 
 const NAME_FIRST = ['Coyote', 'Tin Cup', 'Grubstake', 'Lost Horse', 'Magpie', 'Deadwood', 'Sluicebox', 'Nugget', 'Two Pine', 'Blue Jay', 'Hangman', 'Whiskey', 'Old Man', 'Rattlesnake', 'Bitter Root'];
 const NAME_SECOND = ['Gulch', 'Creek', 'Run', 'Bar', 'Draw', 'Fork', 'Wash', 'Hollow'];
@@ -134,11 +130,31 @@ export class Region {
   }
 
   /**
-   * Whether hand gear beyond the shovel and pan (the classifier) can be used at a creek. Every
-   * found stretch has room; the Home Creek is a micro-site and stays shovel-and-pan only, forever.
+   * Whether the ground has room and water for a piece of hand gear. The Home Creek is a micro-site
+   * and stays shovel-and-pan only, forever; a ravine has no flat ground for a rocker; a dry wash
+   * has no water to pan in.
    */
-  allowsHandGear(creek: Creek): boolean {
-    return creek !== this.home;
+  allows(creek: Creek, gear: 'pan' | 'classifier' | 'rocker' | 'magnet'): boolean {
+    if (creek === this.home) return gear === 'pan';
+    return siteAllows(creek.profile.site, gear);
+  }
+
+  /**
+   * High water on the sites prone to it, over `seconds` of game time. A flood buries open holes
+   * and lays fresh gravel on worked-out ground; a sluice set up there is knocked about and
+   * stripped. Returns the creeks flooded.
+   */
+  weather(seconds: number, session: PanningSession): Creek[] {
+    const flooded: Creek[] = [];
+    for (const creek of this.creeks) {
+      const chance = traitsOf(creek.profile.site).floodPerDay * (seconds / ECONOMY_TUNING.daySeconds);
+      if (chance <= 0 || this.rng.next() >= chance) continue;
+      creek.flood();
+      const place = session.sluicePlace;
+      if (place?.creekId === creek.id) session.sluiceAt(place.creekId, place.spotId)?.floodHit();
+      flooded.push(creek);
+    }
+    return flooded;
   }
 
   creek(id: number): Creek {
@@ -204,15 +220,17 @@ export class Region {
       lead.status = 'dud';
       return { found: false, lead };
     }
+    const traits = SITE_TRAITS[lead.truth.site];
     const profile: CreekProfile = {
       name: lead.name,
+      site: lead.truth.site,
       richness: lead.truth.richness,
       renewing: false,
-      spotCount: this.rng.int(3, 5),
-      gullyCount: this.rng.int(0, 2),
-      sourceChance: 0.5,
-      sluiceSites: lead.truth.bend ? this.rng.int(1, 2) : 0,
-      pumpSites: !lead.truth.bend && this.rng.next() < REGION_TUNING.pumpSiteChance ? 1 : 0,
+      spotCount: this.rng.int(...traits.spots),
+      gullyCount: this.rng.int(...traits.gullies),
+      sourceChance: traits.sourceChance,
+      sluiceSites: this.rng.int(...traits.sluiceSites),
+      pumpSites: this.rng.next() < traits.pumpSiteChance ? 1 : 0,
     };
     const creek = new Creek(this.rng, undefined, profile);
     this.creeks.push(creek);
@@ -229,20 +247,34 @@ export class Region {
     // A dud still claims something: what it says is invented, around a typical stretch.
     const claimed = (real ? richness : REGION_TUNING.stretchRichness) * traits.optimism * rng.range(0.75, 1.3);
     const notes = NOTES[source];
-    // Whether the ground has room for a sluice, and whether the lead says so. Better sources are
-    // more likely to mention a real bar and less likely to invent one.
-    const bend = rng.next() < REGION_TUNING.bendChance;
-    const mentionsBar = bend ? rng.next() < 0.4 + 0.5 * traits.reliability : rng.next() < (1 - traits.reliability) * 0.4;
+    // What kind of ground it is, and whether the lead says so. Better sources are more likely to
+    // describe real ground and less likely to invent a description.
+    const site = pickSite(rng);
+    const truthful = SITE_TRAITS[site].hint;
+    let hint: string | null = null;
+    if (truthful && rng.next() < 0.4 + 0.5 * traits.reliability) hint = truthful;
+    else if (rng.next() < (1 - traits.reliability) * 0.4) {
+      const others = SITE_ODDS.map(([kind]) => SITE_TRAITS[kind].hint).filter((h) => h && h !== truthful);
+      hint = others[rng.int(0, others.length - 1)] ?? null;
+    }
     return {
       id: nextLeadId++,
       source,
       name: `${NAME_FIRST[rng.int(0, NAME_FIRST.length - 1)]} ${NAME_SECOND[rng.int(0, NAME_SECOND.length - 1)]}`,
       note: notes[rng.int(0, notes.length - 1)]!,
       richness: estimateAround(claimed, traits.vagueness),
-      hint: mentionsBar ? BEND_HINT : null,
+      hint,
       status: 'open',
       creekId: null,
-      truth: { real, richness, bend },
+      truth: { real, richness, site },
     };
   }
+}
+
+function pickSite(rng: Rng): SiteKind {
+  let roll = rng.next();
+  for (const [kind, odds] of SITE_ODDS) {
+    if ((roll -= odds) < 0) return kind;
+  }
+  return 'creekStretch';
 }

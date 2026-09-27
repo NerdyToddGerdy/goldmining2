@@ -28,9 +28,9 @@ function setup(seed: number, richness?: number): Setup {
   const region = new Region(createRng(seed));
   for (let i = 0; i < 300; i++) {
     const lead = region.clueFound();
-    if (richness !== undefined) (lead as { truth: { real: boolean; richness: number; bend: boolean } }).truth = { real: true, richness, bend: true };
+    if (richness !== undefined) (lead as { truth: unknown }).truth = { real: true, richness, site: 'creekBend' };
     const result = region.follow(lead.id);
-    if (!result.found || !result.lead.truth.bend) continue;
+    if (!result.found || result.lead.truth.site !== 'creekBend') continue;
     const session = new PanningSession(createRng(seed));
     session.cash = 200;
     buyGear(session, 'sluice');

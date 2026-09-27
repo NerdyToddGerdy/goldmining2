@@ -157,6 +157,20 @@ This supports the idea that a claim may be depleted for a pan but profitable aga
 | Wide valley placer | Large | Major infrastructure and high throughput | High capital, competition, ongoing obligations | Wash plant, loader, conveyors, crew facilities |
 | Remote district | Large to exceptional | Rare resources and late-game potential | High scouting, logistics, and risk | Advanced survey, satellite camp, specialized processing |
 
+### In the game: site kinds
+
+Every stretch found by following a lead is one of these. What it is decides what can be done there. Leads may describe the ground, and better sources describe it truly more often and invent it less.
+
+| Kind | How often | Ground | Gear it takes | Hazard | Fee a day |
+|---|---:|---|---|---|---:|
+| Creek stretch | ~32% | 3–5 spots; sometimes a thin-water bench | Pan, classifier, rocker; a sluice on the bench with a pump | — | $1 ($2 with a bench) |
+| Creek bend | ~33% | 3–5 spots, 1–2 steady sluice sites | Pan, classifier, rocker, sluice | — | $2 |
+| Gravel bar | ~12% | 6–8 spots, shallow: thin overburden, broad gravel and pay | Pan, classifier, rocker, 2–3 steady sluice sites | Floods (about one game day in five): open holes half buried, worked-out spots given a thin fresh layer, a sluice there swept, stripped and choked | $3 |
+| Narrow ravine | ~12% | 2–3 spots, rich bedrock pockets under broken rock; unstable walls, twice the boulders | Pan, classifier; no flat ground for a rocker; at most one sluice site, in fast, steep water | A long walk in (extra game time) | $2 |
+| Dry wash | ~11% | 4–6 spots, shallow and fairly rich, no seep in the holes | No water to pan in or run a sluice. The rocker works on water hauled in (a long fetch). The drywasher and wash tub will open it up properly. | — | $1 |
+
+Creek maps, bank views and the region map draw each kind differently: a wide channel with pale bars, a narrow torrent between rock walls, a dry sandy bed and a dashed tributary.
+
 ---
 
 ## Equipment Unlocks by Site Scale
@@ -760,6 +774,15 @@ In the game, the **hand classifier** ($15 at the outfitter) is a screen sitting 
 - **The bucket:** it holds about three shovelfuls. It pours into the sluice header, where there are no rocks to jam the intake or carry pickers off the end, or into the pan a pan-sized share at a time, with no rocks to rake.
 - **Where it works:** every found stretch, but never the Home Creek, which stays shovel-and-pan only.
 
+In the game, the **rocker box** ($20 at the outfitter) is the step between the pan and the sluice. It needs no sluice site, only water carried in a bucket:
+- **Where it works:** every found stretch, never the Home Creek. It travels with the player, and stands on the bank behind the pan.
+- **Feeding:** shovelfuls go on the hopper screen (or the classifier's bucket is poured in). Rocks stay on the screen to be tipped off, pickers and all, unannounced.
+- **Water:** a bucket holds ten ladles. Each ladle raises the water in the box, and each stroke carries some out of the end. Fetching a bucket takes a few seconds beside steady water (a creek bend) and more than twice as long where the creek runs thin, so water is worth conserving.
+- **Rhythm:** each tap of Rock is one stroke, and the time between strokes is the rhythm. A steady beat (about 0.6 to 1.5 s) moves material and keeps recovery strong.
+- **Operating states:** **stalled** (a dry box, or strokes far apart: nothing moves, clay never breaks up), **rocking steady**, and **sloshing** (strokes too quick, which throws gold out the end, or a flooded box, which pours over the sides and strips fines out of the apron).
+- **Harvest:** the canvas apron darkens as it loads and catches less when heavy, like the sluice's moss. "Clean up the apron" washes it into the jar for the delayed reveal.
+- **Throughput:** well above the pan, below the sluice.
+
 ### Dry-wash chain
 
 ```text
@@ -822,7 +845,7 @@ Pan progression:
 0. Steel pan: settle, tip, wash, reveal. The skill is how far to tip. *(in the game)*
 1. Riffled pan: moulded riffles on one side of the wall hold the dark layer, so the player can wash harder. The riffles also hold black sand, so the player flips to the smooth side for the final cleanup; when to flip is the decision. *Open question: whether it may be used at the Home Creek. It is still the pan, and can never be lost or run out, but the Home Creek takes no added gear.*
 2. Hand classifier: screened material, no rocks to rake. *(in the game)*
-3. Magnet: pulls magnetite out of saved black sand, so the jar holds more and jar pans go faster. A little fine gold clings to the magnetite, so stripping hard costs gold.
+3. Magnet: pulls magnetite out of saved black sand, so the jar holds more and jar pans go faster. A little fine gold clings to the magnetite, so stripping hard costs gold. *(in the game: $6. About 60% of saved black sand is magnetite. The jar is spread in a tray and the player holds Pass to sweep the magnet at a chosen closeness: close strips fast but lifts fines into the clump, high is slow and clean. Each pass lifts less as the magnetite runs low. The clump holds a little before it must be dealt with: shake it back (most trapped gold and some sand drop back) and strip it onto the discard pile, gold and all, unannounced. Used in town or on a found stretch, never the Home Creek bank.)*
 4. Finishing pan and snuffer bottle: a small, deep-riffled pan for jar work, and a bottle that sucks up the thin tail of fines at the reveal instead of saving it back to the jar. The trade is a slower reveal for gold in hand now.
 5. Wash tub: panning where there is no creek (dry washes, benches). The player carries the water, and it clouds with every pan. Muddy water slows settling and hides colour until it is changed.
 6. Spiral wheel concentrator: a finishing machine for the jar. Faster and gentler on fines than hand panning, but lossy when mistuned (tilt, spray, feed). It sets up at found stretches or a camp spot in town, never the Home Creek.

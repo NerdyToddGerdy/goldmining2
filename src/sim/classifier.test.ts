@@ -212,8 +212,8 @@ describe('where and how the classifier is had', () => {
   it('is sold for $15 and works everywhere but the Home Creek', () => {
     const region = new Region(createRng(9));
     const found = region.follow(region.clueFound().id);
-    expect(region.allowsHandGear(region.home)).toBe(false);
-    if (found.found) expect(region.allowsHandGear(found.creek)).toBe(true);
+    expect(region.allows(region.home, 'classifier')).toBe(false);
+    if (found.found) expect(region.allows(found.creek, 'classifier')).toBe(true);
     const session = new PanningSession(createRng(9));
     session.cash = 15;
     expect(buyGear(session, 'classifier')).toBe('bought');
