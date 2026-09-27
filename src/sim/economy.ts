@@ -90,6 +90,23 @@ export class Economy {
     return Math.floor(this.clock / ECONOMY_TUNING.daySeconds) + 1;
   }
 
+  /** How far through the current game day it is, 0 at the start to just under 1 at the end. */
+  get dayProgress(): number {
+    return (this.clock % ECONOMY_TUNING.daySeconds) / ECONOMY_TUNING.daySeconds;
+  }
+
+  /**
+   * The time of day as a working day reads: a game day is ten working hours, 7 am to 5 pm,
+   * shown to the quarter hour.
+   */
+  get timeOfDay(): string {
+    const quarters = Math.floor(this.dayProgress * 40);
+    const hour24 = 7 + Math.floor(quarters / 4);
+    const minutes = (quarters % 4) * 15;
+    const hour12 = ((hour24 + 11) % 12) + 1;
+    return `${hour12}:${String(minutes).padStart(2, '0')} ${hour24 < 12 ? 'am' : 'pm'}`;
+  }
+
   /** Stake a newly found stretch. Idempotent. */
   stake(creekId: number, profile: Pick<CreekProfile, 'site' | 'sluiceSites' | 'pumpSites'>): Claim {
     const existing = this.claims.get(creekId);

@@ -302,7 +302,7 @@ Low-cost recovery options:
 
 ### In the game: time, claims and fees
 
-- **Game time** passes only while the player is out working and has touched something in the last twenty seconds, and in fixed amounts for travel: a trip to town and back, a walk to another stretch, or following a lead out. Time in town or on the region map is covered by the travel cost. A closed or idle tab neither earns nor owes. A game day is ten minutes of active play, shown as "Day N" by the cash.
+- **Game time** passes only while the player is out working and has touched something in the last twenty seconds, and in fixed amounts for travel: a trip to town and back, a walk to another stretch, or following a lead out. Time in town or on the region map is covered by the travel cost. A closed or idle tab neither earns nor owes. A game day is ten minutes of active play, read as a ten-hour working day from 7 am to 5 pm. It's shown by the cash as "Day N · 1:15 pm", with a thin bar filling toward the next day.
 - **Claims:** every found stretch is staked when found. A plain stretch costs $1 a day to hold, and one with ground for a sluice (including a thin-water bench) costs $2.
 - **Paying:** fees and wages come out of cash automatically in town, as far as the cash goes, on arriving and after each sale.
 - **Lapsing:** a claim more than three days behind lapses. It can't be dug, the sluice can't be set up on it, and a hand won't work it until it's paid up.

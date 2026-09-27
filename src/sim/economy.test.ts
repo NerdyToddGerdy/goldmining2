@@ -139,3 +139,20 @@ describe('paying what is owed', () => {
     expect(crew.wagesOverdue).toBe(false);
   });
 });
+
+describe('the time of day', () => {
+  it('runs a ten-hour working day, 7 am to 5 pm, and rolls over to the next', () => {
+    const economy = new Economy();
+    expect(economy.day).toBe(1);
+    expect(economy.timeOfDay).toBe('7:00 am');
+    expect(economy.dayProgress).toBe(0);
+    economy.advance(DAY / 2);
+    expect(economy.timeOfDay).toBe('12:00 pm');
+    expect(economy.dayProgress).toBeCloseTo(0.5);
+    economy.advance(DAY * 0.475);
+    expect(economy.timeOfDay).toBe('4:45 pm');
+    economy.advance(DAY * 0.03);
+    expect(economy.day).toBe(2);
+    expect(economy.timeOfDay).toBe('7:00 am');
+  });
+});

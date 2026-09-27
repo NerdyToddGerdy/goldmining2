@@ -269,6 +269,8 @@ export class Hud {
   private readonly inspect: HTMLElement;
   private readonly toastEl: HTMLElement;
   private readonly cash: HTMLElement;
+  /** The bar under the clock, filling toward the next day. */
+  private readonly dayFill: HTMLElement;
   private readonly panel: HTMLElement;
   private panelKey = '';
   /** Small screens start with the notebook and claims board folded up. */
@@ -286,7 +288,7 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-hint"></div>
-      <div class="hud-cash"></div>
+      <div class="hud-cash"><span class="hud-cash-text"></span><div class="hud-day" title="How far through the working day"><div class="hud-day-fill"></div></div></div>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
       <div class="hud-toast" hidden></div>
@@ -317,7 +319,8 @@ export class Hud {
     this.result = this.root.querySelector('.hud-result') as HTMLElement;
     this.inspect = this.root.querySelector('.hud-inspect') as HTMLElement;
     this.toastEl = this.root.querySelector('.hud-toast') as HTMLElement;
-    this.cash = this.root.querySelector('.hud-cash') as HTMLElement;
+    this.cash = this.root.querySelector('.hud-cash-text') as HTMLElement;
+    this.dayFill = this.root.querySelector('.hud-day-fill') as HTMLElement;
     this.panel = this.root.querySelector('.hud-panel') as HTMLElement;
     this.panel.addEventListener('click', (e) => {
       const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
@@ -406,8 +409,10 @@ export class Hud {
           ? TOUCH_HINTS[mode]
           : HINTS[mode];
     if (this.hint.textContent !== hint) this.hint.textContent = hint;
-    const cash = `Day ${state.economy.day} · $${session.cash.toFixed(2)}`;
+    const cash = `Day ${state.economy.day} · ${state.economy.timeOfDay} · $${session.cash.toFixed(2)}`;
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
+    const width = `${(state.economy.dayProgress * 100).toFixed(1)}%`;
+    if (this.dayFill.style.width !== width) this.dayFill.style.width = width;
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;
