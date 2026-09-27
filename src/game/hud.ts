@@ -314,6 +314,7 @@ export class Hud {
   private readonly tablet: HTMLElement;
   private readonly tabletBody: HTMLElement;
   private readonly tabletClock: HTMLElement;
+  private readonly tabletClose: HTMLElement;
   private tabletTab: TabletTab = 'overview';
   private tabletSelected: number | null = null;
   private tabletKey = '';
@@ -328,6 +329,8 @@ export class Hud {
   private inspectOpen = true;
   private lossRate = 0;
   private toastTimer = 0;
+  /** Recent messages, newest first, for the tablet's Overview. */
+  private readonly messages: { readonly text: string; readonly when: string }[] = [];
   private state: HudState | null = null;
 
   constructor(private readonly on: HudActions) {
@@ -337,7 +340,7 @@ export class Hud {
       <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
-      <div class="hud-toast" hidden></div>
+      <div class="hud-toast" role="status" aria-live="polite" hidden><span class="hud-led"></span><span class="hud-toast-text"></span></div>
       <div class="hud-panel" hidden></div>
       <div class="tablet" hidden>
         <div class="tablet-screen">
@@ -388,6 +391,7 @@ export class Hud {
     this.tablet = this.root.querySelector('.tablet') as HTMLElement;
     this.tabletBody = this.root.querySelector('.tablet-body') as HTMLElement;
     this.tabletClock = this.root.querySelector('.tablet-clock') as HTMLElement;
+    this.tabletClose = this.root.querySelector('[data-t="close"]') as HTMLElement;
     this.tablet.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-t], [data-ttab], [data-claim], [data-go]');
       if (!target) return;
@@ -458,8 +462,18 @@ export class Hud {
   }
 
   toast(message: string): void {
-    this.toastEl.textContent = forInput(message);
+    // News arrives on the tablet: the message drops out from under it and the light blinks.
+    (this.toastEl.querySelector('.hud-toast-text') as HTMLElement).textContent = forInput(message);
     this.toastEl.hidden = false;
+    for (const el of [this.toastEl, this.cashButton]) {
+      el.classList.remove('ping');
+      void el.offsetWidth; // Restart the animation.
+      el.classList.add('ping');
+    }
+    const economy = this.state?.economy;
+    this.messages.unshift({ text: message, when: economy ? `Day ${economy.day}, ${economy.timeOfDay}` : '' });
+    this.messages.length = Math.min(this.messages.length, 8);
+    this.tabletKey = '';
     // Longer messages stay up longer.
     this.toastTimer = Math.max(3, message.length / 18);
   }
@@ -472,7 +486,8 @@ export class Hud {
     const inspectLabel = forInput('Inspect (I)');
     const tabletTitle = forInput('Field tablet (O): claims, crew, leads and costs');
     if (this.cashButton.title !== tabletTitle) this.cashButton.title = tabletTitle;
-    if (this.inspectToggle.textContent !== inspectLabel) this.inspectToggle.textContent = inspectLabel;
+    setLabel(this.inspectToggle, inspectLabel);
+    setLabel(this.tabletClose, forInput('Close (Esc)'));
     const hint =
       mode === 'bank' && state.drywasher
         ? usingTouch()
@@ -760,6 +775,7 @@ export class Hud {
     this.panelKey = key;
     this.panel.hidden = !show;
     this.panel.classList.toggle('collapsed', this.panelCollapsed);
+    this.panel.classList.toggle('notebook', mode === 'region');
     if (!show) return;
     if (mode === 'town') {
       const offers = region.offers.map(({ lead, price }) => {
@@ -819,8 +835,8 @@ export class Hud {
       const leads = [...region.leads].reverse().map((lead) => {
         const action =
           lead.status === 'open' ? `<button type="button" data-action="follow" data-lead="${lead.id}">Follow it</button>`
-          : lead.status === 'dud' ? '<span class="dud">Nothing there.</span>'
-          : '<span class="found">Found. It is on the map.</span>';
+          : lead.status === 'dud' ? '<span class="pencil">Nothing there.</span>'
+          : '<span class="pencil">Found it. On the map.</span>';
         return `<div class="lead ${lead.status}">${leadHeader(lead)}${action}</div>`;
       });
       const open = region.leads.filter((l) => l.status === 'open').length;
@@ -1274,7 +1290,10 @@ export class Hud {
       `<tr><td>Pans worked</td><td>${session.pansWorked}, ${money(session.earned)} earned all told</td></tr>` +
       `</table>` +
       `<h4>Needs you</h4>` +
-      (attention.length ? `<ul class="warnings">${attention.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="found">Nothing pressing.</p>')
+      (attention.length ? `<ul class="warnings">${attention.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="found">Nothing pressing.</p>') +
+      (this.messages.length
+        ? `<h4>Recent</h4><ul class="messages">${this.messages.map((m) => `<li><span class="small">${m.when}</span>${escapeHtml(forInput(m.text))}</li>`).join('')}</ul>`
+        : '')
     );
   }
 
@@ -1430,7 +1449,7 @@ export class Hud {
 
 function leadHeader(lead: Lead): string {
   const { low, high } = lead.richness;
-  return `<b>${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${describeGround(lead)}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
+  return `<b class="lead-name">${lead.name}</b> <span class="small">${SOURCE_NAMES[lead.source]}</span><p>${lead.note}</p>${describeGround(lead)}<p class="small">Suggests ${low.toFixed(1)}× to ${high.toFixed(1)}× the Home Creek.</p>`;
 }
 
 /**
@@ -1519,14 +1538,37 @@ function el(tag: string, className: string): HTMLElement {
   return node;
 }
 
+/**
+ * Set a button's label, with its keyboard shortcut ("Walk to town (T)") drawn as a keycap after the
+ * words. On touch, forInput has already dropped the shortcut, so no keycap appears.
+ */
+export function setLabel(b: HTMLElement, label: string): void {
+  if (b.dataset.label === label) return;
+  b.dataset.label = label;
+  const match = /\s\(([A-Z]|Esc|Enter)\)/.exec(label);
+  if (!match) {
+    b.textContent = label;
+    return;
+  }
+  const words = document.createElement('span');
+  words.textContent = (label.slice(0, match.index) + label.slice(match.index + match[0].length)).trim();
+  const cap = document.createElement('kbd');
+  cap.textContent = match[1]!;
+  b.replaceChildren(words, cap);
+}
+
 function button(label: string, onClick: () => void): HTMLElement {
   const b = el('button', 'hud-action');
   (b as HTMLButtonElement).type = 'button';
-  b.textContent = label;
+  setLabel(b, label);
   b.addEventListener('click', () => {
     // Drop focus so Space (sift) cannot re-trigger the button.
     b.blur();
     onClick();
   });
   return b;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }

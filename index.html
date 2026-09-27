@@ -29,6 +29,13 @@
         border-radius: 4px; padding: 8px 12px; font: inherit; cursor: pointer; touch-action: none; user-select: none;
       }
       @media (hover: hover) { .hud button:hover { background: rgba(60, 70, 50, 0.85); } }
+      /* A button's keyboard shortcut, drawn as a keycap after its words (never shown on touch). */
+      .hud button kbd {
+        display: inline-block; margin-left: 8px; min-width: 1.5em; padding: 0 5px; box-sizing: border-box;
+        font: 600 11px/17px system-ui, sans-serif; text-align: center; vertical-align: 1px;
+        color: rgba(239, 230, 207, 0.85); background: rgba(239, 230, 207, 0.08);
+        border: 1px solid rgba(239, 230, 207, 0.35); border-bottom-width: 2px; border-radius: 3px;
+      }
       .hud button:active { background: rgba(80, 90, 60, 0.9); }
       .hud-hint { position: absolute; left: var(--edge-l); top: var(--edge-t); right: 280px; opacity: 0.8; text-shadow: 0 1px 2px #000; }
       /* The clock and cash, shown on a small handheld: tap it to open the field tablet. */
@@ -79,6 +86,39 @@
       .hud-panel .tab-body > .lead:first-child { border-top: none; padding-top: 2px; }
       .hud-panel .tabs .count { font: 12px system-ui, sans-serif; margin-left: 5px; opacity: 0.75; }
       .hud-panel p { margin: 2px 0 6px; }
+      /*
+       * On the region map the panel is the prospector's field book: an all-weather notebook with a
+       * cloth binding, faint rules, and leads written in pencil. Duds are struck out, finds circled.
+       */
+      .hud-panel.notebook {
+        --paper: #ece0ad; --graphite: #3a3830; --rule: rgba(84, 104, 96, 0.24); --line: 22px;
+        color: var(--graphite); border: none; border-top: 9px solid #4b5530; border-radius: 3px 3px 2px 2px;
+        background: var(--paper) repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px) var(--line)) local;
+        background-position: 0 3px;
+        box-shadow: 0 6px 18px rgba(40, 30, 10, 0.35), inset 3px 0 0 rgba(75, 85, 48, 0.25);
+        padding: 0 14px var(--line); line-height: var(--line);
+      }
+      /* Everything sits on the rules: one line of the page per line of text, and whole lines between. */
+      .hud-panel.notebook h3 { margin: 0; line-height: calc(var(--line) * 2); color: var(--graphite); font: 700 17px/calc(var(--line) * 2) Georgia, serif; }
+      .hud-panel.notebook h3 .count { font: 400 15px Kalam, cursive; opacity: 0.8; }
+      .hud-panel.notebook p { margin: 0; }
+      .hud-panel.notebook .small { font-size: 12px; opacity: 0.72; }
+      .hud-panel.notebook .lead { border-top: none; padding: 0; margin-top: var(--line); }
+      .hud-panel.notebook .lead:first-of-type { margin-top: 0; }
+      .hud-panel.notebook .lead-name { display: inline-block; font: 700 20px/var(--line) Kalam, cursive; }
+      .hud-panel.notebook .lead.dud { opacity: 0.6; }
+      .hud-panel.notebook .lead.dud .lead-name { text-decoration: line-through 2px var(--graphite); }
+      .hud-panel.notebook .lead.followed .lead-name {
+        padding: 0 9px; margin-left: -9px; border: 1.5px solid var(--graphite);
+        border-radius: 48% 52% 45% 55% / 60% 50% 55% 45%; transform: rotate(-2deg);
+      }
+      .hud-panel.notebook .pencil { display: block; font: 400 16px/var(--line) Kalam, cursive; }
+      .hud-panel.notebook button {
+        display: block; height: calc(var(--line) * 2 - 10px); min-height: 0; margin: 5px 0; padding: 0 12px; line-height: 1;
+        background: transparent; color: var(--graphite); border: 1.5px solid rgba(58, 56, 48, 0.6); font-weight: 600;
+      }
+      @media (hover: hover) { .hud-panel.notebook button:hover { background: rgba(58, 56, 48, 0.1); } }
+      .hud-panel.notebook button:active { background: rgba(58, 56, 48, 0.18); }
       .hud-panel .small { font-size: 12px; opacity: 0.75; }
       .hud-panel .lead { border-top: 1px solid rgba(239, 230, 207, 0.15); padding: 8px 0; }
       .hud-panel .lead.dud { opacity: 0.5; }
@@ -126,10 +166,24 @@
       .tablet-body .dud { opacity: 0.6; }
       .tablet-group { padding: 8px 0; border-top: 1px solid rgba(239, 230, 207, 0.15); }
       .tablet-group:first-child { border-top: none; }
+      /* Messages drop out from under the corner tablet, on the same screen. */
       .hud-toast {
-        position: absolute; left: 50%; top: 28%; transform: translateX(-50%);
-        background: rgba(20, 26, 18, 0.85); padding: 8px 14px; border-radius: 4px; color: #f3d77a;
+        position: absolute; right: calc(var(--edge-r) + 6px); top: 60px; z-index: 6; max-width: min(360px, 60vw);
+        display: flex; gap: 8px; align-items: baseline; padding: 7px 12px 8px;
+        background: #1e2a22; color: #efe6cf; border: 2px solid #3a3a36; border-top-width: 0; border-radius: 0 0 8px 8px;
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45), inset 0 0 0 1px #5a6b5c;
       }
+      .hud-toast[hidden] { display: none; }
+      .hud-toast .hud-led { flex: none; transform: translateY(-2px); }
+      .hud-toast.ping { animation: toast-in 220ms ease-out; }
+      @keyframes toast-in { from { transform: translateY(-10px); opacity: 0; } }
+      .hud-cash.ping .hud-led { animation: led-blink 900ms ease-out; }
+      @keyframes led-blink { 0%, 40% { background: #f3d77a; box-shadow: 0 0 8px #f3d77a; } }
+      @media (prefers-reduced-motion: reduce) { .hud-toast.ping, .hud-cash.ping .hud-led { animation: none; } }
+      .tablet-body .messages { list-style: none; margin: 4px 0; padding: 0; }
+      .tablet-body .messages li { padding: 3px 0; border-top: 1px solid rgba(239, 230, 207, 0.1); }
+      .tablet-body .messages li:first-child { border-top: none; }
+      .tablet-body .messages .small { display: inline; margin-right: 8px; }
       .hud-inspect {
         position: absolute; left: var(--edge-l); top: 48px; min-width: 210px; padding: 8px 10px;
         background: rgba(12, 16, 11, 0.8); border-radius: 4px; font-size: 13px;
@@ -166,7 +220,7 @@
         .hud-bar { gap: 6px; }
         .hud-result { top: 14%; font-size: 17px; }
         .hud-result.hud-result-town { top: 46%; font-size: 14px; padding: 6px 12px; }
-        .hud-toast { top: 22%; font-size: 13px; max-width: 70vw; }
+        .hud-toast { top: 44px; font-size: 13px; max-width: 70vw; }
         .hud-inspect { top: 40px; font-size: 12px; }
         #fullscreen { padding: 4px 8px; font-size: 12px; }
       }

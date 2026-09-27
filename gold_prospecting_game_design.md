@@ -559,11 +559,12 @@ Example warning:
 - **Wages** run by the day for every hand, working or not, and are paid in town with claim fees, automatically while there's cash. If the crew goes more than two days' wages unpaid, the last hand hired walks off, and what's owed stays owed. Releasing a claim brings its crew back to town with their bucket and poke.
 - **Estimates:** the claim's entry shows how many days of ground are left at the crew's pace, and a rough daily take for a hand built only from the player's own field notes.
 - **Field tablet:** the player's central place for information, always to hand on a creek, the region map and in town, crew or no crew. The clock and cash in the corner are drawn as the tablet itself: tap it (or press O) to open it, and its light turns red when the books or a claim need the player. It only reads; buying, hiring and setting jobs still happen in town. Game time stands still while it's open.
+  - **Messages** arrive on the tablet: each one drops out from under it and its light blinks, and the last few are kept on the Overview.
   - **Overview:** where the player is, cash, the vial (weight and what the buyer would pay), the jar (how full; its gold unknown until panned), gear owned and where machines are set up, claims, crew, leads, and a "Needs you" list gathered from everything below.
   - **Claims:** a card for each held claim, sorted by what needs attention: Trouble (lapsed, crew idle on wages, no jobs, or likely costing more than it brings in by the player's own notes), Needs a look (bucket nearly full, out of fuel, waiting for a crew unit or an operator, fees owed, ground nearly worked out, no field notes), Steady, and No crew. The Home Creek is always listed: free, always yours. Tapping a card shows the crew, each job's state, costs a day, ground left, the rough take, what's waiting to collect, and a "Walk there" button.
   - **What waiting shows:** how full the crew bucket is, and pieces in the poke. Gold still in the bucket's concentrate is never counted: it's unknown until panned.
   - **Crew:** who is at each stretch, their wages, jobs left unfilled, who is waiting in town, and spare crew gear; with nobody hired, what hiring would get you.
-  - **Leads:** the notebook, read-only, and how many leads are for sale in town.
+  - **Leads:** the notebook (on the region map, drawn as a paper field book: leads pencilled in, duds struck out, finds circled), read-only here, and how many leads are for sale in town.
   - **Costs:** cash, fees and wages a day, how long cash lasts at that rate, what's owed, and the financial state with the countdown to shutdown when insolvent.
   - Not yet: accident and maintenance risk (not modelled), and setting crew policy from the tablet (see "Crew policies").
 

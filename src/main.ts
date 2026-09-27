@@ -1,4 +1,6 @@
 import { Application } from 'pixi.js';
+import '@fontsource/kalam/latin-400.css';
+import '@fontsource/kalam/latin-700.css';
 import {
   PanningSession,
   Region,
