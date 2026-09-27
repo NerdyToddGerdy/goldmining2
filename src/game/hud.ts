@@ -381,6 +381,11 @@ export class Hud {
     this.result = this.root.querySelector('.hud-result') as HTMLElement;
     this.inspect = this.root.querySelector('.hud-inspect') as HTMLElement;
     this.toastEl = this.root.querySelector('.hud-toast') as HTMLElement;
+    // Tap a message to put it away; it stays on the tablet's Overview.
+    this.toastEl.addEventListener('click', () => {
+      this.toastEl.hidden = true;
+      this.toastTimer = 0;
+    });
     this.cash = this.root.querySelector('.hud-cash-text') as HTMLElement;
     this.dayFill = this.root.querySelector('.hud-day-fill') as HTMLElement;
     this.moneyLine = this.root.querySelector('.hud-money') as HTMLElement;
@@ -779,37 +784,41 @@ export class Hud {
     if (!show) return;
     if (mode === 'town') {
       const offers = region.offers.map(({ lead, price }) => {
-        const afford = session.cash >= price;
-        return `<div class="lead">${leadHeader(lead)}<button type="button" data-action="buy" data-lead="${lead.id}" ${afford ? '' : 'disabled'}>Buy for $${price}</button></div>`;
+        return `<div class="notice">${leadHeader(lead)}${priceTag(`data-action="buy" data-lead="${lead.id}"`, price, session.cash)}</div>`;
       });
       const gear = OUTFITTER.map((item) => {
         const place = session.sluicePlace;
         const base = item.requires ? OUTFITTER.find((g) => g.id === item.requires)! : null;
-        const status = base && !session.owns(base.id)
-          ? `<span class="small">Fits the ${base.name.toLowerCase()}: buy that first.</span>`
-          : !session.owns(item.id)
-          ? `<button type="button" data-action="gear" data-gear="${item.id}" ${session.cash >= item.price ? '' : 'disabled'}>Buy for $${item.price}</button>`
-          : item.id !== 'sluice'
-            ? '<span class="found">Yours.</span>'
-            : place
-              ? `<span class="found">Yours. Set up at ${region.creek(place.creekId).profile.name}.</span>`
-              : '<span class="found">Yours. Packed and ready to set up.</span>';
-        return `<div class="lead"><b>${item.name}</b><p class="small">${item.description}</p>${status}</div>`;
+        const owned = session.owns(item.id);
+        const note = base && !session.owns(base.id)
+          ? `<p class="small">Fits the ${base.name.toLowerCase()}: buy that first.</p>`
+          : owned && item.id === 'sluice'
+            ? `<p class="small">${place ? `Set up at ${region.creek(place.creekId).profile.name}.` : 'Packed and ready to set up.'}</p>`
+            : '';
+        const side = owned
+          ? '<span class="stamp">Yours</span>'
+          : priceTag(`data-action="gear" data-gear="${item.id}"`, item.price, session.cash, base && !session.owns(base.id) ? 'Needs the ' + base.name.toLowerCase() : null);
+        return ware(item.name, `<p class="small">${item.description}</p>${note}`, side, owned);
       });
       const crew = state.crew;
       gear.push(
-        `<div class="lead"><b>Crew gear</b><p class="small">Extra machines for your crew, kept apart from your own. A crew job takes one when it needs it, and a sluice or highbanker job uses yours instead if it's set up at that stretch.</p>` +
-          CREW_GEAR.map(
-            ([machine, name]) =>
-              `<p class="small">${name}${crew.spares[machine] ? ` · ${crew.spares[machine]} spare` : ''} <button type="button" data-action="crewgear" data-machine="${machine}" ${state.money.canCrewGear && session.cash >= STAFF_TUNING.machinePrice[machine] ? '' : 'disabled'}>Buy for $${STAFF_TUNING.machinePrice[machine]}</button></p>`,
-          ).join('') +
-          '</div>',
+        `<h4 class="shelf">For your crew</h4><p class="small">Extra machines, kept apart from your own. A crew job takes one when it needs it, and a sluice or highbanker job uses yours instead if it's set up at that stretch.</p>` +
+          CREW_GEAR.map(([machine, name]) =>
+            ware(
+              name,
+              crew.spares[machine] ? `<p class="small">${crew.spares[machine]} spare in town.</p>` : '',
+              priceTag(`data-action="crewgear" data-machine="${machine}"`, STAFF_TUNING.machinePrice[machine], session.cash, state.money.canCrewGear ? null : 'Not while money’s tight'),
+            ),
+          ).join(''),
       );
       if (session.owns('pump') || session.owns('highbanker')) {
         const full = session.fuelCans >= FUEL_CAN.carryLimit;
         gear.push(
-          `<div class="lead"><b>${FUEL_CAN.name}</b><p class="small">One can fills a tank, the pump's or the highbanker's. You're carrying ${session.fuelCans} of ${FUEL_CAN.carryLimit}.</p>` +
-            `<button type="button" data-action="fuel" ${session.cash >= FUEL_CAN.price && !full ? '' : 'disabled'}>${full ? 'Can’t carry more' : `Buy for $${FUEL_CAN.price}`}</button></div>`,
+          ware(
+            FUEL_CAN.name,
+            `<p class="small">One can fills a tank, the pump's or the highbanker's. You're carrying ${session.fuelCans} of ${FUEL_CAN.carryLimit}.</p>`,
+            priceTag('data-action="fuel"', FUEL_CAN.price, session.cash, full ? 'Can’t carry more' : null),
+          ),
         );
       }
       const tabs = `<div class="tabs" role="tablist">${(
@@ -829,8 +838,8 @@ export class Hud {
           ? gear.join('')
           : this.townTab === 'office'
           ? this.renderOffice(state)
-          : `${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
-      this.panel.innerHTML = `${tabs}<div class="tab-body">${body}</div>`;
+          : `<div class="board">${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}</div><p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
+      this.panel.innerHTML = `${tabs}<div class="tab-body tab-${this.townTab}">${body}</div>`;
     } else {
       const leads = [...region.leads].reverse().map((lead) => {
         const action =
@@ -874,6 +883,35 @@ export class Hud {
     return `${claims}:${workers}:${sites}:${JSON.stringify(crew.spares)}:${crew.returned.blackSand.toFixed(3)}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
   }
 
+  /**
+   * The claims office's ledger page: every claim with its fee and what it owes, and the payroll,
+   * totalled. The money at a glance, above the crew and jobs.
+   */
+  private ledger(state: HudState): string {
+    const { economy, crew, region } = state;
+    const cents = (n: number): string => (n > 0.004 ? (Math.ceil(n * 100 - 1e-6) / 100).toFixed(2) : '—');
+    const rows = economy.allClaims.map((claim) => {
+      const creek = region.creek(claim.creekId);
+      const released = claim.status === 'released';
+      const note = released
+        ? 'released'
+        : economy.isLapsed(claim)
+          ? '<span class="lapsed">lapsed</span>'
+          : `${traitsOf(creek.profile.site).label.toLowerCase()}, ${creek.groundLeft <= 0 ? 'worked out' : `${Math.max(10, Math.round(creek.groundLeft * 10) * 10)}% ground left`}`;
+      return `<tr class="${released ? 'released' : ''}"><td><span class="entry">${creek.profile.name}</span><span class="note">${note}</span></td><td>${released ? '—' : claim.fee.toFixed(2)}</td><td>${released ? '—' : cents(claim.owed)}</td></tr>`;
+    });
+    const home = `<tr><td><span class="entry">${region.home.profile.name}</span><span class="note">free, always yours</span></td><td>—</td><td>—</td></tr>`;
+    const payroll = crew.workers.length
+      ? `<tr><td><span class="entry">Wages</span><span class="note">${crew.workers.length} on the payroll</span></td><td>${crew.dailyWages.toFixed(2)}</td><td>${cents(Math.max(0, crew.wagesOwed))}</td></tr>`
+      : '';
+    const fees = economy.allClaims.filter((c) => c.status === 'held').reduce((n, c) => n + c.fee, 0);
+    const total = `<tr class="total"><td>Total</td><td>${(fees + crew.dailyWages).toFixed(2)}</td><td>${cents(economy.feesOwed + Math.max(0, crew.wagesOwed))}</td></tr>`;
+    return (
+      `<div class="ledger"><div class="ledger-head">Claims ledger<span>Day ${economy.day}</span></div>` +
+      `<table><thead><tr><th>Claim</th><th>A day</th><th>Owed</th></tr></thead><tbody>${rows.join('')}${home}${payroll}${total}</tbody></table></div>`
+    );
+  }
+
   /** The claims office and crew: fees owed, the crew and where they are, and each claim's jobs. */
   private renderOffice(state: HudState): string {
     const { economy, crew, region, session } = state;
@@ -899,7 +937,8 @@ export class Hud {
           : `<p class="warn">You owe ${owing(owed)} and have no cash. Sell some gold at the counter: it's paid automatically as soon as you have the money.</p>`,
       );
     }
-    parts.push(`<p class="small">Day ${economy.day}. Fees and wages come out of your cash whenever you're in town, as far as it goes. The Home Creek is free.</p>`);
+    parts.push(this.ledger(state));
+    parts.push(`<p class="small">Fees and wages come out of your cash whenever you're in town, as far as it goes.</p>`);
 
     // The crew as a whole.
     const crewLines = [
@@ -946,7 +985,8 @@ export class Hud {
       const here = crew.workersAt(claim.creekId);
       const site = crew.findSite(claim.creekId);
       const staffed = crew.staffedJobs(claim.creekId);
-      const lines = [`<b>${name}</b> <span class="small">${kind} · $${claim.fee} a day</span><p>${status}</p>${ground}`];
+      // Fee, what's owed and ground left are in the ledger above; here is the work.
+      const lines = [`<b>${name}</b> <span class="small">${kind}</span>${economy.isLapsed(claim) ? `<p>${status}</p>` : ''}`];
       const room = here.length < cap && economy.canWork(claim.creekId);
       lines.push(
         `<p class="small">Crew here: ${here.length ? here.map((w) => `${w.name} (${w.role})`).join(', ') : 'none'} (room for ${cap}).</p>` +
@@ -1571,4 +1611,19 @@ function button(label: string, onClick: () => void): HTMLElement {
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+/** A thing for sale in the outfitter: its name and words on the left, its tag or stamp on the right. */
+function ware(name: string, body: string, side: string, owned = false): string {
+  return `<div class="ware${owned ? ' owned' : ''}"><div><b>${name}</b>${body}</div>${side}</div>`;
+}
+
+/**
+ * A price tag, which is also the buy button. When it can't be bought, the tag says why: what's
+ * missing in cash, or the reason given.
+ */
+function priceTag(attrs: string, price: number, cash: number, blocked: string | null = null): string {
+  const short = cash < price;
+  const why = blocked ?? (short ? `$${(Math.ceil((price - cash) * 100) / 100).toFixed(2)} short` : 'Buy');
+  return `<button type="button" class="tag" ${attrs} ${blocked || short ? 'disabled' : ''} aria-label="Buy for $${price}"><span class="tag-price">$${price}</span><span class="tag-why">${why}</span></button>`;
 }

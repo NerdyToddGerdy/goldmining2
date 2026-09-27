@@ -567,6 +567,7 @@ Example warning:
   - **Leads:** the notebook (on the region map, drawn as a paper field book: leads pencilled in, duds struck out, finds circled), read-only here, and how many leads are for sale in town.
   - **Costs:** cash, fees and wages a day, how long cash lasts at that rate, what's owed, and the financial state with the countdown to shutdown when insolvent.
   - Not yet: accident and maintenance risk (not modelled), and setting crew policy from the tablet (see "Crew policies").
+- **Town, on paper:** in town the side panel is the counter. The outfitter's wares carry manila price tags that are also the buy buttons (saying what's short, or why not), with a red stamp on gear the player owns; leads for sale are pinned index cards; and the claims office opens on a ledger page of every claim's fee a day and what it owes, the payroll, and the total.
 
 ## Equipment UX Philosophy
 

@@ -87,6 +87,70 @@
       .hud-panel .tabs .count { font: 12px system-ui, sans-serif; margin-left: 5px; opacity: 0.75; }
       .hud-panel p { margin: 2px 0 6px; }
       /*
+       * In town the panel is the counter, and what's on it is paper: manila price tags on the
+       * outfitter's wares (a red stamp on what you own), leads posted as index cards, and the claims
+       * office's ledger page.
+       */
+      .hud-panel .ware { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid rgba(239, 230, 207, 0.12); }
+      .hud-panel .tab-body > .ware:first-child { border-top: none; padding-top: 4px; }
+      .hud-panel .ware p { margin: 2px 0 0; }
+      .hud-panel .ware.owned > div { opacity: 0.7; }
+      .hud-panel h4.shelf { margin: 16px 0 2px; padding-top: 10px; border-top: 1px solid rgba(239, 230, 207, 0.25); font: 600 15px Georgia, serif; color: #f3d77a; }
+      .hud .hud-panel button.tag {
+        --manila: #dcbc80;
+        position: relative; display: flex; flex-direction: column; align-items: center; min-width: 64px; margin: 2px 2px 0 0;
+        padding: 5px 9px 6px 20px; border: none; border-radius: 0 4px 4px 0; color: #3b2a12;
+        background: radial-gradient(circle at 10px 50%, rgba(30, 22, 14, 0.95) 0 3.5px, #8a6a38 3.5px 4.5px, transparent 5px), var(--manila);
+        clip-path: polygon(9px 0, 100% 0, 100% 100%, 9px 100%, 0 50%);
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45)); transform: rotate(2.5deg); transform-origin: 0 50%;
+      }
+      .hud .hud-panel .ware:nth-of-type(even) button.tag, .hud .hud-panel .notice:nth-of-type(even) button.tag { transform: rotate(-2deg); }
+      @media (hover: hover) { .hud .hud-panel button.tag:not(:disabled):hover { --manila: #e8cb92; } }
+      .hud .hud-panel button.tag:not(:disabled):active { --manila: #c9a86a; }
+      .hud .hud-panel button.tag:disabled { opacity: 0.6; cursor: default; }
+      .hud-panel .tag-price { font: 700 19px/1.1 Kalam, cursive; }
+      .hud-panel .tag-why { font: 600 11px/1.2 system-ui, sans-serif; opacity: 0.8; white-space: nowrap; }
+      .hud-panel .stamp {
+        margin: 4px 4px 0 0; padding: 1px 8px; font: 700 14px/1.4 Georgia, serif; letter-spacing: 1px; text-transform: uppercase;
+        color: #d0553f; border: 2px solid currentColor; outline: 1px solid currentColor; outline-offset: 2px; border-radius: 3px;
+        transform: rotate(-7deg); opacity: 0.9; mix-blend-mode: screen;
+      }
+      .hud-panel .board { display: flex; flex-direction: column; gap: 12px; padding: 6px 2px 4px; }
+      .hud-panel .notice {
+        position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: start;
+        padding: 12px 12px 10px; color: #33302a; background: #f1e9d4;
+        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4); transform: rotate(-0.6deg);
+      }
+      .hud-panel .notice:nth-child(even) { transform: rotate(0.7deg); }
+      .hud-panel .notice::before {
+        content: ''; position: absolute; top: 5px; left: 50%; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #e0705e, #9c3325); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      }
+      .hud-panel .notice > :not(.tag) { grid-column: 1; }
+      .hud-panel .notice > .tag { grid-column: 2; grid-row: 1 / span 6; }
+      .hud-panel .notice .lead-name { font: 700 19px/1.2 Kalam, cursive; }
+      .hud-panel .notice .small { opacity: 0.72; }
+      .hud-panel .ledger {
+        --ink: #243150; margin: 4px 0 12px; padding: 0 0 6px; color: var(--ink); background: #e5e9d3;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4); font: 13px/1.3 Georgia, serif;
+      }
+      .hud-panel .ledger-head {
+        display: flex; justify-content: space-between; padding: 6px 10px 4px; font: 700 15px Georgia, serif;
+        border-bottom: 2px solid rgba(60, 100, 80, 0.5);
+      }
+      .hud-panel .ledger-head span { font: 400 16px Kalam, cursive; }
+      .hud-panel .ledger table { width: 100%; border-collapse: collapse; }
+      .hud-panel .ledger th { font: 600 11px system-ui, sans-serif; text-align: right; padding: 3px 10px 2px 6px; opacity: 0.7; }
+      .hud-panel .ledger th:first-child { text-align: left; padding-left: 10px; }
+      .hud-panel .ledger td { padding: 3px 10px 3px 6px; border-bottom: 1px solid rgba(60, 100, 80, 0.25); text-align: right; vertical-align: top; font-variant-numeric: tabular-nums; }
+      .hud-panel .ledger td:first-child { text-align: left; padding-left: 10px; }
+      .hud-panel .ledger td + td, .hud-panel .ledger th + th { border-left: 3px double rgba(185, 70, 60, 0.55); width: 56px; }
+      .hud-panel .ledger .entry { display: block; font: 700 16px/1.2 Kalam, cursive; }
+      .hud-panel .ledger .note { display: block; font: 11px system-ui, sans-serif; opacity: 0.7; }
+      .hud-panel .ledger .lapsed { color: #b0321f; font-weight: 700; opacity: 1; }
+      .hud-panel .ledger tr.released .entry { text-decoration: line-through 1.5px; opacity: 0.6; }
+      .hud-panel .ledger tr.total td { border-bottom: 3px double rgba(36, 49, 80, 0.6); font-weight: 700; }
+      /*
        * On the region map the panel is the prospector's field book: an all-weather notebook with a
        * cloth binding, faint rules, and leads written in pencil. Duds are struck out, finds circled.
        */
@@ -169,6 +233,7 @@
       /* Messages drop out from under the corner tablet, on the same screen. */
       .hud-toast {
         position: absolute; right: calc(var(--edge-r) + 6px); top: 60px; z-index: 6; max-width: min(360px, 60vw);
+        pointer-events: auto; cursor: pointer;
         display: flex; gap: 8px; align-items: baseline; padding: 7px 12px 8px;
         background: #1e2a22; color: #efe6cf; border: 2px solid #3a3a36; border-top-width: 0; border-radius: 0 0 8px 8px;
         box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45), inset 0 0 0 1px #5a6b5c;
