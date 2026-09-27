@@ -132,6 +132,11 @@ export const CREEK_TUNING = {
   barrenGullyQuality: 0.05,
   /** Chance per shovelful on the creek of turning up a clue. */
   clueChance: 0.012,
+  /**
+   * The Home Creek's slow renewal: each worked-out spot's chance, per game day, of a small rise in
+   * the water laying fresh gravel there (about a 40% chance a day).
+   */
+  renewPerDay: 0.5,
 } as const;
 
 /** What kind of stretch a creek is. */
@@ -407,23 +412,52 @@ export class Creek {
     return buried;
   }
 
+  /**
+   * A big high-water event on the Home Creek: every worked-out spot, gully test spots included,
+   * gets fresh gravel. The guarantee that the Home Creek never runs dry.
+   */
   highWater(): void {
-    const T = CREEK_TUNING;
     this.highWaterEvents += 1;
-    for (const spot of this.creekSpots) {
-      if (!this.isWorkedOut(spot)) continue;
-      spot.water = 0;
-      spot.boulder = null;
-      const loads = this.rng.int(2, 4);
-      spot.layers.unshift({
-        kind: 'gravel',
-        loads,
-        initialLoads: loads,
-        richness: T.baseRichness * T.highWaterRichness * this.rng.range(0.5, 1.5),
-        clayiness: T.layerClay.gravel,
-        rockiness: T.layerRock.gravel,
-      });
+    for (const spot of this.spots) {
+      if (this.isWorkedOut(spot)) this.renew(spot, this.rng.int(2, 4));
     }
+  }
+
+  /**
+   * The Home Creek renewing bit by bit over game time: each worked-out spot (gully test spots
+   * included) may get fresh gravel from a small rise in the water, without waiting for the whole
+   * creek to be worked out. Stretches found by leads are finite and never renew. Returns the spots
+   * renewed.
+   */
+  trickle(days: number): DigSpot[] {
+    if (!this.profile.renewing || days <= 0) return [];
+    const chance = 1 - Math.exp(-days * CREEK_TUNING.renewPerDay);
+    const renewed: DigSpot[] = [];
+    for (const spot of this.spots) {
+      if (!this.isWorkedOut(spot) || this.rng.next() >= chance) continue;
+      this.renew(spot, this.rng.int(1, 3));
+      renewed.push(spot);
+    }
+    return renewed;
+  }
+
+  /**
+   * Lay a thin layer of fresh gravel on a worked-out spot. Down a gully it carries what the gully
+   * carries: colour from a source gully, next to nothing from a barren one.
+   */
+  private renew(spot: DigSpot, loads: number): void {
+    const T = CREEK_TUNING;
+    spot.water = 0;
+    spot.boulder = null;
+    const quality = spot.gully ? (spot.gully.source ? T.sourceGullyQuality : T.barrenGullyQuality) : 1;
+    spot.layers.unshift({
+      kind: 'gravel',
+      loads,
+      initialLoads: loads,
+      richness: T.baseRichness * T.highWaterRichness * quality * this.rng.range(0.5, 1.5),
+      clayiness: T.layerClay.gravel,
+      rockiness: T.layerRock.gravel,
+    });
   }
 
   private loadFrom(layer: Layer): PanLoad {

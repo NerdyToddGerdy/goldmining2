@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ECONOMY_TUNING, Economy, feeFor } from './economy';
+import { ECONOMY_TUNING, Economy, feeFor, payDebt } from './economy';
+import { Crew } from './staffing';
 import { buyGear } from './outfitter';
 import { PanningSession } from './panningSession';
 import { Region } from './region';
@@ -102,5 +103,39 @@ describe('claims and fees', () => {
     expect(loaded.economy.allClaims.map((c) => c.creekId).sort()).toEqual(region.creeks.slice(1).map((c) => c.id).sort());
     expect(loaded.economy.feesOwed).toBe(0);
     expect(loaded.crew.hand).toBeNull();
+  });
+});
+
+describe('paying what is owed', () => {
+  it('never strands a fraction of a cent: paying in full clears it to zero', () => {
+    for (const owed of [0.001, 0.004, 0.005, 0.006, 0.0099, 1.234, 7.1, 12.009]) {
+      const { paid, left } = payDebt(owed, 100);
+      expect(left).toBe(0);
+      expect(paid).toBeGreaterThanOrEqual(owed);
+      expect(paid - owed).toBeLessThan(0.01);
+      expect(Math.round(paid * 100)).toBeCloseTo(paid * 100, 6);
+    }
+  });
+
+  it('pays what cash allows in whole cents, and leaves the rest owed', () => {
+    expect(payDebt(5, 3.456)).toEqual({ paid: 3.45, left: 5 - 3.45 });
+    expect(payDebt(0.006, 0)).toEqual({ paid: 0, left: 0.006 });
+    expect(payDebt(0, 10)).toEqual({ paid: 0, left: 0 });
+  });
+
+  it('clears a sub-cent claim fee and a sub-cent wage balance for good', () => {
+    const { region, economy, session } = withStretches(7, 1);
+    const claim = economy.claim(region.creeks[1]!.id)!;
+    claim.owed = 0.006;
+    session.cash = 5;
+    expect(economy.payFees(session)).toBe(0.01);
+    expect(claim.owed).toBe(0);
+    expect(session.cash).toBe(4.99);
+    const crew = new Crew(createRng(7));
+    crew.wagesOwed = 0.006;
+    expect(crew.wagesOverdue).toBe(true);
+    expect(crew.payWages(session)).toBe(0.01);
+    expect(crew.wagesOwed).toBe(0);
+    expect(crew.wagesOverdue).toBe(false);
   });
 });

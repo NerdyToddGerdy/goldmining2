@@ -54,6 +54,19 @@ export function feeFor(profile: Pick<CreekProfile, 'site' | 'sluiceSites' | 'pum
   return profile.site === 'creekStretch' && profile.pumpSites > 0 ? traitsOf('creekBend').fee : base;
 }
 
+/**
+ * Pay a debt from cash in whole cents. What's owed is rounded up to the cent, so paying in full
+ * always clears it to exactly zero: a fraction of a cent can never be left stranded, owing but
+ * unpayable. A partial payment leaves the rest owed.
+ */
+export function payDebt(owed: number, cash: number): { paid: number; left: number } {
+  if (owed <= 0) return { paid: 0, left: owed };
+  const due = Math.ceil(owed * 100 - 1e-6) / 100;
+  const paid = Math.min(due, Math.floor(cash * 100 + 1e-6) / 100);
+  if (paid <= 0) return { paid: 0, left: owed };
+  return { paid, left: paid >= due ? 0 : owed - paid };
+}
+
 export type ReleaseResult = 'released' | 'notHeld' | 'sluiceThere';
 export type RestakeResult = 'staked' | 'notReleased' | 'restricted' | 'cantAfford';
 
@@ -142,13 +155,11 @@ export class Economy {
     let paid = 0;
     const claims = [...this.claims.values()].filter((c) => c.owed > 0).sort((a, b) => b.owed / b.fee - a.owed / a.fee);
     for (const claim of claims) {
-      const amount = Math.min(claim.owed, session.cash);
-      if (amount < 0.005) continue;
-      const cents = Math.floor(amount * 100) / 100;
-      session.cash = Math.round((session.cash - cents) * 100) / 100;
-      claim.owed = Math.max(0, claim.owed - cents);
-      if (claim.owed < 0.005) claim.owed = 0;
-      paid += cents;
+      const result = payDebt(claim.owed, session.cash);
+      if (result.paid <= 0) continue;
+      session.cash = Math.round((session.cash - result.paid) * 100) / 100;
+      claim.owed = result.left;
+      paid += result.paid;
     }
     return Math.round(paid * 100) / 100;
   }

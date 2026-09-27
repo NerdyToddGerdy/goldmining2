@@ -344,7 +344,9 @@ It satisfies the anti-death-spiral rules directly. The creek cannot be leased, l
 ### Site rules
 
 - **No claim, fees, or staff.** It is informal public ground, and the work is the player's own.
-- **Finite spots, renewing creek.** Each dig spot has real layered reserves and visibly runs out. High-water events redeposit a modest amount of surface gold along the creek, so the creek as a whole never goes permanently dry, while any single spot can.
+- **Finite spots, renewing creek.** Each dig spot has real layered reserves and visibly runs out. High water redeposits a modest amount of surface gold, so the creek as a whole never goes permanently dry. In the game this happens two ways:
+  - **Bit by bit:** each worked-out spot, gully test spots included, has about a 40% chance per game day of a small rise laying a thin fresh layer. A source gully gets colour again; a barren one next to none.
+  - **The guarantee:** the moment every creek spot is worked out, a big high water refreshes every worked-out spot at once.
 - **Modest but reliable.** Well-read ground pays steadily. The Home Creek should never out-earn a developed claim.
 - **Uncertainty stays.** Ground signs raise the odds of a good spot, but only the pan confirms it.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Creek, type DigSpot } from './creek';
+import { Creek, HOME_CREEK_PROFILE, type DigSpot } from './creek';
 import { createRng } from './rng';
 
 /** Mean richness per shovelful over the whole spot: the hidden truth signs are evidence for. */
@@ -101,5 +101,60 @@ describe('Creek', () => {
     creek.recordPan(spot.id, 9, 'bedrock');
     creek.recordPan(spot.id, 4, null);
     expect(spot.notes).toEqual({ pans: 4, mg: 16, shallow: { pans: 2, mg: 3 }, deep: { pans: 1, mg: 9 } });
+  });
+
+  it('renews worked-out Home Creek spots bit by bit, without waiting for the whole creek', () => {
+    const creek = new Creek(createRng(13));
+    const [first, second] = creek.creekSpots;
+    const workOut = (spot: DigSpot): void => {
+      while (!creek.isWorkedOut(spot)) (clearBlocks(creek, spot), creek.shovel(spot.id, 'spoil'));
+    };
+    workOut(first!);
+    workOut(second!);
+    // Other spots are untouched, so the big high water hasn't come.
+    expect(creek.highWaterEvents).toBe(0);
+    let days = 0;
+    while (creek.isWorkedOut(first!) && days < 30) (creek.trickle(0.5), (days += 0.5));
+    expect(creek.isWorkedOut(first!)).toBe(false);
+    expect(days).toBeLessThan(10);
+    expect(creek.highWaterEvents).toBe(0);
+  });
+
+  it('renews gully test spots on the Home Creek too: colour from a source gully, next to none from a barren one', () => {
+    let sourceRich = 0;
+    let barrenRich = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const creek = new Creek(createRng(seed));
+      for (const gully of creek.gullySpots) {
+        while (!creek.isWorkedOut(gully)) (clearBlocks(creek, gully), creek.shovel(gully.id, 'spoil'));
+      }
+      let days = 0;
+      while (creek.gullySpots.some((g) => creek.isWorkedOut(g)) && days < 60) (creek.trickle(1), days++);
+      for (const gully of creek.gullySpots) {
+        expect(creek.isWorkedOut(gully)).toBe(false);
+        const richness = creek.currentLayer(gully)!.richness;
+        if (gully.gully!.source) sourceRich += richness;
+        else barrenRich += richness;
+      }
+    }
+    expect(sourceRich).toBeGreaterThan(barrenRich * 5);
+  });
+
+  it('includes gullies in the big high water, and never renews a stretch found by a lead', () => {
+    const creek = new Creek(createRng(14));
+    for (const spot of creek.spots) {
+      while (!creek.isWorkedOut(spot)) (clearBlocks(creek, spot), creek.shovel(spot.id, 'spoil'));
+    }
+    // The last shovelful on the creek brought the high water; the gullies worked out after it
+    // wait for the next, or the slow renewal.
+    creek.highWater();
+    for (const spot of creek.spots) expect(creek.isWorkedOut(spot)).toBe(false);
+
+    const stretch = new Creek(createRng(15), undefined, { ...HOME_CREEK_PROFILE, name: 'Found', site: 'creekStretch', renewing: false });
+    for (const spot of stretch.spots) {
+      while (!stretch.isWorkedOut(spot)) (clearBlocks(stretch, spot), stretch.shovel(spot.id, 'spoil'));
+    }
+    expect(stretch.trickle(100)).toHaveLength(0);
+    for (const spot of stretch.spots) expect(stretch.isWorkedOut(spot)).toBe(true);
   });
 });

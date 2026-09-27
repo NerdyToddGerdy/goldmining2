@@ -1,5 +1,5 @@
 import type { Creek, DigSpot } from './creek';
-import { ECONOMY_TUNING, type Economy } from './economy';
+import { ECONOMY_TUNING, payDebt, type Economy } from './economy';
 import { estimateAround, type Estimate } from './estimate';
 import { MARKET } from './market';
 import type { GoldPiece } from './pan';
@@ -127,7 +127,7 @@ export class Crew {
 
   /** Wages more than a day behind (or any owed after the hand has gone): expansion is restricted. */
   get wagesOverdue(): boolean {
-    return this.wagesOwed > (this.hand ? this.hand.wage : 0) + 0.005;
+    return this.wagesOwed > (this.hand ? this.hand.wage : 0);
   }
 
   /**
@@ -183,13 +183,11 @@ export class Crew {
 
   /** Pay wages from cash, as far as it goes. Returns dollars paid. */
   payWages(session: PanningSession): number {
-    if (this.wagesOwed <= 0) return 0;
-    const cents = Math.floor(Math.min(this.wagesOwed, session.cash) * 100) / 100;
-    if (cents <= 0) return 0;
-    session.cash = Math.round((session.cash - cents) * 100) / 100;
-    this.wagesOwed -= cents;
-    if (Math.abs(this.wagesOwed) < 0.005) this.wagesOwed = 0;
-    return cents;
+    const { paid, left } = payDebt(this.wagesOwed, session.cash);
+    if (paid <= 0) return 0;
+    session.cash = Math.round((session.cash - paid) * 100) / 100;
+    this.wagesOwed = left;
+    return paid;
   }
 
   /** Hand the report over (when the player comes by) and start a fresh one. */

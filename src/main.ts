@@ -391,6 +391,12 @@ async function start(): Promise<void> {
         if (flooded === creek && !inTown() && mode !== 'region') hud.toast(floodMessage(flooded, true));
         else floodNews.add(flooded.id);
       }
+      // The Home Creek renews a spot at a time.
+      const renewed = region.home.trickle(chunk / ECONOMY_TUNING.daySeconds);
+      if (renewed.length > 0 && creek === region.home && !inTown() && mode !== 'region') {
+        const where = renewed.map((spot) => (spot.gully ? 'a gully' : `spot ${region.home.creekSpots.indexOf(spot) + 1}`));
+        hud.toast(`The creek rises a little and leaves fresh gravel at ${where.join(' and ')}.`);
+      }
     }
   };
 

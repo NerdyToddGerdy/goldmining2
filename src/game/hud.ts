@@ -697,6 +697,8 @@ export class Hud {
   private renderOffice(state: HudState): string {
     const { economy, crew, region, session } = state;
     const money = (n: number): string => `$${n.toFixed(2)}`;
+    /** A debt as it will be paid: rounded up to the cent, so even a sliver shows as $0.01. */
+    const owing = (n: number): string => `$${(Math.ceil(n * 100 - 1e-6) / 100).toFixed(2)}`;
     const parts: string[] = [];
     if (state.restricted) {
       parts.push('<p class="warn">You\'re behind on fees or wages. No new gear, leads, or hires until you pay up or release a claim. Nothing you own is taken.</p>');
@@ -727,12 +729,12 @@ export class Hud {
           );
         }
       }
-      if (crew.wagesOwed > 0.005) lines.push(`<p class="small">You owe ${hand.name} ${money(crew.wagesOwed)}.</p>`);
+      if (crew.wagesOwed > 0) lines.push(`<p class="small">You owe ${hand.name} ${owing(crew.wagesOwed)}.</p>`);
       lines.push(`<button type="button" data-action="dismiss">Let ${hand.name} go</button>`);
       parts.push(`<div class="lead">${lines.join('')}</div>`);
     } else {
       const lines = ['<b>Hire a hand</b><p class="small">A general hand runs your sluice while you are away: slower and less careful than you, so they buy you time, not gold. Their cleanouts wait in a bucket by the sluice for you to pan.</p>'];
-      if (crew.wagesOwed > 0.005) lines.push(`<p class="warn">You still owe a former hand ${money(crew.wagesOwed)}.</p>`);
+      if (crew.wagesOwed > 0) lines.push(`<p class="warn">You still owe a former hand ${owing(crew.wagesOwed)}.</p>`);
       if (!place) {
         lines.push('<p class="small">Set your sluice up on one of your stretches first.</p>');
       } else {
@@ -753,9 +755,9 @@ export class Hud {
         claim.status === 'released'
           ? '<span class="dud">Released.</span>'
           : economy.isLapsed(claim)
-            ? `<span class="warn">Lapsed: owes ${money(claim.owed)}.</span>`
-            : claim.owed > 0.005
-              ? `Owes ${money(claim.owed)}.`
+            ? `<span class="warn">Lapsed: owes ${owing(claim.owed)}.</span>`
+            : claim.owed > 0
+              ? `Owes ${owing(claim.owed)}.`
               : '<span class="found">Paid up.</span>';
       const action =
         claim.status === 'released'
