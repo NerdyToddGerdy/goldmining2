@@ -102,7 +102,7 @@ describe('claims and fees', () => {
     expect(loaded.economy.clock).toBe(0);
     expect(loaded.economy.allClaims.map((c) => c.creekId).sort()).toEqual(region.creeks.slice(1).map((c) => c.id).sort());
     expect(loaded.economy.feesOwed).toBe(0);
-    expect(loaded.crew.hand).toBeNull();
+    expect(loaded.crew.workers).toHaveLength(0);
   });
 });
 

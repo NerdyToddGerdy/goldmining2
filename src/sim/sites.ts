@@ -40,6 +40,8 @@ export interface SiteTraits {
   readonly fetchSeconds: number;
   /** Holding fee per game day. */
   readonly fee: number;
+  /** Most hired hands the ground has room and work for (see "Staff capacity by site scale"). */
+  readonly crewMax: number;
   /** What a lead says about ground like this, when it says anything. */
   readonly hint: string;
 }
@@ -67,6 +69,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0,
     fetchSeconds: 3,
     fee: 0,
+    crewMax: 0,
     hint: '',
   },
   creekStretch: {
@@ -89,6 +92,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0,
     fetchSeconds: 7,
     fee: 1,
+    crewMax: 2,
     hint: '',
   },
   creekBend: {
@@ -111,6 +115,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0,
     fetchSeconds: 3,
     fee: 2,
+    crewMax: 2,
     hint: 'Mentions a bend with steady water and room on the bank: room for a sluice.',
   },
   gravelBar: {
@@ -134,6 +139,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0.2,
     fetchSeconds: 3,
     fee: 3,
+    crewMax: 4,
     hint: 'Mentions a broad gravel bar, wide open and shallow. High water comes through now and then.',
   },
   ravine: {
@@ -157,6 +163,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0,
     fetchSeconds: 3,
     fee: 2,
+    crewMax: 2,
     hint: 'Mentions a steep, narrow ravine with fast water: hard going, but rich pockets on the bedrock.',
   },
   dryWash: {
@@ -180,6 +187,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     floodPerDay: 0,
     fetchSeconds: 20,
     fee: 1,
+    crewMax: 3,
     hint: 'Mentions a dry wash: good ground, but no water in it most of the year.',
   },
 };

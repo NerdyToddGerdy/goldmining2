@@ -76,7 +76,7 @@ export class BankView extends Container {
   private highbanker: Highbanker | null = null;
   /** The rocker box, standing on the bank behind the pan, when the player has one and the ground allows it. */
   private rocker: Rocker | null = null;
-  /** Concentrate the hired hand has left in the crew bucket beside the sluice. */
+  /** What the crew at this stretch has left for the player: their bucket of concentrate (and poke). */
   private crewBucket = 0;
 
   constructor(
@@ -356,7 +356,7 @@ export class BankView extends Container {
     if (this.drywasher) this.drawDrywasher(g, this.drywasher);
     if (this.tub) this.drawTub(g, this.tub);
     if (this.sluice) this.drawSluice(g, this.sluice);
-    if (this.sluice && this.crewBucket > 0) this.drawCrewBucket(g);
+    if (this.crewBucket > 0) this.drawCrewBucket(g);
     if (this.highbanker) this.drawHighbanker(g, this.highbanker);
     this.drawShovel(g);
 
@@ -596,10 +596,10 @@ export class BankView extends Container {
     for (let i = 0; i < Math.min(4, rocker.hopperRocks); i++) g.circle(r.x + 6 + i * 6, r.y + 12 - heap * 10, 3).fill(0x7c786f);
   }
 
-  /** The hand's bucket of cleanouts on the bank by the sluice header, dark to the fill line. */
+  /** The crew's bucket of concentrate, on the bank between the spoil pile and the hole on the bank by the sluice header, dark to the fill line. */
   private drawCrewBucket(g: Graphics): void {
-    const r = this.sluiceRect();
-    const x = r.x - 44;
+    const spoil = this.spoilRect();
+    const x = spoil.x + spoil.w + 6;
     const y = this.surfaceY - 30;
     const fill = Math.min(1, this.crewBucket / 4);
     g.poly([x, y, x + 26, y, x + 22, y + 28, x + 4, y + 28]).fill(0x7c7d80).stroke({ width: 1.5, color: 0x3b3c3f });

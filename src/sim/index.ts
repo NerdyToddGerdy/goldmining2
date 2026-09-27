@@ -19,3 +19,4 @@ export * from './sites';
 export * from './highbanker';
 export * from './drywasher';
 export * from './washTub';
+export * from './crewJobs';

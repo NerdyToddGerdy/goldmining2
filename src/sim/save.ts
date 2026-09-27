@@ -2,8 +2,8 @@ import { HOME_CREEK_PROFILE } from './creek';
 import { Economy, type EconomySnapshot } from './economy';
 import { MAGNET_TUNING } from './magnet';
 import type { HighbankerSnapshot } from './highbanker';
-import { Crew, type CrewSnapshot } from './staffing';
-import { reservePanIds } from './pan';
+import { Crew, crewFromV14, type CrewSnapshot } from './staffing';
+import { reservePanIds, type GoldPiece } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
 import { Region, type RegionSnapshot } from './region';
 import type { Rng } from './rng';
@@ -15,7 +15,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher'] as const;
 
@@ -54,12 +54,7 @@ export function createSave(region: Region, session: PanningSession, place: Saved
   };
 }
 
-const EMPTY_CREW: CrewSnapshot = {
-  hand: null,
-  wagesOwed: 0,
-  bucket: { blackSand: 0, gold: [] },
-  report: { seconds: 0, shovelfuls: 0, cleanouts: 0, clues: 0 },
-};
+const EMPTY_CREW: CrewSnapshot = crewFromV14({ hand: null, wagesOwed: 0, bucket: { blackSand: 0, gold: [] }, sluiceCreekId: null });
 
 export interface LoadedGame {
   readonly region: Region;
@@ -88,6 +83,9 @@ export interface LoadedGame {
  *   stretch or, with sluice sites, a creek bend. Leads likewise.
  * v12 → v13: the highbanker. Nobody had one.
  * v13 → v14: the drywasher and wash tub. Nobody had either.
+ * v14 → v15: a crew of hands with job lists, in place of the single hand. The old hand is on the
+ *   sluice job wherever the sluice was set up, with the crew bucket there; with no sluice set up,
+ *   they wait in town and their bucket comes back to town with them.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -208,6 +206,17 @@ function migrate(data: unknown): unknown {
   if (save.version === 13 && isObject(save.session)) {
     save = { ...save, version: 14, session: { ...save.session, drywasher: null, tub: null } };
   }
+  if (save.version === 14 && isObject(save.session)) {
+    const crew = isObject(save.crew) ? save.crew : {};
+    const hand = isObject(crew.hand) ? (crew.hand as { name: string; wage: number }) : null;
+    const bucket = isObject(crew.bucket) && typeof crew.bucket.blackSand === 'number' && Array.isArray(crew.bucket.gold)
+      ? (crew.bucket as { blackSand: number; gold: GoldPiece[] })
+      : { blackSand: 0, gold: [] };
+    const sluice = isObject(save.session.sluice) && isObject(save.session.sluice.placedAt) ? save.session.sluice.placedAt : null;
+    const sluiceCreekId = sluice && typeof sluice.creekId === 'number' ? sluice.creekId : null;
+    const wagesOwed = typeof crew.wagesOwed === 'number' ? crew.wagesOwed : 0;
+    save = { ...save, version: 15, crew: crewFromV14({ hand, wagesOwed, bucket, sluiceCreekId }) };
+  }
   return save;
 }
 
@@ -237,7 +246,7 @@ function maxPieceId(session: SessionSnapshot, crew: CrewSnapshot): number {
     ...(session.rocker ? [...session.rocker.apron.gold, ...session.rocker.hopper.gold, ...session.rocker.hopper.rocks] : []),
     ...(session.highbanker?.state ? highbankerIds(session.highbanker.state) : []),
     ...(session.drywasher ? [...session.drywasher.drawer.gold, ...session.drywasher.hopper.gold, ...session.drywasher.hopper.rocks] : []),
-    ...crew.bucket.gold,
+    ...crewPieces(crew),
     ...(pan ? [...pan.gold, ...pan.visible, ...pan.hidden, ...pan.rocks] : []),
   ].map((item) => item.id);
   return Math.max(0, ...ids);
@@ -268,7 +277,7 @@ function isSaveData(data: unknown): data is SaveData {
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
   const { economy, crew } = data;
   if (!isObject(economy) || typeof economy.clock !== 'number' || !Array.isArray(economy.claims)) return false;
-  if (!isObject(crew) || typeof crew.wagesOwed !== 'number' || !isObject(crew.bucket) || !Array.isArray(crew.bucket.gold)) return false;
+  if (!isObject(crew) || typeof crew.wagesOwed !== 'number' || !Array.isArray(crew.workers) || !Array.isArray(crew.sites) || !isObject(crew.returned)) return false;
   return true;
 }
 
@@ -279,4 +288,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function highbankerIds(state: HighbankerSnapshot): { id: number }[] {
   const { sluice, hopper } = state;
   return [...hopper.gold, ...hopper.rocks, ...sluice.moss.gold, ...sluice.header.gold, ...sluice.header.rocks, ...sluice.lost];
+}
+
+/** Every gold piece and rock the crew holds anywhere (buckets, pokes, pans, machines), for id reservation. */
+function crewPieces(crew: CrewSnapshot): { id: number }[] {
+  const found: { id: number }[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) value.forEach(walk);
+    else if (isObject(value)) {
+      if (typeof value.id === 'number' && ('mg' in value || 'stuckPicker' in value)) found.push(value as { id: number });
+      Object.values(value).forEach(walk);
+    }
+  };
+  walk(crew);
+  return found;
 }

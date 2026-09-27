@@ -516,16 +516,26 @@ Example warning:
 
 ---
 
-### In the game: the first hired hand
+### In the game: the crew
 
-- **Hiring:** one general hand, hired in town (the Claims & crew tab) for $25 a day, with the first day paid up front. The hand works the sluice wherever it is set up. That is never the Home Creek, which has no sluice site and takes no staff.
-- **When they work:** only while game time passes and the player is away from that stretch. When the player is there, the hand stands back and the player runs the sluice.
-- **How they work:** the hand drives the same sluice and creek model as the player. They haul from the nearest spots along the stretch, toss topsoil and slumped bank onto the spoil pile, pry boulders, bail flooded holes, and feed the header at a cautious pace. They set the intake near a sensible middle, rake clogs a few seconds late, and clean out every eight shovelfuls with a short rinse. The result is about 55% of what the player would take from the same ground in the same time, with lower recovery. Staff buy time, not output.
-- **The crew bucket:** each cleanout goes into a bucket beside the sluice, holding about five mats, unrevealed. The player washes it into the jar ("Wash the crew's bucket") and pans it, so the reveal stays theirs. The bucket shows on the bank, dark to its fill line.
-- **Stopping:** the hand stops when the stretch is worked out, the bucket is full, the pump is dry and the player has no fuel cans (they refuel from the player's cans), or the claim lapses. On return, the player hears roughly how many hours they worked, the shovelfuls fed, and the cleanouts made.
-- **Estimates:** the Claims & crew tab shows roughly how many days of ground are left at the hand's pace. It also gives a very rough daily take built only from the player's own field notes on that stretch, set against wages and fees, with a plain warning when a hand likely costs more than they bring in. With no notes, it says to pan the stretch first.
-- **Wages** run by the day whether there is work or not. Two days unpaid and the hand walks off; what's owed stays owed until paid.
-- A typical creek bend brings a hand roughly $100 a day in gold at the buyer's rate, and lasts under a day of their work. A poor one doesn't cover the wage.
+- **Hiring, by role:** the crew is hired in town (the Claims & crew tab), first day up front, as many as the player can pay. They wait in town until sent to a stretch.
+  - **Hands ($12 a day):** pan, rock, haul, screen loads, prospect and finish concentrate.
+  - **Operators ($25 a day):** also run the sluice, highbanker and drywasher.
+  - Measured on typical ground, an operator on a sluice or highbanker brings in roughly three times their wage while the ground lasts, and a hand panning or rocking a little over theirs.
+- **Placing:** each stretch takes as many hands as the ground has room and work for: two on a creek stretch, bend or ravine, three on a dry wash, four on a gravel bar, never any at the Home Creek. Hands can be called back to town and sent elsewhere.
+- **Jobs, set per site, not per worker:** the player switches on the work they want at each stretch, and the crew there fills them in the order they were switched on. An operator job waits for a free operator. Any other job takes a hand first, and a spare operator if no hand is free. Only jobs the ground can take are offered.
+  - **Sluice and highbanker:** the player's own if it's set up at that stretch, otherwise a crew unit.
+  - **Rocker and drywasher:** crew units.
+  - **Pan:** by hand. Visible gold goes in the crew's poke, and black sand with its hidden fines in the crew bucket.
+  - **Screen loads:** a crew classifier. No rocks reach the machines, and pickers wedged in them go in the poke.
+  - **Haul:** everyone else's carrying and water-fetching takes about 70% of the time.
+  - **Prospect:** test-pans the stretch's gullies, following a source gully to a new staked stretch, then roams and turns up leads now and then.
+  - **Finish concentrate:** pans the crew bucket down into the poke at a hand's recovery. This is the one job that gives up the player's reveal, and it's the player's choice.
+- **Machines:** crew units are bought at the outfitter (crew sluice $40, highbanker $90, rocker box $20, drywasher $45, classifier $15) and wait as spares until a switched-on job needs one. Switching a job off sends its unit back to spare, washing what it held into the crew bucket. Crew engines burn the player's fuel cans.
+- **How they work:** every job drives the same simulation the player does, slower and less attentive: digging from the nearest ground, tossing topsoil, feeding cautiously, raking and clearing late, cleaning out on a schedule, panning with a heavier tip. A hand on the sluice keeps roughly half what the player would in the same time. Crews work only while the player is at another stretch, and stand back while the player works theirs.
+- **What they make:** each stretch's crew bucket (concentrate, about five mats) and poke (gold) wait for the player. "Collect from the crew" at the stretch puts the poke in the vial and as much of the bucket as fits in the jar. On arrival the player hears who worked, for how long, and what they did.
+- **Wages** run by the day for every hand, working or not, and are paid in town with claim fees, automatically while there's cash. If the crew goes more than two days' wages unpaid, the last hand hired walks off, and what's owed stays owed. Releasing a claim brings its crew back to town with their bucket and poke.
+- **Estimates:** the claim's entry shows how many days of ground are left at the crew's pace, and a rough daily take for a hand built only from the player's own field notes.
 
 ## Equipment UX Philosophy
 

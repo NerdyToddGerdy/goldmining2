@@ -1,184 +1,297 @@
-import type { Creek, DigSpot } from './creek';
+import type { Creek } from './creek';
+import {
+  CREW_TUNING,
+  DIGGING_JOBS,
+  SiteCrew,
+  crewDaysLeft,
+  emptyReport,
+  hasMachine,
+  installMachine,
+  jobFits,
+  machineFor,
+  removeMachine,
+  runJob,
+  type CrewMachine,
+  type JobContext,
+  type JobIdle,
+  type JobKind,
+  type SiteCrewSnapshot,
+  type SiteReport,
+} from './crewJobs';
 import { ECONOMY_TUNING, payDebt, type Economy } from './economy';
 import { estimateAround, type Estimate } from './estimate';
 import { MARKET } from './market';
 import type { GoldPiece } from './pan';
 import type { PanningSession } from './panningSession';
+import type { Region } from './region';
 import type { Rng } from './rng';
-import type { Sluice } from './sluice';
+import { traitsOf } from './sites';
 
 /**
- * The first hired hand (see "Staffing System" in the design doc): one general hand who runs the
- * player's sluice while the player is somewhere else.
+ * The crew (see "Staffing System" in the design doc): general hands the player hires, sends out to
+ * their stretches, and sets to work with a site-level job list, not per-worker orders.
  *
- * The hand drives the same Sluice and Creek models the player does, only slower and less
- * attentive: hauling from spots along the stretch, tossing topsoil, feeding at a cautious pace,
- * raking clogs late, cleaning out on a fixed schedule. So the player is always the better
- * operator, and staff buy time, not output. The hand's cleanouts go into a crew bucket beside
- * the sluice, unrevealed: the player washes it into the jar and pans it, so the reveal stays theirs.
+ * Each site takes as many hands as the ground has room and work for (none at the Home Creek). The
+ * site's hands fill its jobs in the order the player switched them on: running the sluice or the
+ * highbanker (the player's own if it's set up there, else a crew unit), rocking, drywashing,
+ * panning, screening loads through a classifier, hauling (which speeds everyone else up),
+ * prospecting the gullies and country around for leads, and finishing the crew's concentrate.
  *
- * Wages run by the game day whether there is work or not, and are paid in town with the claim
- * fees. A hand left unpaid for a couple of days walks off. Nothing here needs a screen.
+ * Machines the crew runs are crew units, bought separately at the outfitter and held as spares
+ * until a job needs one. Wages run by the game day whether there is work or not, paid in town with
+ * the claim fees. Crews work only while the player is somewhere else; the player is always the
+ * better operator. Nothing here needs a screen.
  */
 
+export type Role = 'hand' | 'operator';
+
+/** Only operators run the powered and precision machines; hands do the rest. */
+export const OPERATOR_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'drywasher'];
+
 export const STAFF_TUNING = {
-  /** Dollars per game day. The first day is paid up front at hiring. */
-  wage: 25,
-  /** Days of unpaid wages before the hand walks off. */
+  /** Dollars per game day, by role. The first day is paid up front at hiring. */
+  wage: { hand: 12, operator: 25 } as Record<Role, number>,
+  /** Days of the crew's total wages owed before a hand walks off. */
   quitDays: 2,
-  /** Seconds to dig, carry and shovel a load into the header, plus hauling per creek length. */
-  feedTime: 5,
-  haulPerLength: 8,
-  tossTime: 5,
-  pryTime: 4,
-  bailTime: 3,
-  refuelTime: 4,
-  /** A hand lets a clog sit this long before raking it. */
-  rakeDelay: 3,
-  /** Shovelfuls between cleanouts, and seconds of rinse before lifting the mat. */
-  cleanoutEvery: 8,
-  rinse: 4,
-  /** The water power a hand aims for, and how far off they set it. */
-  targetPower: 0.45,
-  flowNoise: 0.08,
-  /** The crew bucket holds about five mats: most of a stretch's worth. */
-  bucketCapacity: 4,
-  /** Simulation step while the hand works. */
-  step: 0.05,
+  /** What a crew unit of each machine costs at the outfitter. */
+  machinePrice: { sluice: 40, highbanker: 90, rocker: 20, drywasher: 45, classifier: 15 } as Record<CrewMachine, number>,
   /** Share of fed gold a hand keeps, for estimates only. */
-  estimatedRecovery: 0.7,
+  estimatedRecovery: 0.65,
 } as const;
 
-const NAMES = ['Abe', 'Clem', 'Dutch', 'Ezra', 'Hattie', 'Jonas', 'Lottie', 'Mose', 'Nell', 'Ruth', 'Silas', 'Tillie', 'Wes'];
+const NAMES = ['Abe', 'Clem', 'Dutch', 'Ezra', 'Hattie', 'Jonas', 'Lottie', 'Mose', 'Nell', 'Ruth', 'Silas', 'Tillie', 'Wes', 'Ada', 'Cyrus', 'Etta', 'Gus', 'Ida', 'Otis', 'Pearl'];
 
-/** Why the hand isn't working. */
-export type IdleReason =
-  | 'playerHere'
-  | 'noSluice'
-  | 'claimLapsed'
-  | 'workedOut'
-  | 'bucketFull'
-  | 'pumpDry';
-
-export interface HandState {
+export interface Worker {
+  readonly id: number;
   readonly name: string;
+  /** A general hand, or an operator who can also run the machines. */
+  readonly role: Role;
   readonly wage: number;
-  /** Intake setting the hand has chosen. */
-  flow: number;
-  /** Seconds until the current action is done. */
-  timer: number;
-  /** Seconds of rinse left in a cleanout, or null when not cleaning out. */
-  rinsing: number | null;
-  clogTime: number;
-  sinceClean: number;
-  idle: IdleReason | null;
-}
-
-/** What the hand did since the player last came by. */
-export interface CrewReport {
-  seconds: number;
-  shovelfuls: number;
-  cleanouts: number;
-  clues: number;
+  /** The stretch they're working, or null waiting in town. */
+  siteId: number | null;
 }
 
 export interface CrewSnapshot {
-  readonly hand: HandState | null;
+  readonly workers: readonly Worker[];
+  readonly sites: readonly SiteCrewSnapshot[];
+  readonly spares: Record<CrewMachine, number>;
   /** Negative while wages are paid ahead. */
   readonly wagesOwed: number;
-  readonly bucket: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
-  readonly report: CrewReport;
+  /** Concentrate and gold brought back to town from sites a crew left. */
+  readonly returned: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
+  readonly nextWorkerId: number;
 }
 
-/** The sluice the hand works, where it is, and what the player's presence and claim allow. */
-export interface CrewSite {
-  readonly creek: Creek;
-  readonly spot: DigSpot;
-  readonly sluice: Sluice;
+/** Why a site's crew isn't working at all. */
+export type SiteStop = 'playerHere' | 'claimLapsed';
+
+/** What the crew needs from the game each time it works a site. */
+export interface CrewWorld {
   readonly session: PanningSession;
-  /** Set when something outside the hand's control stops the work. */
-  readonly stopped: Extract<IdleReason, 'playerHere' | 'noSluice' | 'claimLapsed'> | null;
+  readonly region: Region;
+  readonly economy: Economy;
+  /** The stretch the player is at (their crew stands back while they work it), or null. */
+  readonly playerAt: number | null;
 }
 
-export type HireResult = 'hired' | 'alreadyHired' | 'noSluice' | 'homeCreek' | 'claimLapsed' | 'restricted' | 'cantAfford';
+export type HireResult = 'hired' | 'restricted' | 'cantAfford';
+export type SendResult = 'sent' | 'noneFree' | 'homeCreek' | 'full' | 'claimLapsed';
+export type JobToggle = 'on' | 'off' | 'doesntFit';
+
+function noSpares(): Record<CrewMachine, number> {
+  return { sluice: 0, highbanker: 0, rocker: 0, drywasher: 0, classifier: 0 };
+}
 
 export class Crew {
-  hand: HandState | null = null;
+  workers: Worker[] = [];
+  readonly sites: SiteCrew[] = [];
+  spares: Record<CrewMachine, number> = noSpares();
   wagesOwed = 0;
-  readonly bucket: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
-  report: CrewReport = emptyReport();
+  readonly returned: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
+  private nextWorkerId = 1;
 
   constructor(
     private readonly rng: Rng,
     saved?: CrewSnapshot,
   ) {
     if (!saved) return;
-    const copy = structuredClone(saved) as CrewSnapshot & { hand: HandState | null; bucket: { blackSand: number; gold: GoldPiece[] } };
-    this.hand = copy.hand;
+    const copy = structuredClone(saved) as CrewSnapshot;
+    // Hands hired before roles were all paid an operator's wage: they are operators.
+    this.workers = copy.workers.map((w) => ({ ...w, role: w.role ?? 'operator' }));
+    for (const site of copy.sites) this.sites.push(new SiteCrew(rng, site.creekId, site));
+    this.spares = { ...noSpares(), ...copy.spares };
     this.wagesOwed = copy.wagesOwed;
-    this.bucket.blackSand = copy.bucket.blackSand;
-    this.bucket.gold.push(...copy.bucket.gold);
-    this.report = copy.report;
+    this.returned.blackSand = copy.returned.blackSand;
+    this.returned.gold.push(...copy.returned.gold);
+    this.nextWorkerId = copy.nextWorkerId;
   }
 
   snapshot(): CrewSnapshot {
-    return structuredClone({ hand: this.hand, wagesOwed: this.wagesOwed, bucket: this.bucket, report: this.report });
+    return structuredClone({
+      workers: this.workers,
+      sites: this.sites.map((s) => s.snapshot()),
+      spares: this.spares,
+      wagesOwed: this.wagesOwed,
+      returned: this.returned,
+      nextWorkerId: this.nextWorkerId,
+    });
   }
 
-  /** Wages more than a day behind (or any owed after the hand has gone): expansion is restricted. */
+  /** Total wages a day for the whole crew. */
+  get dailyWages(): number {
+    return this.workers.reduce((n, w) => n + w.wage, 0);
+  }
+
+  /** More than a day's wages behind (or any owed with no crew left): expansion is restricted. */
   get wagesOverdue(): boolean {
-    return this.wagesOwed > (this.hand ? this.hand.wage : 0);
+    return this.wagesOwed > this.dailyWages;
   }
 
-  /**
-   * Hire a hand for the sluice wherever it's set up. Needs a set-up sluice on a stretch that can
-   * be worked (never the Home Creek), nothing overdue, and the first day's wage in hand.
-   */
-  hire(session: PanningSession, economy: Economy, homeCreekId: number, restricted: boolean): HireResult {
-    if (this.hand) return 'alreadyHired';
-    const place = session.sluicePlace;
-    if (!place) return 'noSluice';
-    if (place.creekId === homeCreekId) return 'homeCreek';
-    if (!economy.canWork(place.creekId)) return 'claimLapsed';
+  workersAt(creekId: number): Worker[] {
+    return this.workers.filter((w) => w.siteId === creekId);
+  }
+
+  get idleWorkers(): Worker[] {
+    return this.workers.filter((w) => w.siteId === null);
+  }
+
+  idleOf(role: Role): Worker[] {
+    return this.idleWorkers.filter((w) => w.role === role);
+  }
+
+  /** The crew operation at a stretch, set up the first time it's needed. */
+  site(creekId: number): SiteCrew {
+    let site = this.sites.find((s) => s.creekId === creekId);
+    if (!site) {
+      site = new SiteCrew(this.rng, creekId);
+      this.sites.push(site);
+    }
+    return site;
+  }
+
+  findSite(creekId: number): SiteCrew | null {
+    return this.sites.find((s) => s.creekId === creekId) ?? null;
+  }
+
+  /** Hire a hand or an operator, first day's wage up front. They wait in town until sent somewhere. */
+  hire(session: PanningSession, restricted: boolean, role: Role = 'hand'): HireResult {
     if (restricted) return 'restricted';
-    const wage = STAFF_TUNING.wage;
+    const wage = STAFF_TUNING.wage[role];
     if (session.cash < wage) return 'cantAfford';
     session.cash = Math.round((session.cash - wage) * 100) / 100;
     this.wagesOwed -= wage;
-    this.hand = {
-      name: NAMES[this.rng.int(0, NAMES.length - 1)]!,
-      wage,
-      flow: 0.7,
-      timer: 0,
-      rinsing: null,
-      clogTime: 0,
-      sinceClean: 0,
-      idle: null,
-    };
-    this.report = emptyReport();
+    const taken = new Set(this.workers.map((w) => w.name));
+    const free = NAMES.filter((n) => !taken.has(n));
+    const name = free.length > 0 ? free[this.rng.int(0, free.length - 1)]! : `${NAMES[this.rng.int(0, NAMES.length - 1)]} ${this.nextWorkerId}`;
+    this.workers.push({ id: this.nextWorkerId++, name, role, wage, siteId: null });
     return 'hired';
   }
 
-  /** Let the hand go. Wages already owed are still owed. */
-  dismiss(): void {
-    this.hand = null;
+  /** Let a hand go. Wages already owed are still owed. */
+  dismiss(workerId: number): Worker | null {
+    const worker = this.workers.find((w) => w.id === workerId);
+    if (!worker) return null;
+    this.workers = this.workers.filter((w) => w !== worker);
+    return worker;
+  }
+
+  /** Send someone waiting in town (of a role, if given) to a stretch, if it has room and can be worked. */
+  send(creek: Creek, economy: Economy, homeCreekId: number, role?: Role): SendResult {
+    if (creek.id === homeCreekId || creek.profile.site === 'homeCreek') return 'homeCreek';
+    if (!economy.canWork(creek.id)) return 'claimLapsed';
+    if (this.workersAt(creek.id).length >= traitsOf(creek.profile.site).crewMax) return 'full';
+    const worker = role ? this.idleOf(role)[0] : this.idleWorkers[0];
+    if (!worker) return 'noneFree';
+    worker.siteId = creek.id;
+    this.site(creek.id);
+    return 'sent';
+  }
+
+  /** Bring the most recently sent hand at a stretch back to town. */
+  recall(creekId: number): Worker | null {
+    const here = this.workersAt(creekId);
+    const worker = here[here.length - 1];
+    if (!worker) return null;
+    worker.siteId = null;
+    return worker;
   }
 
   /**
-   * Wages run by the game day, working or not. Returns 'quit' if the hand walks off unpaid;
-   * whatever is owed stays owed.
+   * Switch a job on or off at a stretch. Switching on puts it at the end of the list (the site's
+   * hands fill jobs in order); switching off sends its crew machine back to spare, washing what
+   * it held into the crew bucket.
    */
-  accrue(seconds: number): 'quit' | null {
-    if (!this.hand || seconds <= 0) return null;
-    this.wagesOwed += (this.hand.wage * seconds) / ECONOMY_TUNING.daySeconds;
-    const limit = this.hand.wage * STAFF_TUNING.quitDays;
-    if (this.wagesOwed > limit) {
-      // They leave the moment the limit is reached, and aren't owed for time after.
-      this.wagesOwed = limit;
-      this.hand = null;
-      return 'quit';
+  toggleJob(creek: Creek, job: JobKind): JobToggle {
+    const site = this.site(creek.id);
+    if (site.jobs.includes(job)) {
+      site.jobs = site.jobs.filter((j) => j !== job);
+      delete site.idle[job];
+      const machine = machineFor(job);
+      if (machine && removeMachine(site, machine)) this.spares[machine] += 1;
+      return 'off';
     }
-    return null;
+    if (!jobFits(job, creek)) return 'doesntFit';
+    site.jobs.push(job);
+    return 'on';
+  }
+
+  /**
+   * Pull the crew off a stretch (the claim is being given up): hands back to town, crew machines
+   * back to spare, and the bucket and poke carried back to town for the player.
+   */
+  closeSite(creekId: number): void {
+    for (const worker of this.workersAt(creekId)) worker.siteId = null;
+    const index = this.sites.findIndex((s) => s.creekId === creekId);
+    if (index < 0) return;
+    const site = this.sites[index]!;
+    for (const machine of ['sluice', 'highbanker', 'rocker', 'drywasher', 'classifier'] as const) {
+      if (removeMachine(site, machine)) this.spares[machine] += 1;
+    }
+    this.returned.blackSand += site.bucket.blackSand;
+    this.returned.gold.push(...site.bucket.gold, ...site.poke);
+    this.sites.splice(index, 1);
+  }
+
+  /**
+   * Jobs at a stretch that have someone on them, in list order. Operator jobs take an operator;
+   * other jobs take a hand first, and a spare operator if no hand is free.
+   */
+  staffedJobs(creekId: number): JobKind[] {
+    const site = this.findSite(creekId);
+    if (!site) return [];
+    let hands = this.workersAt(creekId).filter((w) => w.role === 'hand').length;
+    let operators = this.workersAt(creekId).length - hands;
+    const staffed: JobKind[] = [];
+    for (const job of site.jobs) {
+      if (OPERATOR_JOBS.includes(job)) {
+        if (operators > 0) (operators--, staffed.push(job));
+      } else if (hands > 0) (hands--, staffed.push(job));
+      else if (operators > 0) (operators--, staffed.push(job));
+    }
+    return staffed;
+  }
+
+  /** Buy a crew unit of a machine. It waits as a spare until a job needs it. */
+  buyMachine(session: PanningSession, machine: CrewMachine, restricted: boolean): 'bought' | 'restricted' | 'cantAfford' {
+    if (restricted) return 'restricted';
+    const price = STAFF_TUNING.machinePrice[machine];
+    if (session.cash < price) return 'cantAfford';
+    session.cash = Math.round((session.cash - price) * 100) / 100;
+    this.spares[machine] += 1;
+    return 'bought';
+  }
+
+  /**
+   * Wages run by the game day, working or not. If they go too long unpaid, the last hand hired
+   * walks off; whatever is owed stays owed. Returns who quit, if anyone.
+   */
+  accrue(seconds: number): Worker | null {
+    if (this.workers.length === 0 || seconds <= 0) return null;
+    this.wagesOwed += (this.dailyWages * seconds) / ECONOMY_TUNING.daySeconds;
+    const limit = this.dailyWages * STAFF_TUNING.quitDays;
+    if (this.wagesOwed <= limit) return null;
+    this.wagesOwed = limit;
+    return this.workers.pop() ?? null;
   }
 
   /** Pay wages from cash, as far as it goes. Returns dollars paid. */
@@ -190,181 +303,128 @@ export class Crew {
     return paid;
   }
 
-  /** Hand the report over (when the player comes by) and start a fresh one. */
-  takeReport(): CrewReport {
-    const report = this.report;
-    this.report = emptyReport();
-    return report;
+  /** Work every crewed stretch for `seconds` of game time. */
+  work(seconds: number, world: CrewWorld): void {
+    for (const site of this.sites) {
+      const workers = this.workersAt(site.creekId);
+      if (workers.length === 0) continue;
+      const creek = world.region.creeks.find((c) => c.id === site.creekId);
+      if (!creek) continue;
+      this.fitMachines(site, creek, world.session);
+      const staffed = this.staffedJobs(site.creekId);
+      if (this.stopAt(site.creekId, world)) {
+        for (const job of staffed) site.idle[job] = null;
+        continue;
+      }
+      const ctx: JobContext = {
+        rng: this.rng,
+        creek,
+        site,
+        session: world.session,
+        region: world.region,
+        economy: world.economy,
+        boost: staffed.includes('haul') ? CREW_TUNING.haulBoost : 1,
+        screened: staffed.includes('screen') && site.classifier,
+      };
+      let left = seconds;
+      while (left > 1e-9) {
+        const dt = Math.min(CREW_TUNING.step, left);
+        left -= dt;
+        let working = false;
+        for (const job of staffed) {
+          const idle = runJob(job, dt, ctx);
+          site.idle[job] = idle;
+          if (!idle) working = true;
+        }
+        if (working) site.report.seconds += dt;
+      }
+    }
+  }
+
+  /** Why a site's crew isn't working at all right now, if it isn't. */
+  stopAt(creekId: number, world: Pick<CrewWorld, 'economy' | 'playerAt'>): SiteStop | null {
+    if (world.playerAt === creekId) return 'playerHere';
+    if (!world.economy.canWork(creekId)) return 'claimLapsed';
+    return null;
+  }
+
+  /** Give a site's switched-on jobs the crew machines they need, from spares, where there's room. */
+  private fitMachines(site: SiteCrew, creek: Creek, session: PanningSession): void {
+    for (const job of site.jobs) {
+      const machine = machineFor(job);
+      if (!machine || this.spares[machine] <= 0) continue;
+      if (hasMachine(machineContext(creek, site, session), job)) continue;
+      if (installMachine(site, machine, creek, session, this.rng)) this.spares[machine] -= 1;
+    }
+  }
+
+  /** Whether a switched-on job has the machine it needs here (a crew unit, or the player's own). */
+  jobReady(creek: Creek, job: JobKind, session: PanningSession): boolean {
+    const site = this.findSite(creek.id);
+    if (!site) return false;
+    if (!machineFor(job)) return true;
+    return hasMachine(machineContext(creek, site, session), job) || this.spares[machineFor(job)!] > 0;
   }
 
   /**
-   * Wash as much of the crew bucket into the player's jar as fits. Gold goes in proportion to
-   * the sand, like pouring from the jar. Returns the volume moved.
+   * Collect from a stretch's crew: the poke of gold into the vial, and as much of the bucket's
+   * concentrate as the jar will take. Returns what moved.
    */
-  washIntoJar(session: PanningSession): number {
-    const amount = Math.min(this.bucket.blackSand, session.jarSpace);
+  collect(creekId: number, session: PanningSession): { gold: number; sand: number; sandLeft: number } {
+    const site = this.findSite(creekId);
+    if (!site) return { gold: 0, sand: 0, sandLeft: 0 };
+    const gold = site.poke.length;
+    session.vial.push(...site.poke);
+    site.poke = [];
+    const sand = this.pourInto(site.bucket, session);
+    return { gold, sand, sandLeft: site.bucket.blackSand };
+  }
+
+  /** Wash concentrate a crew brought back to town into the jar, as far as it fits. */
+  washReturned(session: PanningSession): number {
+    return this.pourInto(this.returned, session);
+  }
+
+  private pourInto(bucket: { blackSand: number; gold: GoldPiece[] }, session: PanningSession): number {
+    if (bucket.blackSand <= 0) {
+      // Gold with no sand left to carry it still goes in.
+      if (bucket.gold.length > 0) session.addConcentrate({ blackSand: 0, gold: bucket.gold.splice(0) });
+      return 0;
+    }
+    const amount = Math.min(bucket.blackSand, session.jarSpace);
     if (amount <= 0) return 0;
-    const share = amount / this.bucket.blackSand;
+    const share = amount / bucket.blackSand;
     const moved: GoldPiece[] = [];
     const kept: GoldPiece[] = [];
-    for (const piece of this.bucket.gold) (share >= 1 || this.rng.next() < share ? moved : kept).push(piece);
+    for (const piece of bucket.gold) (share >= 1 || this.rng.next() < share ? moved : kept).push(piece);
     session.addConcentrate({ blackSand: amount, gold: moved });
-    this.bucket.blackSand -= amount;
-    if (this.bucket.blackSand < 1e-9) this.bucket.blackSand = 0;
-    this.bucket.gold = kept;
+    bucket.blackSand -= amount;
+    if (bucket.blackSand < 1e-9) bucket.blackSand = 0;
+    bucket.gold = kept;
     return amount;
   }
 
-  /** Work the sluice for `seconds` of game time. */
-  work(seconds: number, site: CrewSite | null, onClue: () => void = () => {}): void {
-    const hand = this.hand;
-    if (!hand || seconds <= 0) return;
-    if (!site || site.stopped) {
-      hand.idle = site?.stopped ?? 'noSluice';
-      return;
-    }
-    const T = STAFF_TUNING;
-    const { sluice, creek, session } = site;
-    let left = seconds;
-    while (left > 1e-9) {
-      const dt = Math.min(T.step, left);
-      left -= dt;
-
-      // Keep the pump fed from the player's cans; with none left, the work stops.
-      const pump = sluice.usesPump ? sluice.kit.pump : null;
-      if (pump && pump.fuel <= 0) {
-        if (session.fuelCans <= 0) {
-          hand.idle = 'pumpDry';
-          return;
-        }
-        session.refuelPump();
-        hand.timer = Math.max(hand.timer, T.refuelTime);
-      }
-
-      hand.idle = null;
-      this.report.seconds += dt;
-      if (hand.timer <= 0 && hand.rinsing === null) this.setFlow(hand, sluice);
-      sluice.step(dt, { flow: hand.flow });
-
-      // Clogs get raked, eventually.
-      hand.clogTime = sluice.clog > 0.5 ? hand.clogTime + dt : 0;
-      if (hand.clogTime >= T.rakeDelay) {
-        sluice.rake();
-        hand.clogTime = 0;
-      }
-
-      if (hand.rinsing !== null) {
-        hand.rinsing -= dt;
-        if (hand.rinsing > 0) continue;
-        if (this.bucket.blackSand + sluice.matVolume > T.bucketCapacity + 1e-9) {
-          hand.rinsing = 0;
-          hand.idle = 'bucketFull';
-          return;
-        }
-        const mat = sluice.liftMat();
-        this.bucket.blackSand += mat.blackSand;
-        this.bucket.gold.push(...mat.gold);
-        hand.rinsing = null;
-        hand.sinceClean = 0;
-        this.report.cleanouts += 1;
-        continue;
-      }
-
-      hand.timer -= dt;
-      if (hand.timer > 0) continue;
-
-      const target = this.nextSpot(creek, site.spot);
-      const headerClear = sluice.headerVolume < 0.05;
-      if (headerClear && hand.sinceClean > 0 && (hand.sinceClean >= T.cleanoutEvery || !target)) {
-        hand.rinsing = T.rinse;
-        continue;
-      }
-      if (!target) {
-        if (headerClear) {
-          hand.idle = 'workedOut';
-          return;
-        }
-        hand.timer = 1;
-        continue;
-      }
-      hand.timer = this.act(creek, target, site.spot, sluice, onClue);
-    }
-  }
-
-  /** Aim the intake at a sensible middle power, not quite right. */
-  private setFlow(hand: HandState, sluice: Sluice): void {
-    const full = sluice.power({ flow: 1 });
-    if (full <= 0) return;
-    const off = (this.rng.next() * 2 - 1) * STAFF_TUNING.flowNoise;
-    hand.flow = Math.min(1, Math.max(0.1, STAFF_TUNING.targetPower / full + off));
-  }
-
-  /** The nearest spot along the stretch with ground left to dig, starting beside the sluice. */
-  private nextSpot(creek: Creek, sluiceSpot: DigSpot): DigSpot | null {
-    const spots = creek.creekSpots
-      .filter((s) => !creek.isWorkedOut(s))
-      .sort((a, b) => Math.abs(a.position - sluiceSpot.position) - Math.abs(b.position - sluiceSpot.position));
-    return spots[0] ?? null;
-  }
-
-  /** One action at a spot. Returns how long it takes. */
-  private act(creek: Creek, spot: DigSpot, sluiceSpot: DigSpot, sluice: Sluice, onClue: () => void): number {
-    const T = STAFF_TUNING;
-    const blocked = creek.blockedBy(spot);
-    if (blocked === 'boulder') {
-      creek.pry(spot.id);
-      return T.pryTime;
-    }
-    if (blocked === 'flooded') {
-      creek.bail(spot.id);
-      return T.bailTime;
-    }
-    // Topsoil and slumped bank go on the spoil pile.
-    const layer = creek.currentLayer(spot);
-    if (spot.slumped > 0 || layer?.kind === 'overburden') {
-      const tossed = creek.shovel(spot.id, 'spoil');
-      if (tossed.ok && tossed.clue) this.clueFound(onClue);
-      return T.tossTime;
-    }
-    if (sluice.feedBlocked) return 1;
-    const result = creek.shovel(spot.id, 'pan');
-    if (!result.ok) return 1;
-    if (result.clue) this.clueFound(onClue);
-    if (result.load) {
-      sluice.feed(result.load);
-      this.report.shovelfuls += 1;
-      if (this.hand) this.hand.sinceClean += 1;
-    }
-    return T.feedTime + T.haulPerLength * Math.abs(spot.position - sluiceSpot.position);
-  }
-
-  private clueFound(onClue: () => void): void {
-    this.report.clues += 1;
-    onClue();
+  takeReport(creekId: number): SiteReport {
+    return this.findSite(creekId)?.takeReport() ?? emptyReport();
   }
 }
 
-function emptyReport(): CrewReport {
-  return { seconds: 0, shovelfuls: 0, cleanouts: 0, clues: 0 };
+/** Just enough context to ask whether a job has its machine. */
+function machineContext(creek: Creek, site: SiteCrew, session: PanningSession): JobContext {
+  return { creek, site, session } as JobContext;
 }
 
-/** Roughly how many game days of digging the stretch has left at a hand's pace. */
-export function daysOfGroundLeft(creek: Creek, sluiceSpot: DigSpot): number {
-  const T = STAFF_TUNING;
-  let seconds = 0;
-  for (const spot of creek.creekSpots) {
-    const haul = T.haulPerLength * Math.abs(spot.position - sluiceSpot.position);
-    seconds += spot.slumped * T.tossTime;
-    for (const layer of spot.layers) seconds += layer.loads * (layer.kind === 'overburden' ? T.tossTime : T.feedTime + haul);
-  }
-  return seconds / ECONOMY_TUNING.daySeconds;
+/** Roughly how many game days of digging a crewed stretch has left at their pace. */
+export function crewGroundLeft(crew: Crew, creek: Creek): number {
+  const diggers = crew.staffedJobs(creek.id).filter((j) => DIGGING_JOBS.includes(j)).length;
+  return crewDaysLeft(creek, diggers, ECONOMY_TUNING.daySeconds);
 }
 
 /**
- * A rough daily take for a hand on this stretch, built only from the player's own field notes:
- * no notes, no estimate. Wide, because notes are few and a hand's recovery varies.
+ * A rough daily take for one hand digging a stretch, built only from the player's own field
+ * notes there: no notes, no estimate. Wide, because notes are few and a hand's recovery varies.
  */
-export function estimateDailyTake(creek: Creek, sluiceSpot: DigSpot): Estimate | null {
+export function estimateHandTake(creek: Creek): Estimate | null {
   let pans = 0;
   let mg = 0;
   for (const spot of creek.creekSpots) {
@@ -373,9 +433,43 @@ export function estimateDailyTake(creek: Creek, sluiceSpot: DigSpot): Estimate |
     mg += spot.notes.mg;
   }
   if (pans === 0) return null;
-  const T = STAFF_TUNING;
-  const avgHaul = creek.creekSpots.reduce((sum, s) => sum + T.haulPerLength * Math.abs(s.position - sluiceSpot.position), 0) / creek.creekSpots.length;
-  const loadsPerDay = ECONOMY_TUNING.daySeconds / (T.feedTime + avgHaul);
-  const dollars = (mg / pans) * loadsPerDay * T.estimatedRecovery * MARKET.spotPerMg * 0.8;
+  const loadsPerDay = ECONOMY_TUNING.daySeconds / (CREW_TUNING.feedTime + CREW_TUNING.haulPerLength * 0.25);
+  const dollars = (mg / pans) * loadsPerDay * STAFF_TUNING.estimatedRecovery * MARKET.spotPerMg * 0.8;
   return estimateAround(dollars, pans < 5 ? 1.2 : 0.7);
 }
+
+/** The one-hand crew of saves before version 15, as a crew: the hand on the sluice job where it was. */
+export function crewFromV14(old: {
+  hand: { name: string; wage: number } | null;
+  wagesOwed: number;
+  bucket: { blackSand: number; gold: GoldPiece[] };
+  sluiceCreekId: number | null;
+}): CrewSnapshot {
+  const atSite = old.hand !== null && old.sluiceCreekId !== null;
+  const workers: Worker[] = old.hand ? [{ id: 1, name: old.hand.name, role: 'operator', wage: old.hand.wage, siteId: atSite ? old.sluiceCreekId : null }] : [];
+  const sites: SiteCrewSnapshot[] = atSite
+    ? [
+        {
+          creekId: old.sluiceCreekId!,
+          jobs: ['sluice'],
+          bucket: old.bucket,
+          poke: [],
+          report: emptyReport(),
+          prospected: [],
+          states: {},
+          idle: {},
+          machines: { sluice: null, highbanker: null, rocker: null, drywasher: null, classifier: false },
+        },
+      ]
+    : [];
+  return {
+    workers,
+    sites,
+    spares: noSpares(),
+    wagesOwed: old.wagesOwed,
+    returned: atSite ? { blackSand: 0, gold: [] } : old.bucket,
+    nextWorkerId: 2,
+  };
+}
+
+export type { CrewMachine, JobIdle, JobKind, SiteReport };

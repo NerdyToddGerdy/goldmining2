@@ -29,10 +29,14 @@ export const DRYWASHER_TUNING = {
   /** Air (after dust) below which the bed is underblown, and above which it is overblown. */
   under: 0.35,
   over: 0.7,
-  /** Share of light sand blown off the end at full air; the rest stays in the drawer as junk. */
-  blowOff: 1.6,
+  /**
+   * Light sand blown off the end rises with air from blowFrom, and all of it goes once the air
+   * reaches blowFrom + blowSpan: a balanced bed keeps next to none; an underblown one keeps plenty.
+   */
+  blowFrom: 0.05,
+  blowSpan: 0.35,
   capture: { fine: 0.85, flake: 0.95, picker: 0.99 } as Record<GoldSize, number>,
-  underLoss: { fine: 0.35, flake: 0.2, picker: 0.02 } as Record<GoldSize, number>,
+  underLoss: { fine: 0.7, flake: 0.45, picker: 0.05 } as Record<GoldSize, number>,
   overLoss: { fine: 0.75, flake: 0.3, picker: 0 } as Record<GoldSize, number>,
   blackCapture: 0.75,
   /** How much the dust in the cloth chokes the air at its worst. */
@@ -215,7 +219,7 @@ export class Drywasher {
     });
 
     // Light sand: blown off with enough air, left in the drawer as junk when underblown.
-    const blownShare = clamp01(effective * T.blowOff);
+    const blownShare = clamp01((effective - T.blowFrom) / T.blowSpan);
     const room = Math.max(0, T.drawerCapacity * 1.2 - this.drawer.black - this.drawer.light);
     const blackKept = Math.min(room, black * T.blackCapture * (1 - 0.6 * over) * (1 - fullness));
     this.drawer.black += blackKept;
