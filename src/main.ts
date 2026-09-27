@@ -8,6 +8,10 @@ import {
   buyGear,
   buyFuel,
   CLASSIFIER_TUNING,
+  Crew,
+  ECONOMY_TUNING,
+  Economy,
+  type CrewSite,
   rollShovelful,
   totalMg,
   type Classifier,
@@ -87,6 +91,11 @@ async function start(): Promise<void> {
   const loaded = loadSave(readSave(), rng);
   const region = loaded?.region ?? new Region(rng);
   const session = loaded?.session ?? new PanningSession(rng);
+  const economy = loaded?.economy ?? new Economy();
+  const crew = loaded?.crew ?? new Crew(rng);
+  /** Behind on fees or wages: no new gear, leads, or hires until paid. Never takes anything away. */
+  const restricted = (): boolean => economy.anyLapsed || crew.wagesOverdue;
+  const RESTRICTED_MESSAGE = "You're behind on claim fees or wages. Pay up here in town (sell some gold) or release a claim before buying anything new.";
   let creek: Creek = loaded ? region.creek(loaded.place.creekId) : region.home;
   let mode: Mode = 'creek';
   let spot: DigSpot | null = loaded?.place.spotId != null ? creek.spot(loaded.place.spotId) : null;
@@ -124,11 +133,21 @@ async function start(): Promise<void> {
     setMode('pan');
   };
 
+  /** Why this creek can't be worked right now, if it can't: a lapsed or released claim. */
+  const claimBlock = (): string | null => {
+    if (economy.canWork(creek.id)) return null;
+    return economy.claim(creek.id)?.status === 'released'
+      ? `You released your claim on ${creek.profile.name}. Re-stake it in town to work it again.`
+      : `Your claim on ${creek.profile.name} has lapsed for unpaid fees. Pay them in town to work it again.`;
+  };
+
   const shovel = (into: ShovelTarget): void => {
     // Dig from the bank, or straight from the close-up of the machine being fed, so feeding a run
     // doesn't mean walking back and forth.
     const fromCloseUp = (into === 'classifier' && mode === 'classifier') || (into === 'sluice' && mode === 'sluice');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
+    const blockedClaim = claimBlock();
+    if (blockedClaim) return hud.toast(blockedClaim);
     const sluice = into === 'sluice' ? sluiceHere() : null;
     const classifier = into === 'classifier' ? classifierHere() : null;
     if (into === 'classifier') {
@@ -197,25 +216,86 @@ async function start(): Promise<void> {
     // Colour up a source gully: follow it to where it comes from.
     if (from.gully && collected.length > 0) {
       const traced = region.traceGully(from);
-      if (traced?.found) hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name}. It is on your region map (M).`);
+      if (traced?.found) {
+        passTime(ECONOMY_TUNING.travel.lead);
+        economy.stakeFound(region);
+        hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name} and stake a claim. It is on your region map (M).`);
+      }
     }
   };
 
   const describeFollow = (result: FollowResult): string =>
     result.found
-      ? `You find ${result.creek.profile.name}. It is on your region map now.`
+      ? `You find ${result.creek.profile.name} and stake a claim ($${economy.claim(result.creek.id)?.fee ?? 1} a day, paid in town). It is on your region map now.`
       : `You walk out to ${result.lead.name}, but there's nothing there. The ${result.lead.source === 'rumour' ? 'rumour' : 'lead'} was wrong.`;
 
+  /**
+   * Game time passes: claim fees and wages run up, and a hand works the sluice if the player is
+   * elsewhere. Driven by active play and travel, never the wall clock.
+   */
+  const passTime = (seconds: number): void => {
+    // Long stretches (travel) go in short steps, so a claim lapsing or a hand quitting partway
+    // through takes effect from that moment on.
+    for (let left = seconds; left > 1e-9; left -= 30) {
+      const chunk = Math.min(30, left);
+      economy.advance(chunk);
+      const hand = crew.hand;
+      if (crew.accrue(chunk) === 'quit' && hand) {
+        hud.toast(`${hand.name} has walked off the job over unpaid wages. You still owe them; pay it in town.`);
+      }
+      crew.work(chunk, crewSite(), () => {
+        const lead = region.clueFound();
+        hud.toast(`Word from your hand: the shovel turned something up. ${lead.note} It points to ${lead.name}. Noted in your notebook.`);
+      });
+    }
+  };
+
+  /** Where the hand would work: wherever the sluice is set up, unless something stops them. */
+  const crewSite = (): CrewSite | null => {
+    const place = session.sluicePlace;
+    if (!place) return null;
+    const siteCreek = region.creek(place.creekId);
+    const sluice = session.sluiceAt(place.creekId, place.spotId);
+    if (!sluice) return null;
+    const here = creek.id === place.creekId && mode !== 'town' && mode !== 'region';
+    const stopped = here ? 'playerHere' : !economy.canWork(place.creekId) ? 'claimLapsed' : null;
+    return { creek: siteCreek, spot: siteCreek.spot(place.spotId), sluice, session, stopped };
+  };
+
+  /** Pay what's owed from cash on hand, fees first, and say what was paid. */
+  const settleUp = (): void => {
+    const fees = economy.payFees(session);
+    const wages = crew.payWages(session);
+    const parts = [fees > 0 ? `$${fees.toFixed(2)} in claim fees` : '', wages > 0 ? `$${wages.toFixed(2)} in wages` : ''].filter(Boolean);
+    if (parts.length) hud.toast(`Paid ${parts.join(' and ')}.${restricted() ? " You're still behind." : ''}`);
+  };
+
   const goToCreek = (next: Creek): void => {
-    if (next !== creek) spot = null;
+    if (next !== creek) {
+      spot = null;
+      passTime(ECONOMY_TUNING.travel.creek);
+    }
     creek = next;
     creekMap.setCreek(next);
     setMode('creek');
+    // Back at the stretch the hand is working: hear what they did.
+    if (crew.hand && session.sluicePlace?.creekId === next.id) {
+      const report = crew.takeReport();
+      if (report.seconds > 30) {
+        const hours = Math.max(1, Math.round(report.seconds / (ECONOMY_TUNING.daySeconds / 10)));
+        hud.toast(
+          `${crew.hand.name} worked about ${hours} hour${hours === 1 ? '' : 's'} while you were gone: ` +
+            `${report.shovelfuls} shovelfuls through the sluice, ${report.cleanouts} cleanout${report.cleanouts === 1 ? '' : 's'} in the crew bucket by the sluice.`,
+        );
+      }
+    }
   };
 
   const walkToTown = (): void => {
+    if (mode !== 'town') passTime(ECONOMY_TUNING.travel.town);
     region.restockOffers(session.pansWorked);
     setMode('town');
+    settleUp();
   };
 
   const pry = (): void => {
@@ -339,6 +419,8 @@ async function start(): Promise<void> {
     setUpSluice: () => {
       if (!spot || mode !== 'bank') return;
       const before = session.sluicePlace;
+      const blockedClaim = claimBlock();
+      if (blockedClaim) return hud.toast(blockedClaim);
       const result = session.setUpSluice(creek.id, spot);
       if (result === 'jarFull') {
         hud.toast("Your jar can't hold the sluice's moss, so it can't come down yet. Pan some of the jar first.");
@@ -394,16 +476,27 @@ async function start(): Promise<void> {
     shovel,
     pry,
     bail,
-    walkCreek: () => setMode('creek'),
+    walkCreek: () => {
+      if (mode === 'town') passTime(ECONOMY_TUNING.travel.town);
+      setMode('creek');
+    },
     walkToTown,
     openRegion: () => setMode('region'),
     buyLead: (leadId) => {
+      if (restricted()) return hud.toast(RESTRICTED_MESSAGE);
       const lead = region.buy(leadId, session);
       if (lead) hud.toast(`Bought: ${lead.name}. Follow it from your notebook on the region map.`);
       else hud.toast("You can't afford that yet.");
     },
-    followLead: (leadId) => hud.toast(describeFollow(region.follow(leadId))),
+    followLead: (leadId) => {
+      if (region.lead(leadId).status !== 'open') return;
+      passTime(ECONOMY_TUNING.travel.lead);
+      const result = region.follow(leadId);
+      economy.stakeFound(region);
+      hud.toast(describeFollow(result));
+    },
     buyGear: (id) => {
+      if (restricted()) return hud.toast(RESTRICTED_MESSAGE);
       const result = buyGear(session, id);
       if (result === 'bought') hud.toast(BOUGHT_MESSAGES[id]);
       else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
@@ -419,12 +512,52 @@ async function start(): Promise<void> {
       if (mode !== 'town' || session.vial.length === 0) return;
       const sale = session.sellVial();
       hud.toast(`Sold for $${sale.total.toFixed(2)}. You have $${session.cash.toFixed(2)}.`);
+      settleUp();
     },
     newCreek: () => {
       if (!window.confirm('Start over? Your creeks, leads, vial, jar, and cash will all be lost.')) return;
       clearSave();
       saveBlocked = true; // Stop the autosave (and pagehide) from writing this game back before the reload.
       window.location.reload();
+    },
+    hireHand: () => {
+      const result = crew.hire(session, economy, region.home.id, restricted());
+      const hand = crew.hand;
+      if (result === 'hired' && hand) {
+        const place = region.creek(session.sluicePlace!.creekId).profile.name;
+        hud.toast(`${hand.name} signs on at $${hand.wage} a day, first day paid. They'll run your sluice at ${place} while you're away.`);
+      } else if (result === 'restricted') hud.toast(RESTRICTED_MESSAGE);
+      else if (result === 'cantAfford') hud.toast("You can't afford the first day's wage yet.");
+      else if (result === 'noSluice' || result === 'homeCreek') hud.toast('A hand needs a sluice set up on one of your stretches to run.');
+      else if (result === 'claimLapsed') hud.toast("The claim where your sluice stands has lapsed. Pay its fees first.");
+    },
+    dismissHand: () => {
+      const hand = crew.hand;
+      if (!hand) return;
+      crew.dismiss();
+      hud.toast(`${hand.name} collects their things and heads off.${crew.wagesOwed > 0 ? ' You still owe them wages.' : ''}`);
+    },
+    releaseClaim: (creekId) => {
+      const name = region.creek(creekId).profile.name;
+      const result = economy.release(creekId, session);
+      if (result === 'sluiceThere') hud.toast(`Your sluice is set up at ${name}. Take it down before releasing the claim.`);
+      else if (result === 'released') hud.toast(`You release your claim on ${name}. What you owed on it is written off. You can re-stake it later for $${ECONOMY_TUNING.restakeFee}.`);
+    },
+    restakeClaim: (creekId) => {
+      const result = economy.restake(creekId, session, restricted());
+      if (result === 'staked') hud.toast(`You re-stake ${region.creek(creekId).profile.name}.`);
+      else if (result === 'restricted') hud.toast(RESTRICTED_MESSAGE);
+      else if (result === 'cantAfford') hud.toast(`Re-staking costs $${ECONOMY_TUNING.restakeFee}.`);
+    },
+    washCrewBucket: () => {
+      if (!sluiceHere() || crew.bucket.blackSand <= 0) return;
+      const moved = crew.washIntoJar(session);
+      if (moved <= 0) return hud.toast('Your jar is full. Pan some of it down first (J).');
+      hud.toast(
+        crew.bucket.blackSand > 0
+          ? "You wash what fits of the crew's concentrate into your jar. Pan it down to make room for the rest."
+          : "You wash the crew's concentrate into your jar. Pan it to see what the sluice caught.",
+      );
     },
     panConcentrate: () => {
       if (!session.canPanConcentrate || mode === 'creek') return;
@@ -457,7 +590,10 @@ async function start(): Promise<void> {
   const screen = loaded?.place.screen ?? 'creek';
   if (spot) bankView.setSpot(creek, spot);
   if (pan && pan.phase !== 'emptied') setMode('pan');
-  else if (screen === 'town') walkToTown();
+  else if (screen === 'town') {
+    region.restockOffers(session.pansWorked);
+    setMode('town');
+  }
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
   else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
@@ -469,7 +605,7 @@ async function start(): Promise<void> {
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(region, session, { screen: mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now()));
+    const ok = writeSave(createSave(region, session, { screen: mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew }));
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -484,11 +620,18 @@ async function start(): Promise<void> {
   // Dev-only handle for inspecting state from the browser console or test scripts.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      __game: { session, region, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, regionMap, panView, classifierView },
+      __game: { session, region, economy, crew, passTime, get creek() { return creek; }, get mode() { return mode; }, pickSpot: (id: number) => pickSpot(creek.spot(id)), creekMap, regionMap, panView, classifierView },
     });
   }
 
   const sluiceCoach = new SluiceCoach((message) => hud.toast(message));
+
+  /** Time stops after this long without input, so an idle tab neither earns nor owes. */
+  const IDLE_AFTER_MS = 20_000;
+  let lastInput = performance.now();
+  for (const type of ['pointerdown', 'pointermove', 'keydown', 'wheel']) {
+    window.addEventListener(type, () => (lastInput = performance.now()), { capture: true, passive: true });
+  }
 
   let accumulator = 0;
   let sluiceAccumulator = 0;
@@ -498,6 +641,14 @@ async function start(): Promise<void> {
   app.ticker.add((ticker) => {
     const dt = Math.min(ticker.deltaMS / 1000, 0.1);
     const controls = input.sample(dt);
+
+    // Game time runs while the player is out working and has touched something lately; not in
+    // town or on the map (those are paid for as travel), and not while the game sits idle.
+    if (mode !== 'town' && mode !== 'region' && performance.now() - lastInput < IDLE_AFTER_MS) passTime(dt);
+    const place = session.sluicePlace;
+    creekMap.setStatus(claimBlock() ? (economy.claim(creek.id)?.status === 'released' ? 'claim released' : 'claim lapsed: pay fees in town') : null);
+    regionMap.setClaimStatus((c) => (economy.claim(c.id)?.status === 'released' ? 'released' : economy.canWork(c.id) ? 'held' : 'lapsed'));
+    bankView.setCrewBucket(place && spot && place.creekId === creek.id && place.spotId === spot.id ? crew.bucket.blackSand : 0);
 
     // The sluice runs whenever the player is at its spot (digging, watching it, or panning beside it).
     const sluice = sluiceHere();
@@ -587,6 +738,9 @@ async function start(): Promise<void> {
       sluiceFlow,
       cleaningOut,
       classifier,
+      economy,
+      crew,
+      restricted: restricted(),
     });
 
     sinceSave += dt;

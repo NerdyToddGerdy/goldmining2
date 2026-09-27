@@ -65,6 +65,8 @@ export class BankView extends Container {
   private sluiceEvents: SluiceStepEvents | null = null;
   /** The classifier on its bucket beside the hole, when the player has one and the ground allows it. */
   private classifier: Classifier | null = null;
+  /** Concentrate the hired hand has left in the crew bucket beside the sluice. */
+  private crewBucket = 0;
 
   constructor(
     private creek: Creek,
@@ -111,6 +113,10 @@ export class BankView extends Container {
         color: LAYER_COLORS[from],
       });
     }
+  }
+
+  setCrewBucket(blackSand: number): void {
+    this.crewBucket = blackSand;
   }
 
   setClassifier(classifier: Classifier | null): void {
@@ -279,6 +285,7 @@ export class BankView extends Container {
     this.drawPan(g);
     if (this.classifier) this.drawClassifier(g, this.classifier);
     if (this.sluice) this.drawSluice(g, this.sluice);
+    if (this.sluice && this.crewBucket > 0) this.drawCrewBucket(g);
     this.drawShovel(g);
 
     const fx = this.fx.clear();
@@ -448,6 +455,18 @@ export class BankView extends Container {
     if (sluice.jammed || sluice.clog > 0.5) {
       for (let i = 0; i < 4; i++) g.circle(x0 - 6 + Math.random() * 34, r.y - 4 - Math.random() * 10, 2).fill({ color: 0xdfeee9, alpha: 0.8 });
     }
+  }
+
+  /** The hand's bucket of cleanouts on the bank by the sluice header, dark to the fill line. */
+  private drawCrewBucket(g: Graphics): void {
+    const r = this.sluiceRect();
+    const x = r.x - 44;
+    const y = this.surfaceY - 30;
+    const fill = Math.min(1, this.crewBucket / 4);
+    g.poly([x, y, x + 26, y, x + 22, y + 28, x + 4, y + 28]).fill(0x7c7d80).stroke({ width: 1.5, color: 0x3b3c3f });
+    const top = y + 28 - fill * 26;
+    g.poly([x + 4, top, x + 22, top, x + 22, y + 27, x + 4, y + 27]).fill(0x1d1a14);
+    g.moveTo(x + 2, y).quadraticCurveTo(x + 13, y - 14, x + 24, y).stroke({ width: 1.5, color: 0x3b3c3f });
   }
 
   private drawShovel(g: Graphics): void {

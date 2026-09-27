@@ -11,3 +11,5 @@ export * from './region';
 export * from './sluice';
 export * from './outfitter';
 export * from './classifier';
+export * from './economy';
+export * from './staffing';

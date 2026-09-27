@@ -65,6 +65,7 @@ export class CreekMapView extends Container {
   /** Touch has no hover: the first tap selects a spot to read, the second digs. */
   selected: DigSpot | null = null;
   private time = 0;
+  private status: string | null = null;
 
   constructor(
     private creek: Creek,
@@ -89,8 +90,16 @@ export class CreekMapView extends Container {
     });
   }
 
+  /** A note under the name, such as a lapsed claim. */
+  setStatus(status: string | null): void {
+    if (status === this.status) return;
+    this.status = status;
+    this.title.text = status ? `${this.creek.profile.name} (${status})` : this.creek.profile.name;
+  }
+
   setCreek(creek: Creek): void {
     this.creek = creek;
+    this.status = null;
     this.hovered = null;
     this.selected = null;
     this.layout(this.width_, this.height_);
@@ -100,7 +109,7 @@ export class CreekMapView extends Container {
     this.width_ = width;
     this.height_ = height;
     this.hitArea = new Rectangle(0, 0, width, height);
-    this.title.text = this.creek.profile.name;
+    this.title.text = this.status ? `${this.creek.profile.name} (${this.status})` : this.creek.profile.name;
     this.title.position.set(width / 2, this.short ? 36 : 58);
     this.labels.removeChildren().forEach((c) => c.destroy());
     const style = { fill: 0xefe6cf, fontSize: 13, fontFamily: 'Georgia, serif' };

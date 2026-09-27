@@ -26,6 +26,7 @@ export class RegionMapView extends Container {
   /** Screen positions of each creek, recomputed when the size or the creek count changes. */
   private positions = new Map<Creek, { x: number; y: number }>();
   private positionKey = '';
+  private claimStatus: (creek: Creek) => 'held' | 'lapsed' | 'released' = () => 'held';
 
   constructor(
     private readonly region: Region,
@@ -39,6 +40,11 @@ export class RegionMapView extends Container {
       const place = this.placeAt(e.global.x, e.global.y);
       if (place) this.onPick(place);
     });
+  }
+
+  /** How each stretch's claim stands: released ones are drawn hollow, lapsed ones crossed. */
+  setClaimStatus(status: (creek: Creek) => 'held' | 'lapsed' | 'released'): void {
+    this.claimStatus = status;
   }
 
   layout(width: number, height: number): void {
@@ -72,7 +78,10 @@ export class RegionMapView extends Container {
     for (const creek of this.region.creeks) {
       const p = this.creekPos(creek);
       const worked = creek.creekSpots.every((s) => creek.isWorkedOut(s)) && !creek.profile.renewing;
-      g.circle(p.x, p.y, 9).fill(worked ? 0x9a8a6a : INK);
+      const claim = creek === this.region.home ? 'held' : this.claimStatus(creek);
+      if (claim === 'released') g.circle(p.x, p.y, 8).stroke({ width: 2, color: INK, alpha: 0.6 });
+      else g.circle(p.x, p.y, 9).fill(worked ? 0x9a8a6a : INK);
+      if (claim === 'lapsed') g.moveTo(p.x - 10, p.y - 10).lineTo(p.x + 10, p.y + 10).stroke({ width: 2, color: 0xa0502c });
       if (creek === current) g.circle(p.x, p.y, 16).stroke({ width: 3, color: 0xa0502c });
       if (this.hovered?.kind === 'creek' && this.hovered.creek === creek) g.circle(p.x, p.y, 24).stroke({ width: 2, color: INK });
     }

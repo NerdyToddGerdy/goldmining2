@@ -286,6 +286,15 @@ Low-cost recovery options:
 - Use terrain knowledge to find overlooked micro-deposits.
 - Work a low-fee temporary claim.
 
+### In the game: time, claims and fees
+
+- **Game time** passes only while the player is out working and has touched something in the last twenty seconds, and in fixed amounts for travel: a trip to town and back, a walk to another stretch, or following a lead out. Time in town or on the region map is covered by the travel cost. A closed or idle tab neither earns nor owes. A game day is ten minutes of active play, shown as "Day N" by the cash.
+- **Claims:** every found stretch is staked when found. A plain stretch costs $1 a day to hold, and one with ground for a sluice (including a thin-water bench) costs $2.
+- **Paying:** fees and wages come out of cash automatically in town, as far as the cash goes, on arriving and after each sale.
+- **Lapsing:** a claim more than three days behind lapses. It can't be dug, the sluice can't be set up on it, and a hand won't work it until it's paid up.
+- **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down.
+- **Being behind** (any claim lapsed, or wages more than a day overdue) blocks new gear, leads and hires. Nothing owned is ever taken, and fuel can still be bought. The Home Creek is never a claim and never costs anything, so panning it always pays the way back.
+
 ### Anti-death-spiral rules
 
 - Basic panning should never require fuel, rent, repair parts, or a consumable that can reach zero.
@@ -370,7 +379,7 @@ The Home Creek is also how the player finds their next site. Leads point to furt
 
   On the creek map, each panned spot shows gold flecks by its stake, one to four for its colour per pan, so the trail can be read at a glance. Its tooltip gives the notes as a prospector would jot them: the number of pans, the colour in words (no colour, a few specks, poor, fair, good, rich), and whether it gets richer or thinner deeper down once both shallow (topsoil, gravel) and deep (pay streak, bedrock) ground has been panned. No milligram figures.
 - **Clues while digging.** Now and then the shovel turns up an old pan, a survey stake, or a note in a tin. It points to a named stretch the player can follow later.
-- **The claims board in town.** Leads for sale, restocked every dozen pans:
+- **The claims board in town** (the Leads tab). Leads for sale, restocked every dozen pans:
 
 | Source | Price | Reliability | Estimate |
 |---|---:|---:|---|
@@ -490,6 +499,17 @@ Example warning:
 > At current staffing and feed rate, this claim is likely to become unprofitable within approximately six work cycles.
 
 ---
+
+### In the game: the first hired hand
+
+- **Hiring:** one general hand, hired in town (the Claims & crew tab) for $25 a day, with the first day paid up front. The hand works the sluice wherever it is set up. That is never the Home Creek, which has no sluice site and takes no staff.
+- **When they work:** only while game time passes and the player is away from that stretch. When the player is there, the hand stands back and the player runs the sluice.
+- **How they work:** the hand drives the same sluice and creek model as the player. They haul from the nearest spots along the stretch, toss topsoil and slumped bank onto the spoil pile, pry boulders, bail flooded holes, and feed the header at a cautious pace. They set the intake near a sensible middle, rake clogs a few seconds late, and clean out every eight shovelfuls with a short rinse. The result is about 55% of what the player would take from the same ground in the same time, with lower recovery. Staff buy time, not output.
+- **The crew bucket:** each cleanout goes into a bucket beside the sluice, holding about five mats, unrevealed. The player washes it into the jar ("Wash the crew's bucket") and pans it, so the reveal stays theirs. The bucket shows on the bank, dark to its fill line.
+- **Stopping:** the hand stops when the stretch is worked out, the bucket is full, the pump is dry and the player has no fuel cans (they refuel from the player's cans), or the claim lapses. On return, the player hears roughly how many hours they worked, the shovelfuls fed, and the cleanouts made.
+- **Estimates:** the Claims & crew tab shows roughly how many days of ground are left at the hand's pace. It also gives a very rough daily take built only from the player's own field notes on that stretch, set against wages and fees, with a plain warning when a hand likely costs more than they bring in. With no notes, it says to pan the stretch first.
+- **Wages** run by the day whether there is work or not. Two days unpaid and the hand walks off; what's owed stays owed until paid.
+- A typical creek bend brings a hand roughly $100 a day in gold at the buyer's rate, and lasts under a day of their work. A poor one doesn't cover the wage.
 
 ## Equipment UX Philosophy
 

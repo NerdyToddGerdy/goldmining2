@@ -1,4 +1,6 @@
 import { HOME_CREEK_PROFILE } from './creek';
+import { Economy, type EconomySnapshot } from './economy';
+import { Crew, type CrewSnapshot } from './staffing';
 import { reservePanIds } from './pan';
 import { PanningSession, type SessionSnapshot } from './panningSession';
 import { Region, type RegionSnapshot } from './region';
@@ -11,7 +13,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier'] as const;
 
@@ -28,16 +30,41 @@ export interface SaveData {
   readonly region: RegionSnapshot;
   readonly session: SessionSnapshot;
   readonly place: SavedPlace;
+  readonly economy: EconomySnapshot;
+  readonly crew: CrewSnapshot;
 }
 
-export function createSave(region: Region, session: PanningSession, place: SavedPlace, now: number): SaveData {
-  return { version: SAVE_VERSION, savedAt: now, region: region.snapshot(), session: session.snapshot(), place };
+/** The clock, claims and crew. Optional so a save can be made without them (they start empty). */
+export interface Operations {
+  readonly economy: Economy;
+  readonly crew: Crew;
 }
+
+export function createSave(region: Region, session: PanningSession, place: SavedPlace, now: number, ops?: Operations): SaveData {
+  return {
+    version: SAVE_VERSION,
+    savedAt: now,
+    region: region.snapshot(),
+    session: session.snapshot(),
+    place,
+    economy: ops?.economy.snapshot() ?? { clock: 0, claims: [] },
+    crew: ops?.crew.snapshot() ?? EMPTY_CREW,
+  };
+}
+
+const EMPTY_CREW: CrewSnapshot = {
+  hand: null,
+  wagesOwed: 0,
+  bucket: { blackSand: 0, gold: [] },
+  report: { seconds: 0, shovelfuls: 0, cleanouts: 0, clues: 0 },
+};
 
 export interface LoadedGame {
   readonly region: Region;
   readonly session: PanningSession;
   readonly place: SavedPlace;
+  readonly economy: Economy;
+  readonly crew: Crew;
 }
 
 /**
@@ -50,6 +77,8 @@ export interface LoadedGame {
  * v6 → v7: the hand classifier. Nobody had one.
  * v7 → v8: sluice upgrades. No pump, no fuel, no thin-water sites on existing creeks; a
  *   sluice already set up keeps its site's slope.
+ * v8 → v9: the game clock, claims and crew. The clock starts now, nobody has staff, and every
+ *   found stretch is staked (on load) with nothing owed.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -130,6 +159,9 @@ function migrate(data: unknown): unknown {
       },
     };
   }
+  if (save.version === 8) {
+    save = { ...save, version: 9, economy: { clock: 0, claims: [] }, crew: EMPTY_CREW };
+  }
   return save;
 }
 
@@ -141,17 +173,21 @@ export function loadSave(raw: unknown, rng: Rng): LoadedGame | null {
   // Creeks saved before gullies existed get them now, so the Home Creek can still lead somewhere.
   region.home.addGullies();
   const session = new PanningSession(rng, data.session);
-  reservePanIds(maxPieceId(data.session));
+  const economy = new Economy(data.economy);
+  economy.stakeFound(region);
+  const crew = new Crew(rng, data.crew);
+  reservePanIds(maxPieceId(data.session, data.crew));
   const creek = region.creeks.find((c) => c.id === data.place.creekId) ?? region.home;
   const spotId = data.place.spotId !== null && creek.spots.some((s) => s.id === data.place.spotId) ? data.place.spotId : null;
-  return { region, session, place: { screen: data.place.screen, creekId: creek.id, spotId } };
+  return { region, session, place: { screen: data.place.screen, creekId: creek.id, spotId }, economy, crew };
 }
 
-function maxPieceId(session: SessionSnapshot): number {
+function maxPieceId(session: SessionSnapshot, crew: CrewSnapshot): number {
   const pan = session.pan;
   const ids = [
     ...session.vial,
     ...session.jar.gold,
+    ...crew.bucket.gold,
     ...(pan ? [...pan.gold, ...pan.visible, ...pan.hidden, ...pan.rocks] : []),
   ].map((item) => item.id);
   return Math.max(0, ...ids);
@@ -175,6 +211,9 @@ function isSaveData(data: unknown): data is SaveData {
   if (session.sluice !== null && !(isObject(session.sluice) && 'placedAt' in session.sluice && 'state' in session.sluice)) return false;
   if (session.pan !== null && !(isObject(session.pan) && typeof session.pan.phase === 'string')) return false;
   if (!isObject(place) || !(SCREENS as readonly unknown[]).includes(place.screen) || typeof place.creekId !== 'number') return false;
+  const { economy, crew } = data;
+  if (!isObject(economy) || typeof economy.clock !== 'number' || !Array.isArray(economy.claims)) return false;
+  if (!isObject(crew) || typeof crew.wagesOwed !== 'number' || !isObject(crew.bucket) || !Array.isArray(crew.bucket.gold)) return false;
   return true;
 }
 

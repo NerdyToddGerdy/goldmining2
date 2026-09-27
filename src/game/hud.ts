@@ -1,4 +1,11 @@
 import {
+  ECONOMY_TUNING,
+  STAFF_TUNING,
+  daysOfGroundLeft,
+  estimateDailyTake,
+  type Crew,
+  type Economy,
+  type IdleReason,
   FUEL_CAN,
   OUTFITTER,
   SLUICE_TUNING,
@@ -63,6 +70,11 @@ export interface HudActions {
   buyLead(leadId: number): void;
   buyGear(id: GearId): void;
   buyFuel(): void;
+  hireHand(): void;
+  dismissHand(): void;
+  releaseClaim(creekId: number): void;
+  restakeClaim(creekId: number): void;
+  washCrewBucket(): void;
   // Region
   followLead(leadId: number): void;
 }
@@ -85,7 +97,20 @@ export interface HudState {
   readonly cleaningOut: boolean;
   /** The classifier, when the player has one and this creek allows it (never the Home Creek). */
   readonly classifier: Classifier | null;
+  readonly economy: Economy;
+  readonly crew: Crew;
+  /** Behind on fees or wages: expansion is blocked until paid. */
+  readonly restricted: boolean;
 }
+
+const IDLE_WORDS: Record<IdleReason, string> = {
+  playerHere: 'Stands back while you work the stretch yourself.',
+  noSluice: 'Waiting: your sluice is packed away.',
+  claimLapsed: 'Idle: the claim has lapsed for unpaid fees.',
+  workedOut: 'Idle: the stretch is worked out.',
+  bucketFull: 'Idle: the crew bucket is full. Wash it into your jar at the sluice.',
+  pumpDry: "Idle: the pump is dry and you've no fuel cans left.",
+};
 
 const HINTS: Record<Mode, string> = {
   creek: 'Walk the creek and pick a spot to dig (click, or press its number). Inside bends, bedrock, black sand, moss lines and boulders are good signs, but only the pan tells the truth.',
@@ -146,7 +171,7 @@ export class Hud {
   /** Small screens start with the notebook and claims board folded up. */
   private panelCollapsed = matchMedia('(max-width: 700px), (max-height: 500px)').matches;
   /** Which tab of the town's side menu is open; remembered between visits. */
-  private townTab: 'outfitter' | 'claims' = 'outfitter';
+  private townTab: 'outfitter' | 'claims' | 'office' = 'outfitter';
   private buttonsKey = '';
   private resultKey = '';
   private inspectOpen = true;
@@ -196,7 +221,7 @@ export class Hud {
       if (tab) {
         // Picking a tab always opens the menu; picking the open tab again folds it away.
         const same = tab.dataset.tab === this.townTab && !this.panelCollapsed;
-        this.townTab = tab.dataset.tab as 'outfitter' | 'claims';
+        this.townTab = tab.dataset.tab as 'outfitter' | 'claims' | 'office';
         this.panelCollapsed = same;
         this.panelKey = '';
         return;
@@ -212,6 +237,10 @@ export class Hud {
       const id = Number(target.dataset.lead);
       if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
       if (target.dataset.action === 'fuel') this.on.buyFuel();
+      if (target.dataset.action === 'hire') this.on.hireHand();
+      if (target.dataset.action === 'dismiss') this.on.dismissHand();
+      if (target.dataset.action === 'release') this.on.releaseClaim(Number(target.dataset.creek));
+      if (target.dataset.action === 'restake') this.on.restakeClaim(Number(target.dataset.creek));
       if (target.dataset.action === 'buy') this.on.buyLead(id);
       if (target.dataset.action === 'follow') this.on.followLead(id);
     });
@@ -253,7 +282,7 @@ export class Hud {
           ? TOUCH_HINTS[mode]
           : HINTS[mode];
     if (this.hint.textContent !== hint) this.hint.textContent = hint;
-    const cash = `$${session.cash.toFixed(2)}`;
+    const cash = `Day ${state.economy.day} · $${session.cash.toFixed(2)}`;
     if (this.cash.textContent !== cash) this.cash.textContent = cash;
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
@@ -349,7 +378,7 @@ export class Hud {
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
-        list.push(...this.refuelButton(state));
+        list.push(...this.refuelButton(state), ...this.crewBucketButton(state));
       } else if (spot.sluiceSite && session.owns('sluice')) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
@@ -380,7 +409,7 @@ export class Hud {
       }
       const list: [string, () => void][] = [];
       if (state.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.rakeSluice()]);
-      list.push(...this.refuelButton(state));
+      list.push(...this.refuelButton(state), ...this.crewBucketButton(state));
       if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
       list.push(['Clean out the moss (C)', () => this.on.startCleanout()]);
       list.push(...this.jarButton(session));
@@ -407,7 +436,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.restricted}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -443,7 +472,8 @@ export class Hud {
       const tabs = `<div class="tabs" role="tablist">${(
         [
           ['outfitter', 'Outfitter', ''],
-          ['claims', 'Claims board', `<span class="count">${region.offers.length}</span>`],
+          ['claims', 'Leads', `<span class="count">${region.offers.length}</span>`],
+          ['office', 'Claims & crew', state.restricted ? '<span class="count warn">!</span>' : ''],
         ] as const
       )
         .map(
@@ -454,6 +484,8 @@ export class Hud {
       const body =
         this.townTab === 'outfitter'
           ? gear.join('')
+          : this.townTab === 'office'
+          ? this.renderOffice(state)
           : `${offers.join('') || '<p>Nothing posted. Check back after more panning.</p>'}<p class="small">New leads go up every few pans. Rumours are cheap and often wrong; maps cost more and rarely lie.</p>`;
       this.panel.innerHTML = `${tabs}<div class="tab-body">${body}</div>`;
     } else {
@@ -469,11 +501,101 @@ export class Hud {
     }
   }
 
+  /** The hand's cleanouts wait in a bucket by the sluice until the player washes them into the jar. */
+  private crewBucketButton(state: HudState): [string, () => void][] {
+    return state.sluice && state.crew.bucket.blackSand > 0 ? [["Wash the crew's bucket into your jar (W)", () => this.on.washCrewBucket()]] : [];
+  }
+
   /** Offered once the tank is low enough for a can to be worth pouring in. */
   private refuelButton(state: HudState): [string, () => void][] {
     const pump = state.sluice?.usesPump ? state.sluice.kit.pump : null;
     if (!pump || state.session.fuelCans <= 0 || pump.fuel > SLUICE_TUNING.pumpTank * 0.75) return [];
     return [[`Refuel the pump (G) · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`, () => this.on.refuelPump()]];
+  }
+
+  /** What the Claims & crew tab shows, as a key so it only re-renders when something changes. */
+  private officeKey(state: HudState): string {
+    const { economy, crew } = state;
+    const claims = economy.allClaims.map((c) => `${c.creekId}${c.status}${c.owed.toFixed(2)}`).join();
+    return `${claims}:${crew.hand?.name ?? ''}${crew.hand?.idle ?? ''}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
+  }
+
+  /** The claims office and crew: fees owed, releasing and re-staking claims, and the hired hand. */
+  private renderOffice(state: HudState): string {
+    const { economy, crew, region, session } = state;
+    const money = (n: number): string => `$${n.toFixed(2)}`;
+    const parts: string[] = [];
+    if (state.restricted) {
+      parts.push('<p class="warn">You\'re behind on fees or wages. No new gear, leads, or hires until you pay up or release a claim. Nothing you own is taken.</p>');
+    }
+    parts.push(`<p class="small">Day ${economy.day}. Fees and wages come out of your cash whenever you're in town, as far as it goes. The Home Creek is free.</p>`);
+
+    // The crew.
+    const hand = crew.hand;
+    const place = session.sluicePlace;
+    if (hand) {
+      const lines = [`<b>${hand.name}</b> <span class="small">general hand · $${hand.wage} a day</span>`];
+      lines.push(`<p>${hand.idle ? IDLE_WORDS[hand.idle] : 'Working your sluice.'}</p>`);
+      if (place) {
+        const siteCreek = region.creek(place.creekId);
+        const siteSpot = siteCreek.spot(place.spotId);
+        const days = daysOfGroundLeft(siteCreek, siteSpot);
+        lines.push(
+          `<p class="small">At ${siteCreek.profile.name}. ${days <= 0 ? 'The stretch is worked out.' : days < 0.5 ? 'Less than half a day of ground left at their pace.' : `About ${Math.round(days * 2) / 2} days of ground left at their pace.`}</p>`,
+        );
+        const take = estimateDailyTake(siteCreek, siteSpot);
+        const fee = economy.claim(place.creekId)?.fee ?? 0;
+        if (!take) {
+          lines.push('<p class="small">Pan this stretch yourself to judge whether a hand will pay here.</p>');
+        } else {
+          const losing = take.high < hand.wage + fee;
+          lines.push(
+            `<p class="small">From your field notes, very roughly ${money(Math.max(0, take.low))} to ${money(take.high)} a day in gold, against ${money(hand.wage)} in wages and ${money(fee)} in fees.${losing ? ' At that rate a hand likely costs more than they bring in.' : ''}</p>`,
+          );
+        }
+      }
+      if (crew.wagesOwed > 0.005) lines.push(`<p class="small">You owe ${hand.name} ${money(crew.wagesOwed)}.</p>`);
+      lines.push(`<button type="button" data-action="dismiss">Let ${hand.name} go</button>`);
+      parts.push(`<div class="lead">${lines.join('')}</div>`);
+    } else {
+      const lines = ['<b>Hire a hand</b><p class="small">A general hand runs your sluice while you are away: slower and less careful than you, so they buy you time, not gold. Their cleanouts wait in a bucket by the sluice for you to pan.</p>'];
+      if (crew.wagesOwed > 0.005) lines.push(`<p class="warn">You still owe a former hand ${money(crew.wagesOwed)}.</p>`);
+      if (!place) {
+        lines.push('<p class="small">Set your sluice up on one of your stretches first.</p>');
+      } else {
+        const workable = economy.canWork(place.creekId);
+        const ok = workable && !state.restricted && session.cash >= STAFF_TUNING.wage;
+        lines.push(
+          `<p class="small">Your sluice is at ${region.creek(place.creekId).profile.name}.${workable ? '' : ' That claim has lapsed.'}</p>` +
+            `<button type="button" data-action="hire" ${ok ? '' : 'disabled'}>Hire for $${STAFF_TUNING.wage} a day, first day up front</button>`,
+        );
+      }
+      parts.push(`<div class="lead">${lines.join('')}</div>`);
+    }
+
+    // The claims.
+    const claims = economy.allClaims.map((claim) => {
+      const name = region.creek(claim.creekId).profile.name;
+      const status =
+        claim.status === 'released'
+          ? '<span class="dud">Released.</span>'
+          : economy.isLapsed(claim)
+            ? `<span class="warn">Lapsed: owes ${money(claim.owed)}.</span>`
+            : claim.owed > 0.005
+              ? `Owes ${money(claim.owed)}.`
+              : '<span class="found">Paid up.</span>';
+      const action =
+        claim.status === 'released'
+          ? `<button type="button" data-action="restake" data-creek="${claim.creekId}" ${!state.restricted && session.cash >= ECONOMY_TUNING.restakeFee ? '' : 'disabled'}>Re-stake for $${ECONOMY_TUNING.restakeFee}</button>`
+          : `<button type="button" data-action="release" data-creek="${claim.creekId}">Release</button>`;
+      return `<div class="lead"><b>${name}</b> <span class="small">$${claim.fee} a day</span><p>${status}</p>${action}</div>`;
+    });
+    parts.push(
+      claims.length
+        ? `${claims.join('')}<p class="small">Releasing a claim writes off what it owes. A claim more than ${ECONOMY_TUNING.graceDays} days behind lapses and can't be worked until it's paid.</p>`
+        : '<p class="small">No claims yet. Stretches you find are staked for you, at a small fee a day.</p>',
+    );
+    return parts.join('');
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {
@@ -506,6 +628,7 @@ export class Hud {
     } else if (state.mode === 'sluice') {
       if (key === 'r') this.on.rakeSluice();
       else if (key === 'g') this.on.refuelPump();
+      else if (key === 'w') this.on.washCrewBucket();
       else if (key === 'f' && !state.cleaningOut) this.on.shovel('sluice');
       else if (key === 'c' && !state.cleaningOut) this.on.startCleanout();
       else if (key === 'l' && state.cleaningOut) this.on.liftMat();
@@ -523,6 +646,7 @@ export class Hud {
       else if (key === 'f' && state.sluice) this.on.shovel('sluice');
       else if (key === 'v' && state.sluice) this.on.openSluice();
       else if (key === 'g' && state.sluice) this.on.refuelPump();
+      else if (key === 'w' && state.sluice) this.on.washCrewBucket();
       else if (key === 'p') this.on.shovel('pan');
       else if (key === 't') this.on.shovel('spoil');
       else if (key === 'b') this.on.pry();
