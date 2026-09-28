@@ -58,7 +58,11 @@
         border: 1px solid rgba(239, 230, 207, 0.35); border-bottom-width: 2px; border-radius: 3px;
       }
       .hud button:active { background: rgba(80, 90, 60, 0.9); }
-      .hud-hint { position: absolute; left: var(--edge-l); top: var(--edge-t); right: 280px; opacity: 0.8; text-shadow: 0 1px 2px #000; }
+      /* Top left: the way back, always in the same place, then the hint beside it. */
+      .hud-top { position: absolute; left: var(--edge-l); top: var(--edge-t); right: 280px; display: flex; gap: 12px; align-items: flex-start; }
+      .hud-hint { flex: 1; min-width: 0; opacity: 0.8; text-shadow: 0 1px 2px #000; }
+      .hud .hud-back { flex: none; padding: 5px 10px; white-space: nowrap; }
+      .hud .hud-back[hidden] { display: none; }
       /* The clock and cash, shown on a small handheld: tap it to open the field tablet. */
       .hud .hud-cash {
         position: absolute; right: var(--edge-r); top: var(--edge-t); display: block; padding: 4px 10px 5px;
@@ -335,13 +339,14 @@
       @media (max-height: 500px) {
         .hud { font-size: 13px; }
         .hud .hud-cash { font-size: 15px; padding: 2px 8px 3px; min-height: 0; }
-        .hud-hint { right: 230px; }
+        .hud-top { right: 230px; gap: 8px; }
+        .hud .hud-back { padding: 3px 8px; min-height: 30px; }
         .hud-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .hud button { padding: 5px 10px; min-height: 34px; }
         .hud-bar { gap: 6px; }
         .hud-result { top: 14%; font-size: 17px; }
         .hud-result.hud-result-town { top: 46%; font-size: 14px; padding: 6px 12px; }
-        .hud-toast { top: 44px; font-size: 13px; max-width: 70vw; }
+        .hud-toast { top: 44px; font-size: 13px; max-width: calc(100vw - 270px); }
         .hud-inspect { top: calc(var(--edge-t) + 36px); font-size: 12px; padding: 3px 8px 4px; }
         #fullscreen { padding: 4px 8px; font-size: 12px; }
       }

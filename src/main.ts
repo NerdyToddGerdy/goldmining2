@@ -1460,6 +1460,7 @@ async function start(): Promise<void> {
       drywasherCoach.update(dt, drywasher, merged);
       drywasherView.update(dt, drywasher, controls.shake > 0, controls.tilt, merged);
     } else if (mode === 'highbanker' && highbanker) {
+      highbankerView.keepOut = hud.inspectBounds();
       highbankerView.update(dt, highbanker, highbankerEvents, throttle, primingLeft === null ? null : 1 - primingLeft / HIGHBANKER_TUNING.primeSeconds);
     } else if (mode === 'rocker' && rocker) {
       rocker.step(dt);

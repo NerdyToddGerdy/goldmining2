@@ -331,7 +331,8 @@ const LAYER_NAMES = { overburden: 'topsoil', gravel: 'gravel', payStreak: 'pay s
 
 /**
  * DOM controls around the canvas. Buttons and hints change with the mode; the tilt slider and
- * Sift button (for touch) only show while panning. The inspection panel is off by default.
+ * Sift button (for touch) only show while panning. The inspection panel of readouts is always up,
+ * and the way back (what Esc does) always sits in the same place, top left.
  */
 export class Hud {
   private readonly root: HTMLElement;
@@ -339,7 +340,9 @@ export class Hud {
   private readonly panControls: HTMLElement;
   private readonly tilt: HTMLInputElement;
   private readonly sift: HTMLButtonElement;
-  private readonly inspectToggle: HTMLElement;
+  /** The way back, pinned top left: whatever Esc does on this screen. */
+  private readonly back: HTMLElement;
+  private backAction: (() => void) | null = null;
   private readonly tiltLabel: HTMLElement;
   private readonly water: HTMLElement;
   private readonly waterInput: HTMLInputElement;
@@ -376,7 +379,6 @@ export class Hud {
   private townTab: 'outfitter' | 'claims' | 'office' = 'outfitter';
   private buttonsKey = '';
   private resultKey = '';
-  private inspectOpen = true;
   private lossRate = 0;
   private toastTimer = 0;
   /** Recent messages, newest first, for the tablet's Overview. */
@@ -386,7 +388,7 @@ export class Hud {
   constructor(private readonly on: HudActions) {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
-      <div class="hud-hint"></div>
+      <div class="hud-top"><button type="button" class="hud-back" hidden></button><div class="hud-hint"></div></div>
       <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
@@ -413,7 +415,6 @@ export class Hud {
         <label class="hud-tilt hud-water" hidden>Water <input type="range" min="0" max="1" step="0.01" value="0.6" /></label>
         <label class="hud-tilt hud-slope" hidden>Slope <input type="range" min="0" max="1" step="0.01" value="0.5" /></label>
         <span class="hud-actions"></span>
-        <button type="button" class="hud-inspect-toggle" title="Inspection panel (I)">Inspect (I)</button>
       </div>`;
     document.body.appendChild(this.root);
 
@@ -512,8 +513,11 @@ export class Hud {
     this.sift = shake;
     shake.addEventListener('pointerdown', () => on.setShake(true));
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
-    this.inspectToggle = this.root.querySelector('.hud-inspect-toggle') as HTMLElement;
-    this.inspectToggle.addEventListener('click', () => this.toggleInspect());
+    this.back = this.root.querySelector('.hud-back') as HTMLElement;
+    this.back.addEventListener('click', () => {
+      this.back.blur();
+      this.backAction?.();
+    });
     window.addEventListener('keydown', (e) => {
       // Space rocks the rocker one stroke per press; don't let it scroll or press a focused button.
       if (e.key === ' ' && this.state?.mode === 'rocker') e.preventDefault();
@@ -543,10 +547,8 @@ export class Hud {
     const { mode, session, controls, events } = state;
     const pan = session.pan;
 
-    const inspectLabel = forInput('Inspect (I)');
     const tabletTitle = forInput('Field tablet (O): claims, crew, leads and costs');
     if (this.cashButton.title !== tabletTitle) this.cashButton.title = tabletTitle;
-    setLabel(this.inspectToggle, inspectLabel);
     setLabel(this.tabletClose, forInput('Close (Esc)'));
     const hint =
       mode === 'bank' && state.drywasher
@@ -633,7 +635,14 @@ export class Hud {
     if (siftedOut && !this.sift.disabled) this.on.setShake(false);
     this.sift.disabled = siftedOut;
 
-    const buttons = this.buttonsFor(state).map(([label, action]): [string, () => void] => [forInput(label), action]);
+    // The way back leaves the bar for its fixed place top left.
+    const all = this.buttonsFor(state);
+    const backAt = all.findIndex(([label]) => isBack(label));
+    const [backEntry] = backAt >= 0 ? all.splice(backAt, 1) : [];
+    this.back.hidden = !backEntry;
+    this.backAction = backEntry?.[1] ?? null;
+    if (backEntry) setLabel(this.back, forInput(`‹ ${backEntry[0]}`));
+    const buttons = all.map(([label, action]): [string, () => void] => [forInput(label), action]);
     const key = buttons.map(([label]) => label).join('|');
     if (key !== this.buttonsKey) {
       this.buttonsKey = key;
@@ -667,7 +676,7 @@ export class Hud {
 
     const spilled = events ? events.darkSpilled / Math.max(dt, 1e-6) : 0;
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
-    if (this.inspectOpen) this.renderInspect(state);
+    this.renderInspect(state);
   }
 
   private buttonsFor(state: HudState): [string, () => void][] {
@@ -832,7 +841,7 @@ export class Hud {
     const dig: [string, () => void][] = selected
       ? [[selected.gully ? 'Dig in the gully' : `Dig at spot ${state.creek.creekSpots.indexOf(selected) + 1}`, () => this.on.digSelected()]]
       : [];
-    return [...dig, ...this.crewBucketButton(state), ['Region map (M)', () => this.on.openRegion()], ['Walk to town (T)', () => this.on.walkToTown()]];
+    return [...dig, ...this.crewBucketButton(state), ['Region map (Esc)', () => this.on.openRegion()], ['Walk to town (T)', () => this.on.walkToTown()]];
   }
 
   /** The notebook of leads on the region map, and the claims board in town. */
@@ -1172,7 +1181,6 @@ export class Hud {
   }
 
   private handleKey(key: string, repeat = false): void {
-    if (key === 'i') return this.toggleInspect();
     const state = this.state;
     if (!state) return;
     // The tablet sits over everything: while it's open, keys are for it.
@@ -1509,14 +1517,9 @@ export class Hud {
    * when it's closed: machine views keep their controls clear of it.
    */
   inspectBounds(): { readonly right: number; readonly bottom: number } | null {
-    if (!this.inspectOpen || this.inspect.hidden) return null;
+    if (this.inspect.hidden) return null;
     const r = this.inspect.getBoundingClientRect();
     return r.width > 0 ? { right: r.right, bottom: r.bottom } : null;
-  }
-
-  private toggleInspect(): void {
-    this.inspectOpen = !this.inspectOpen;
-    this.inspect.hidden = !this.inspectOpen;
   }
 
   private renderInspect(state: HudState): void {
@@ -1752,6 +1755,11 @@ export function setLabel(b: HTMLElement, label: string): void {
   const cap = document.createElement('kbd');
   cap.textContent = match[1]!;
   b.replaceChildren(words, cap);
+}
+
+/** The action Esc performs on a screen: going back to the hole, the creek, the map or the counter. */
+function isBack(label: string): boolean {
+  return /\(Esc\)$/.test(label) || /^Back to the (hole|counter) \(N\)$/.test(label) || /^Done \(Esc\)$/.test(label);
 }
 
 function button(label: string, onClick: () => void): HTMLElement {

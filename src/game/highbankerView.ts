@@ -53,6 +53,8 @@ export class HighbankerView extends Container {
     super();
     this.sluiceView = new SluiceView({ rake: () => actions.rake() });
     this.sluiceView.pumpFed = true;
+    // The hopper stands 70px over the header: keep it clear of the readouts too.
+    this.sluiceView.topClearance = 70;
     this.sluiceView.eventMode = 'none';
     this.note.anchor.set(0.5);
     this.addChild(this.sluiceView, this.g, this.note);
@@ -120,6 +122,14 @@ export class HighbankerView extends Container {
     this.draw(hb, throttle, priming);
   }
 
+  /** The readouts' reach top left, when up: the hopper and box move right to stay clear of it. */
+  set keepOut(bounds: { readonly right: number; readonly bottom: number } | null) {
+    this.sluiceView.keepOut = bounds;
+    this.clearOf = bounds;
+  }
+
+  private clearOf: { readonly right: number; readonly bottom: number } | null = null;
+
   private hopperRect(): { x: number; y: number; w: number; h: number } {
     const hr = this.sluiceView.headerRect();
     return { x: hr.x - 10, y: hr.y - 70, w: hr.w + 20, h: 60 };
@@ -127,7 +137,10 @@ export class HighbankerView extends Container {
 
   private enginePos(): { x: number; y: number } {
     const hr = this.sluiceView.headerRect();
-    return { x: Math.max(40, hr.x - 70), y: this.height_ * 0.62 };
+    const pos = { x: Math.max(40, hr.x - 70), y: this.height_ * 0.62 };
+    // Under the readouts, the engine sits just past the header instead.
+    if (this.clearOf && pos.x - 30 < this.clearOf.right && pos.y - 30 < this.clearOf.bottom) pos.x = hr.x + hr.w + 40;
+    return pos;
   }
 
   private draw(hb: Highbanker, throttle: number, priming: number | null): void {
