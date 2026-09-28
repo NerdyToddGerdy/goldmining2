@@ -124,11 +124,13 @@ export class PanView extends Container {
     this.rx = this.radius * 0.78;
     this.ry = this.radius * 0.48;
     this.body.position.set(centerX, centerY);
-    // Below the HUD's cash readout in the top-right corner.
-    this.vialGraphics.position.set(width - 90, 48);
-    this.vialLabel.position.set(width - 96, 170);
-    this.bucketLabel.position.set(width - 90 - 98, 170);
-    this.jarLabel.position.set(width - 90 - 38, 170);
+    // Down the right side, below where messages drop from the corner tablet, so a message never
+    // hides the vial and jar just when they matter.
+    const top = height < 500 ? 104 : 150;
+    this.vialGraphics.position.set(width - 90, top);
+    this.vialLabel.position.set(width - 96, top + 122);
+    this.bucketLabel.position.set(width - 90 - 98, top + 122);
+    this.jarLabel.position.set(width - 90 - 38, top + 122);
   }
 
   setPan(pan: Pan): void {

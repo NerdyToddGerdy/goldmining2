@@ -217,6 +217,8 @@ export interface HudState {
   readonly rocker: Rocker | null;
   /** Off fetching a bucket of water for the rocker. */
   readonly fetchingWater: boolean;
+  /** Out working but idle long enough that game time has stopped (crews included) until the next input. */
+  readonly clockStopped: boolean;
   /** Panning at the wash trough in town rather than at a creek. */
   readonly panInTown: boolean;
   /** The pan is revealed and the snuffer bottle can be used here. */
@@ -420,7 +422,7 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-top"><button type="button" class="hud-back" hidden></button><div class="hud-hint"></div></div>
-      <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span></button>
+      <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span><span class="hud-idle" hidden>Clock stopped while you're idle</span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
       <div class="hud-toast" role="status" aria-live="polite" hidden><span class="hud-led"></span><span class="hud-toast-text"></span></div>
@@ -591,15 +593,15 @@ export class Hud {
         : mode === 'bank' && !state.canPan
         ? usingTouch()
           ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile. A wash tub or a drywasher from town would help.'
-          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (T). A wash tub or a drywasher from town would help.'
+          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (S). A wash tub or a drywasher from town would help.'
         : mode === 'bank' && state.rocker && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls up to the rocker behind the pan, to the pan, or to the spoil pile. Tap the rocker for a close look.'
-          : 'Drag shovelfuls up to the rocker behind the pan (H), to the pan (P), or to the spoil pile (T). Click the rocker for a close look.'
+          : 'Drag shovelfuls up to the rocker behind the pan (H), to the pan (P), or to the spoil pile (S). Click the rocker for a close look.'
         : mode === 'bank' && state.classifier && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
-          : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (T). Click the classifier for a close look.'
+          : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (S). Click the classifier for a close look.'
         : mode === 'pan' && state.canSnuff
         ? usingTouch()
           ? 'Tap along the black-sand tail to snuff up fine gold: the head holds the heavy pieces, fines string out behind. Draw too much and the bottle clouds.'
@@ -607,7 +609,7 @@ export class Hud {
         : mode === 'bank' && state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the sluice in the creek, the pan, or the spoil pile. Tap the sluice for a close look.'
-          : 'Drag shovelfuls to the sluice in the creek (F), the pan (P), or the spoil pile (T). Click the sluice for a close look.'
+          : 'Drag shovelfuls to the sluice in the creek (F), the pan (P), or the spoil pile (S). Click the sluice for a close look.'
         : usingTouch()
           ? TOUCH_HINTS[mode]
           : HINTS[mode];
@@ -628,6 +630,10 @@ export class Hud {
     if (this.moneyLine.textContent !== moneyText) this.moneyLine.textContent = moneyText;
     this.moneyLine.hidden = moneyText === '';
     this.moneyLine.classList.toggle('danger', m.state === 'insolvent');
+    // Idle out at work: say that the clock has stopped, so nobody wonders why nothing moves.
+    const idleNote = this.cashButton.querySelector('.hud-idle') as HTMLElement;
+    if (idleNote.hidden === state.clockStopped) idleNote.hidden = !state.clockStopped;
+    this.cashButton.classList.toggle('idle', state.clockStopped);
     // The tablet's light goes red when the books or a claim need the player.
     this.cashButton.classList.toggle('alert', m.state !== 'healthy' || state.economy.anyLapsed || state.crew.wagesOverdue);
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
@@ -749,7 +755,7 @@ export class Hud {
       const list: [string, () => void][] = [];
       if (blocked === null) {
         if (state.canPan) list.push(['Shovel into pan (P)', () => this.on.shovel('pan')]);
-        list.push(['Toss aside (T)', () => this.on.shovel('spoil')]);
+        list.push(['Toss aside (S)', () => this.on.shovel('spoil')]);
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
@@ -1417,7 +1423,8 @@ export class Hud {
       else if (key === 'g' && state.highbanker) this.on.refuelHighbanker();
       else if (key === 'w') this.on.collectCrew();
       else if (key === 'p') this.on.shovel('pan');
-      else if (key === 't') this.on.shovel('spoil');
+      // S for the spoil pile: T is the walk to town everywhere else.
+      else if (key === 's') this.on.shovel('spoil');
       else if (key === 'b') this.on.pry();
       else if (key === 'a') this.on.bail();
       else if (key === 'escape') this.on.walkCreek();

@@ -1668,6 +1668,7 @@ async function start(): Promise<void> {
       cleaningOut,
       classifier: mode === 'pan' && panReturn === 'town' ? null : classifier,
       panInTown: mode === 'pan' && panReturn === 'town',
+      clockStopped: !inTown() && mode !== 'region' && !hud.tabletOpen && performance.now() - lastInput >= IDLE_AFTER_MS,
       canSnuff: mode === 'pan' && session.pan?.phase === 'revealed' && session.owns('snuffer') && finishingHere(),
       rocker,
       fetchingWater: fetchingWater !== null,
