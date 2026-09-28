@@ -736,6 +736,7 @@ async function start(): Promise<void> {
     },
     collect,
     backToHole: () => setMode(mode === 'pan' && panReturn === 'town' ? 'town' : 'bank'),
+    zoomMap: (factor) => regionMap.zoomBy(factor),
     serviceMachine: () => {
       const machine =
         mode === 'sluice' ? sluiceHere() : mode === 'highbanker' ? highbankerHere() : mode === 'rocker' ? rockerHere() : mode === 'drywasher' ? drywasherHere() : null;

@@ -1,13 +1,15 @@
-import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from 'pixi.js';
+import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent, type FederatedWheelEvent } from 'pixi.js';
 import type { Creek, Region } from '../sim';
+import { TOWN, layoutRegion, mouthOf, riverY, type MapPoint } from './regionLayout';
 
 /**
- * The region as a hand-drawn drainage map: the river, the Home Creek, each stretch found by
- * following a lead, and the town. Click a place to walk there.
+ * The region as a hand-drawn drainage map: the river winding across it, the town on its bank, the
+ * Home Creek close by, and each stretch found by following a lead, spread out around them on both
+ * banks (see regionLayout). Tap a place to walk there.
  *
- * Found stretches are tributaries spaced evenly along the river, in the order found, in staggered
- * rows upstream. The spacing tightens and the labels shrink as more are found, so there is no
- * fixed limit on how many fit. (Claim fees, not the map, are what should keep the count sensible.)
+ * The map has a camera: it opens fitted to everything found, and can be zoomed (mouse wheel, pinch,
+ * or the + and − keys) and dragged, so a crowded map is read by zooming in rather than by shrinking
+ * its type.
  */
 
 export type RegionPlace = { readonly kind: 'creek'; readonly creek: Creek } | { readonly kind: 'town' };
@@ -15,6 +17,8 @@ export type RegionPlace = { readonly kind: 'creek'; readonly creek: Creek } | { 
 const PAPER = 0xd9c9a3;
 const INK = 0x4a3a28;
 const RIVER = 0x5f8a8f;
+/** How far a finger or mouse may move and still count as a tap, not a drag. */
+const TAP_SLOP = 8;
 
 export class RegionMapView extends Container {
   private readonly g = new Graphics();
@@ -22,11 +26,22 @@ export class RegionMapView extends Container {
   private width_ = 800;
   private height_ = 600;
   private hovered: RegionPlace | null = null;
-  private labelKey = '';
-  /** Screen positions of each creek, recomputed when the size or the creek count changes. */
-  private positions = new Map<Creek, { x: number; y: number }>();
-  private positionKey = '';
   private claimStatus: (creek: Creek) => 'held' | 'lapsed' | 'released' = () => 'held';
+
+  /** Map positions by creek id, recomputed when a stretch is found. */
+  private places = new Map<number, MapPoint>();
+  private placesKey = '';
+  /** Camera: screen = map × scale + offset. */
+  private zoom = 1;
+  private offset = { x: 0, y: 0 };
+  /** Refit when the screen or the set of places changes; zooming by hand holds until then. */
+  private fitKey = '';
+  private labelKey = '';
+  private readonly labelFor = new Map<number | 'town', Text>();
+
+  /** Pointers down on the map, for dragging and pinching. */
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private gesture: { start: { x: number; y: number }; offset: { x: number; y: number }; zoom: number; spread: number; moved: boolean } | null = null;
 
   constructor(
     private readonly region: Region,
@@ -35,11 +50,11 @@ export class RegionMapView extends Container {
     super();
     this.addChild(this.g, this.labels);
     this.eventMode = 'static';
-    this.on('globalpointermove', (e: FederatedPointerEvent) => (this.hovered = this.placeAt(e.global.x, e.global.y)));
-    this.on('pointertap', (e: FederatedPointerEvent) => {
-      const place = this.placeAt(e.global.x, e.global.y);
-      if (place) this.onPick(place);
-    });
+    this.on('pointerdown', (e: FederatedPointerEvent) => this.down(e));
+    this.on('globalpointermove', (e: FederatedPointerEvent) => this.move(e));
+    this.on('pointerup', (e: FederatedPointerEvent) => this.up(e));
+    this.on('pointerupoutside', (e: FederatedPointerEvent) => this.up(e, false));
+    this.on('wheel', (e: FederatedWheelEvent) => this.zoomAt(Math.exp(-e.deltaY * 0.0015), e.global.x, e.global.y));
   }
 
   /** How each stretch's claim stands: released ones are drawn hollow, lapsed ones crossed. */
@@ -51,44 +66,77 @@ export class RegionMapView extends Container {
     this.width_ = width;
     this.height_ = height;
     this.hitArea = new Rectangle(0, 0, width, height);
-    this.labelKey = '';
   }
 
+  /** Zoom in (>1) or out (<1) about the middle of the map area; 0 fits everything back in view. */
+  zoomBy(factor: number): void {
+    if (factor === 0) return this.fit();
+    const view = this.viewport;
+    this.zoomAt(factor, (view.left + view.right) / 2, (view.top + view.bottom) / 2);
+  }
+
+  /** Screen position of a stretch. */
+  creekPos(creek: Creek): { x: number; y: number } {
+    return this.toScreen(this.placeOf(creek));
+  }
+
+  /** The stretch the player is at, whose name always shows. */
+  private current: Creek | null = null;
+
   update(current: Creek | null): void {
+    this.current = current;
+    this.placeAll();
+    const fitKey = `${this.width_}x${this.height_}:${this.placesKey}`;
+    if (fitKey !== this.fitKey) {
+      this.fitKey = fitKey;
+      this.fit();
+    }
     const W = this.width_;
     const H = this.height_;
     const g = this.g.clear();
     g.rect(0, 0, W, H).fill(PAPER);
     for (let i = 0; i < 60; i++) g.circle((i * 151.3) % W, (i * 83.7) % H, 1 + (i % 3)).fill({ color: 0xb8a57c, alpha: 0.5 });
 
-    // The river along the bottom, with each creek's tributary running down into it.
-    const riverY = H * 0.78;
-    g.moveTo(0, riverY).bezierCurveTo(W * 0.3, riverY - 30, W * 0.6, riverY + 30, W, riverY - 10).stroke({ width: 10, color: RIVER });
+    // The river, across the whole view.
+    const x0 = this.toMap({ x: 0, y: 0 }).x - 40;
+    const x1 = this.toMap({ x: W, y: 0 }).x + 40;
+    const step = 12 / this.zoom;
+    const start = this.toScreen({ x: x0, y: riverY(x0) });
+    g.moveTo(start.x, start.y);
+    for (let x = x0 + step; x <= x1; x += step) {
+      const p = this.toScreen({ x, y: riverY(x) });
+      g.lineTo(p.x, p.y);
+    }
+    g.stroke({ width: Math.max(6, 10 * Math.min(1.4, this.zoom)), color: RIVER });
+
+    // Each creek's tributary, running down (or up) to the river.
     for (const creek of this.region.creeks) {
-      const p = this.creekPos(creek);
+      const at = this.placeOf(creek);
+      const p = this.toScreen(at);
+      const mouth = this.toScreen(mouthOf(at));
+      const bend = { x: p.x - 40 * this.zoom, y: (p.y + mouth.y) / 2 };
       const site = creek.profile.site;
-      // A dry wash is drawn as a dashed line: water only runs in it after a storm.
       if (site === 'dryWash') {
+        // A dry wash is dashed: water only runs in it after a storm.
         for (let t = 0; t < 1; t += 0.08) {
-          const a = bezier(p, riverY, t);
-          const b = bezier(p, riverY, Math.min(1, t + 0.04));
+          const a = quad(p, bend, mouth, t);
+          const b = quad(p, bend, mouth, Math.min(1, t + 0.04));
           g.moveTo(a.x, a.y).lineTo(b.x, b.y);
         }
         g.stroke({ width: 3, color: 0xa08a5a });
       } else {
-        g.moveTo(p.x, p.y).quadraticCurveTo(p.x - 40, (p.y + riverY) / 2, p.x + 20, riverY).stroke({ width: site === 'gravelBar' ? 6 : site === 'ravine' ? 2 : 3, color: RIVER });
+        g.moveTo(p.x, p.y).quadraticCurveTo(bend.x, bend.y, mouth.x, mouth.y).stroke({ width: site === 'gravelBar' ? 6 : site === 'ravine' ? 2 : 3, color: RIVER });
       }
-      // Ravines get a pair of steep contour ticks; gravel bars a pale bar by their dot.
+      // Ravines get a pair of steep contour ticks; gravel bars a pale bar; old workings a crossed pick and shovel.
       if (site === 'ravine') g.moveTo(p.x - 14, p.y + 16).lineTo(p.x - 6, p.y + 2).moveTo(p.x + 14, p.y + 16).lineTo(p.x + 6, p.y + 2).stroke({ width: 2, color: INK, alpha: 0.6 });
       if (site === 'gravelBar') g.ellipse(p.x + 16, p.y + 4, 9, 4).fill({ color: 0xb8a57c });
-      // Old workings: crossed pick and shovel, the map-maker's mark for abandoned diggings.
-      if (site === 'oldDiggings') {
-        g.moveTo(p.x + 10, p.y - 14).lineTo(p.x + 22, p.y - 2).moveTo(p.x + 22, p.y - 14).lineTo(p.x + 10, p.y - 2).stroke({ width: 2, color: INK, alpha: 0.75 });
-      }
+      if (site === 'oldDiggings') g.moveTo(p.x + 10, p.y - 14).lineTo(p.x + 22, p.y - 2).moveTo(p.x + 22, p.y - 14).lineTo(p.x + 10, p.y - 2).stroke({ width: 2, color: INK, alpha: 0.75 });
     }
 
-    const town = this.townPos();
-    g.moveTo(town.x, town.y + 14).lineTo(this.creekPos(this.region.home).x, this.creekPos(this.region.home).y).stroke({ width: 2, color: INK, alpha: 0.35 });
+    // The town, and the trail from it to the Home Creek.
+    const town = this.toScreen(TOWN);
+    const home = this.creekPos(this.region.home);
+    g.moveTo(town.x, town.y + 14).lineTo(home.x, home.y).stroke({ width: 2, color: INK, alpha: 0.35 });
     g.rect(town.x - 14, town.y - 10, 28, 20).fill(INK);
     g.poly([town.x - 18, town.y - 10, town.x, town.y - 24, town.x + 18, town.y - 10]).fill(INK);
     if (this.hovered?.kind === 'town') g.circle(town.x, town.y - 4, 30).stroke({ width: 2, color: INK });
@@ -103,103 +151,174 @@ export class RegionMapView extends Container {
       if (creek === current) g.circle(p.x, p.y, 16).stroke({ width: 3, color: 0xa0502c });
       if (this.hovered?.kind === 'creek' && this.hovered.creek === creek) g.circle(p.x, p.y, 24).stroke({ width: 2, color: INK });
     }
-    this.refreshLabels();
+    this.placeLabels();
   }
 
-  private refreshLabels(): void {
-    const key = `${this.width_}x${this.height_}:${this.region.creeks.map((c) => c.id).join(',')}`;
-    if (key === this.labelKey) return;
-    this.labelKey = key;
-    this.labels.removeChildren().forEach((c) => c.destroy());
-    const found = this.region.creeks.length - 1;
-    const size = found > 14 ? 11 : found > 8 ? 13 : 15;
-    const style = { fill: INK, fontSize: this.small ? Math.min(12, size) : size, fontFamily: 'Georgia, serif', align: 'center' as const };
-    for (const creek of this.region.creeks) {
-      const p = this.creekPos(creek);
-      // Crowded maps put names on two lines so neighbours don't run into each other.
-      const name = found > 6 && creek !== this.region.home ? creek.profile.name.replace(' ', '\n') : creek.profile.name;
-      const label = new Text({ text: name, style });
-      label.anchor.set(0.5, 0);
-      label.position.set(p.x, p.y + 14);
-      this.labels.addChild(label);
+  // ---- places and the camera ----
+
+  private placeAll(): void {
+    const key = this.region.creeks.map((c) => c.id).join(',');
+    if (key === this.placesKey) return;
+    this.placesKey = key;
+    this.places = layoutRegion(this.region.creeks.map((c) => c.id));
+  }
+
+  private placeOf(creek: Creek): MapPoint {
+    this.placeAll();
+    return this.places.get(creek.id) ?? TOWN;
+  }
+
+  private toScreen(p: MapPoint): { x: number; y: number } {
+    return { x: p.x * this.zoom + this.offset.x, y: p.y * this.zoom + this.offset.y };
+  }
+
+  private toMap(p: { x: number; y: number }): MapPoint {
+    return { x: (p.x - this.offset.x) / this.zoom, y: (p.y - this.offset.y) / this.zoom };
+  }
+
+  /**
+   * The part of the screen the map should use: below the hint and readouts at the top, above the
+   * button bar, and left of the notebook on a wide screen (it starts folded on small ones).
+   */
+  private get viewport(): { left: number; right: number; top: number; bottom: number } {
+    const small = this.height_ < 520 || this.width_ < 760;
+    return { left: 16, right: this.width_ - (small ? 16 : 380), top: small ? 100 : 125, bottom: this.height_ - (small ? 60 : 70) };
+  }
+
+  /** Fit every place (and the town) into the viewport, with room for labels. */
+  private fit(): void {
+    const points = [TOWN, ...this.places.values()];
+    const pad = 70;
+    const minX = Math.min(...points.map((p) => p.x)) - pad;
+    const maxX = Math.max(...points.map((p) => p.x)) + pad;
+    const minY = Math.min(...points.map((p) => p.y)) - pad;
+    const maxY = Math.max(...points.map((p) => p.y)) + pad;
+    const view = this.viewport;
+    this.zoom = clamp(Math.min((view.right - view.left) / (maxX - minX), (view.bottom - view.top) / (maxY - minY)), 0.25, 1.4);
+    this.offset = {
+      x: (view.left + view.right) / 2 - ((minX + maxX) / 2) * this.zoom,
+      y: (view.top + view.bottom) / 2 - ((minY + maxY) / 2) * this.zoom,
+    };
+  }
+
+  /** Zoom by `factor` keeping the map point under (sx, sy) where it is. */
+  private zoomAt(factor: number, sx: number, sy: number): void {
+    const before = this.toMap({ x: sx, y: sy });
+    this.zoom = clamp(this.zoom * factor, 0.2, 3);
+    this.offset = { x: sx - before.x * this.zoom, y: sy - before.y * this.zoom };
+  }
+
+  // ---- pointers: tap to pick, drag to pan, pinch to zoom ----
+
+  private down(e: FederatedPointerEvent): void {
+    this.pointers.set(e.pointerId, { x: e.global.x, y: e.global.y });
+    this.gesture = this.startGesture();
+  }
+
+  private move(e: FederatedPointerEvent): void {
+    if (!this.pointers.has(e.pointerId)) {
+      if (this.pointers.size === 0) this.hovered = this.placeAt(e.global.x, e.global.y);
+      return;
     }
-    const t = this.townPos();
-    const town = new Text({ text: 'Town', style: { ...style, fontStyle: 'italic' } });
-    town.anchor.set(0.5, 0);
-    town.position.set(t.x, t.y + 14);
-    this.labels.addChild(town);
+    this.pointers.set(e.pointerId, { x: e.global.x, y: e.global.y });
+    const g = this.gesture;
+    if (!g) return;
+    const now = this.centroid();
+    if (!g.moved && Math.hypot(now.x - g.start.x, now.y - g.start.y) < TAP_SLOP && this.pointers.size === 1) return;
+    g.moved = true;
+    this.hovered = null;
+    // Pinch: zoom by how far the fingers have spread, about where they started.
+    if (this.pointers.size >= 2 && g.spread > 0) {
+      const scale = clamp(g.zoom * (this.spread() / g.spread), 0.2, 3);
+      const anchor = { x: (g.start.x - g.offset.x) / g.zoom, y: (g.start.y - g.offset.y) / g.zoom };
+      this.zoom = scale;
+      this.offset = { x: now.x - anchor.x * scale, y: now.y - anchor.y * scale };
+      return;
+    }
+    this.offset = { x: g.offset.x + now.x - g.start.x, y: g.offset.y + now.y - g.start.y };
   }
 
-  /**
-   * Home Creek sits low in the middle. Found stretches are spread evenly across the map in the
-   * order found, alternating between rows upstream (a third row once there are many), and kept
-   * left of the notebook panel on the right.
-   */
-  private creekPos(creek: Creek): { x: number; y: number } {
-    this.placeCreeks();
-    return this.positions.get(creek) ?? { x: this.width_ * 0.4, y: this.height_ * 0.6 };
+  private up(e: FederatedPointerEvent, inside = true): void {
+    const g = this.gesture;
+    this.pointers.delete(e.pointerId);
+    if (inside && g && !g.moved && this.pointers.size === 0) {
+      const place = this.placeAt(e.global.x, e.global.y);
+      if (place) this.onPick(place);
+    }
+    // A finger lifting mid-pinch carries on as a drag with the one left.
+    this.gesture = this.pointers.size > 0 ? { ...this.startGesture(), moved: true } : null;
   }
 
-  private placeCreeks(): void {
-    const W = this.width_;
-    const H = this.height_;
-    const creeks = this.region.creeks;
-    const key = `${W}x${H}:${creeks.length}`;
-    if (key === this.positionKey) return;
-    this.positionKey = key;
-    this.positions = new Map([[this.region.home, { x: W * 0.4, y: H * 0.6 }]]);
-    const found = creeks.slice(1);
-    const left = W * 0.1;
-    const right = this.rightEdge;
-    const rows = found.length > 8 ? 3 : 2;
-    // Clear of the hint and the inspect panel in the top-left; the leftmost stretch takes the
-    // lowest row, furthest from that panel.
-    const top = Math.max(H * 0.17, 96);
-    const rowGap = Math.max(28, (H * 0.52 - top) / rows);
-    found.forEach((creek, i) => {
-      const x = found.length === 1 ? (left + right) / 2 : left + ((right - left) * i) / (found.length - 1);
-      this.positions.set(creek, { x, y: top + (rows - 1 - (i % rows)) * rowGap });
-    });
+  private startGesture(): NonNullable<RegionMapView['gesture']> {
+    return { start: this.centroid(), offset: { ...this.offset }, zoom: this.zoom, spread: this.spread(), moved: false };
   }
 
-  /** Phones held sideways and small tablets: the notebook starts folded, and type is smaller. */
-  private get small(): boolean {
-    return this.height_ < 520 || this.width_ < 760;
+  private centroid(): { x: number; y: number } {
+    const all = [...this.pointers.values()];
+    if (all.length === 0) return { x: 0, y: 0 };
+    return { x: all.reduce((n, p) => n + p.x, 0) / all.length, y: all.reduce((n, p) => n + p.y, 0) / all.length };
   }
 
-  /**
-   * Where found stretches stop: left of the notebook panel (up to 340px wide, plus half a label),
-   * or nearly the full width on small screens, where the notebook starts folded into a button.
-   */
-  private get rightEdge(): number {
-    return this.small ? this.width_ * 0.88 : Math.max(this.width_ * 0.55, this.width_ - 440);
-  }
-
-  /** How close a tap must be to pick a creek: tighter when they are packed together. */
-  private get pickRadius(): number {
-    const found = Math.max(1, this.region.creeks.length - 1);
-    const spacing = (this.rightEdge - this.width_ * 0.1) / found;
-    return Math.max(14, Math.min(26, spacing));
-  }
-
-  private townPos(): { x: number; y: number } {
-    return { x: this.width_ * 0.12, y: this.height_ * 0.64 };
+  private spread(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
   }
 
   private placeAt(x: number, y: number): RegionPlace | null {
-    const t = this.townPos();
+    const t = this.toScreen(TOWN);
     if (Math.hypot(x - t.x, y - t.y) < 30) return { kind: 'town' };
+    let best: { creek: Creek; d: number } | null = null;
     for (const creek of this.region.creeks) {
       const p = this.creekPos(creek);
-      if (Math.hypot(x - p.x, y - p.y) < this.pickRadius) return { kind: 'creek', creek };
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d < 26 && (!best || d < best.d)) best = { creek, d };
     }
-    return null;
+    return best ? { kind: 'creek', creek: best.creek } : null;
+  }
+
+  // ---- labels: made once per place, kept at a steady size, moved with the camera ----
+
+  private placeLabels(): void {
+    const key = this.placesKey;
+    if (key !== this.labelKey) {
+      this.labelKey = key;
+      this.labels.removeChildren().forEach((c) => c.destroy());
+      this.labelFor.clear();
+      const small = this.height_ < 520 || this.width_ < 760;
+      const style = { fill: INK, fontSize: small ? 12 : 14, fontFamily: 'Georgia, serif', align: 'center' as const };
+      for (const creek of this.region.creeks) {
+        const label = new Text({ text: creek.profile.name, style });
+        label.anchor.set(0.5, 0);
+        this.labels.addChild(label);
+        this.labelFor.set(creek.id, label);
+      }
+      const town = new Text({ text: 'Town', style: { ...style, fontStyle: 'italic' } });
+      town.anchor.set(0.5, 0);
+      this.labels.addChild(town);
+      this.labelFor.set('town', town);
+    }
+    // Names that would run into one already written are left off until zoomed in: the place
+    // you're at, the Home Creek and the town first, then the rest in the order found.
+    const placed: { l: number; r: number; t: number; b: number }[] = [];
+    const put = (label: Text | undefined, at: { x: number; y: number }): void => {
+      if (!label) return;
+      label.position.set(at.x, at.y + 14);
+      const box = { l: at.x - label.width / 2 - 3, r: at.x + label.width / 2 + 3, t: at.y + 12, b: at.y + 14 + label.height };
+      label.visible = !placed.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t);
+      if (label.visible) placed.push(box);
+    };
+    const current = this.current;
+    const rank = (c: Creek): number => (c === current ? 0 : c.profile.site === 'homeCreek' ? 1 : 2);
+    const order = [...this.region.creeks].sort((a, b) => rank(a) - rank(b));
+    put(this.labelFor.get('town'), this.toScreen(TOWN));
+    for (const creek of order) put(this.labelFor.get(creek.id), this.creekPos(creek));
   }
 }
 
-/** A point along a tributary's curve (matching the quadratic drawn for wet creeks). */
-function bezier(p: { x: number; y: number }, riverY: number, t: number): { x: number; y: number } {
-  const c = { x: p.x - 40, y: (p.y + riverY) / 2 };
-  const e = { x: p.x + 20, y: riverY };
-  return { x: (1 - t) ** 2 * p.x + 2 * (1 - t) * t * c.x + t ** 2 * e.x, y: (1 - t) ** 2 * p.y + 2 * (1 - t) * t * c.y + t ** 2 * e.y };
+function quad(a: { x: number; y: number }, c: { x: number; y: number }, e: { x: number; y: number }, t: number): { x: number; y: number } {
+  return { x: (1 - t) ** 2 * a.x + 2 * (1 - t) * t * c.x + t ** 2 * e.x, y: (1 - t) ** 2 * a.y + 2 * (1 - t) * t * c.y + t ** 2 * e.y };
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
 }

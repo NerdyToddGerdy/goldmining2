@@ -14,5 +14,5 @@ export function usingTouch(): boolean {
 
 /** Drop keyboard shortcuts like " (P)" or " (Esc)" from a label or message when on touch. */
 export function forInput(text: string): string {
-  return touch ? text.replace(/\s\((?:[A-Z]|Esc|Enter)\)/g, '') : text;
+  return touch ? text.replace(/\s\((?:[A-Z0+−]|Esc|Enter)\)/g, '') : text;
 }

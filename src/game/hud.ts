@@ -67,6 +67,8 @@ export interface HudActions {
   reveal(): void;
   collect(saveBlackSand: boolean): void;
   backToHole(): void;
+  /** Zoom the region map in (>1) or out (<1); 0 fits it all back in view. */
+  zoomMap(factor: number): void;
   /** Service the machine in the close-up with a repair kit. */
   serviceMachine(): void;
   buyRepairKit(): void;
@@ -835,7 +837,14 @@ export class Hud {
       ];
     }
     if (mode === 'region') {
-      return [[`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()], ['Start over', () => this.on.newCreek()]];
+      // Zoom works by wheel and pinch too; these are for keys and for anyone without either.
+      return [
+        [`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()],
+        ['Zoom in (+)', () => this.on.zoomMap(1.3)],
+        ['Zoom out (−)', () => this.on.zoomMap(1 / 1.3)],
+        ['Fit the map (0)', () => this.on.zoomMap(0)],
+        ['Start over', () => this.on.newCreek()],
+      ];
     }
     const selected = state.selectedSpot;
     const dig: [string, () => void][] = selected
@@ -1198,6 +1207,9 @@ export class Hud {
       else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
+      else if (key === '+' || key === '=') this.on.zoomMap(1.3);
+      else if (key === '-' || key === '_') this.on.zoomMap(1 / 1.3);
+      else if (key === '0') this.on.zoomMap(0);
     } else if (state.mode === 'rocker') {
       if (key === 'n') return this.on.serviceMachine();
       if (key === ' ' && !repeat) this.on.rock();
@@ -1745,7 +1757,7 @@ function el(tag: string, className: string): HTMLElement {
 export function setLabel(b: HTMLElement, label: string): void {
   if (b.dataset.label === label) return;
   b.dataset.label = label;
-  const match = /\s\(([A-Z]|Esc|Enter)\)/.exec(label);
+  const match = /\s\(([A-Z0+−]|Esc|Enter)\)/.exec(label);
   if (!match) {
     b.textContent = label;
     return;
