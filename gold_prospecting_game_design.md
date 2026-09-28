@@ -169,13 +169,16 @@ Every stretch found by following a lead is one of these. What it is decides what
 
 | Kind | How often | Ground | Gear it takes | Hazard | Fee a day |
 |---|---:|---|---|---|---:|
-| Creek stretch | ~32% | 3–5 spots; sometimes a thin-water bench | Pan, classifier, rocker; a sluice on the bench with a pump | — | $1 ($2 with a bench) |
-| Creek bend | ~33% | 3–5 spots, 1–2 steady sluice sites | Pan, classifier, rocker, sluice | — | $2 |
-| Gravel bar | ~12% | 6–8 spots, shallow: thin overburden, broad gravel and pay | Pan, classifier, rocker, 2–3 steady sluice sites | Floods (about one game day in five): open holes half buried, worked-out spots given a thin fresh layer, a sluice there swept, stripped and choked | $3 |
-| Narrow ravine | ~12% | 2–3 spots, rich bedrock pockets under broken rock; unstable walls, twice the boulders | Pan, classifier; no flat ground for a rocker; at most one sluice site, in fast, steep water | A long walk in (extra game time) | $2 |
-| Dry wash | ~11% | 4–6 spots, shallow and fairly rich, no seep in the holes | No creek water to pan in or run a sluice. A wash tub makes panning possible, the drywasher works it with air, and the rocker runs on water hauled in (a long fetch). | — | $1 |
+| Creek stretch | ~28% | 3–5 spots; sometimes a thin-water bench | Pan, classifier, rocker; a sluice on the bench with a pump | — | $1 ($2 with a bench) |
+| Creek bend | ~30% | 3–5 spots, 1–2 steady sluice sites | Pan, classifier, rocker, sluice | — | $2 |
+| Gravel bar | ~11% | 6–8 spots, shallow: thin overburden, broad gravel and pay | Pan, classifier, rocker, 2–3 steady sluice sites | Floods (about one game day in five): open holes half buried, worked-out spots given a thin fresh layer, a sluice there swept, stripped and choked | $3 |
+| Narrow ravine | ~11% | 2–3 spots, rich bedrock pockets under broken rock; unstable walls, twice the boulders | Pan, classifier; no flat ground for a rocker; at most one sluice site, in fast, steep water | A long walk in (extra game time) | $2 |
+| Dry wash | ~10% | 4–6 spots, shallow and fairly rich, no seep in the holes | No creek water to pan in or run a sluice. A wash tub makes panning possible, the drywasher works it with air, and the rocker runs on water hauled in (a long fetch). | — | $1 |
+| Abandoned diggings | ~10% | 4–6 spots under the old-timers' tailings heaps: a thick top layer, washed of clay, that pays (unlike topsoil) but holds its gold as fines, since their riffles kept the coarse gold. Below, gravel they skimmed, a pay streak mostly taken, bedrock swept. First arrival turns up a few dollars of salvage (old riffle bars, a pick head, timber); the shovel finds clues about three times as often. | Pan, classifier, rocker; no sluice ground (they had it) | Old cuts: unstable walls, more slumps | $1 |
 
-Creek maps, bank views and the region map draw each kind differently: a wide channel with pale bars, a narrow torrent between rock walls, a dry sandy bed and a dashed tributary.
+Creek maps, bank views and the region map draw each kind differently: a wide channel with pale bars, a narrow torrent between rock walls, a dry sandy bed and a dashed tributary, and grey tailings heaps with the old flume posts (a crossed pick and shovel on the map) for abandoned diggings.
+
+Abandoned diggings are the tailings/recovery layer in miniature: ground someone else gave up is worth working again with better recovery. The tailings' fine gold punishes a rough pan and rewards a careful one, and pays better still for gear that holds fines.
 
 ---
 

@@ -167,6 +167,22 @@ export class CreekMapView extends Container {
         g.ellipse(x, this.creekY(x) + 17, 40, 8).fill({ color: 0xb7a57c, alpha: 0.85 });
       }
     }
+    if (site === 'oldDiggings') {
+      // Old workings: grey tailings heaps along the far bank, cobbles stacked by hand, and the
+      // leaning posts of a flume nobody has used in years.
+      for (let i = 0; i < 6; i++) {
+        const x = W * (0.08 + i * 0.17);
+        const y = this.creekY(x) - 30 - (i % 2) * 12;
+        g.ellipse(x, y, 30, 10).fill({ color: 0x8c8676, alpha: 0.55 });
+        g.ellipse(x - 6, y - 4, 16, 5).fill({ color: 0x9e988a, alpha: 0.55 });
+        for (let r = 0; r < 4; r++) g.circle(x - 20 + r * 5, y + 7 - (r % 2) * 3, 2.5).fill({ color: 0x6d685c, alpha: 0.7 });
+      }
+      for (let i = 0; i < 4; i++) {
+        const x = W * (0.2 + i * 0.2);
+        const y = this.creekY(x) + width + 20;
+        g.moveTo(x, y).lineTo(x + 5, y - 20).stroke({ width: 3, color: 0x5b4632 });
+      }
+    }
     if (site !== 'dryWash') {
       const speed = site === 'ravine' ? 110 : 50;
       for (let i = 0; i < 12; i++) {

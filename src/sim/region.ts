@@ -103,7 +103,13 @@ export interface RegionSnapshot {
 }
 
 export type FollowResult =
-  | { readonly found: true; readonly lead: Lead; readonly creek: Creek }
+  | {
+      readonly found: true;
+      readonly lead: Lead;
+      readonly creek: Creek;
+      /** Dollars of salvage picked up on first reaching old workings (0 elsewhere, or on a return). */
+      readonly salvage: number;
+    }
   | { readonly found: false; readonly lead: Lead };
 
 export class Region {
@@ -232,7 +238,7 @@ export class Region {
   /** Walk out to where a lead points. A real one becomes a new creek on the map; a dud is marked as such. */
   follow(leadId: number): FollowResult {
     const lead = this.lead(leadId);
-    if (lead.status === 'followed' && lead.creekId !== null) return { found: true, lead, creek: this.creek(lead.creekId) };
+    if (lead.status === 'followed' && lead.creekId !== null) return { found: true, lead, creek: this.creek(lead.creekId), salvage: 0 };
     if (!lead.truth.real) {
       lead.status = 'dud';
       return { found: false, lead };
@@ -253,7 +259,8 @@ export class Region {
     this.creeks.push(creek);
     lead.status = 'followed';
     lead.creekId = creek.id;
-    return { found: true, lead, creek };
+    const salvage = traits.salvage ? Math.round(this.rng.range(...traits.salvage) * 100) / 100 : 0;
+    return { found: true, lead, creek, salvage };
   }
 
   private makeLead(source: LeadSource): Lead {

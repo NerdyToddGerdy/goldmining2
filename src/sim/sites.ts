@@ -7,7 +7,7 @@ import type { LayerKind } from './creek';
  * by level or cash; a site either has the room and water for it or it doesn't.
  */
 
-export type SiteKind = 'homeCreek' | 'creekStretch' | 'creekBend' | 'gravelBar' | 'ravine' | 'dryWash';
+export type SiteKind = 'homeCreek' | 'creekStretch' | 'creekBend' | 'gravelBar' | 'ravine' | 'dryWash' | 'oldDiggings';
 
 type Range = readonly [number, number];
 
@@ -44,6 +44,14 @@ export interface SiteTraits {
   readonly crewMax: number;
   /** What ground like this means for the work, as a lead or the notebook puts it. */
   readonly groundNote: string;
+  /** Worked-over ground: share of each layer's coarse gold already taken (see PanLoad.coarseTaken). */
+  readonly coarseTaken?: Record<LayerKind, number>;
+  /** Multiplies each layer's clay: washed tailings have little left. */
+  readonly layerClay?: Record<LayerKind, number>;
+  /** Multiplies the chance of the shovel turning up a clue. */
+  readonly clues?: number;
+  /** Dollars of salvage left lying about, found on reaching the site. */
+  readonly salvage?: Range;
 }
 
 const EVEN: Record<LayerKind, number> = { overburden: 1, gravel: 1, payStreak: 1, bedrock: 1 };
@@ -190,15 +198,48 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     crewMax: 3,
     groundNote: 'good ground with no water: drywasher country',
   },
+  oldDiggings: {
+    label: 'Abandoned diggings',
+    footprint: 'normal',
+    water: 'creek',
+    spots: [4, 6],
+    gullies: [0, 1],
+    sourceChance: 0.4,
+    // The old-timers had the sluice ground; what they left is for the pan and the rocker.
+    sluiceSites: [0, 0],
+    pumpSiteChance: 0,
+    sluiceFlow: [0, 0],
+    sluiceSlope: [0, 0],
+    // On top, their tailings heaps: easy digging, washed clean, and worth panning. Below, gravel
+    // they skimmed, a pay streak mostly taken, and bedrock they swept (a missed crack or two).
+    layerLoads: { overburden: 1.6, gravel: 0.8, payStreak: 0.4, bedrock: 0.6 },
+    layerRichness: { overburden: 11, gravel: 0.8, payStreak: 0.4, bedrock: 0.45 },
+    layerClay: { overburden: 0.25, gravel: 1, payStreak: 1, bedrock: 1 },
+    // Their riffles kept the coarse gold and let the fines go into the tailings.
+    coarseTaken: { overburden: 0.9, gravel: 0.5, payStreak: 0.7, bedrock: 0.6 },
+    // Old cuts and drifts: the walls give way.
+    instability: [0.7, 1.3],
+    waterTable: [0.4, 1.1],
+    boulders: 0.5,
+    access: 0,
+    floodPerDay: 0,
+    fetchSeconds: 7,
+    fee: 1,
+    crewMax: 2,
+    groundNote: 'old workings: tailings heaps of fine gold the old-timers lost, for a careful pan or a rocker, and not much left below',
+    clues: 3,
+    salvage: [2, 7],
+  },
 };
 
 /** How often each kind turns up at the end of a lead (the Home Creek never does). */
 export const SITE_ODDS: readonly (readonly [SiteKind, number])[] = [
-  ['creekStretch', 0.32],
-  ['creekBend', 0.33],
-  ['gravelBar', 0.12],
-  ['ravine', 0.12],
-  ['dryWash', 0.11],
+  ['creekStretch', 0.28],
+  ['creekBend', 0.3],
+  ['gravelBar', 0.11],
+  ['ravine', 0.11],
+  ['dryWash', 0.1],
+  ['oldDiggings', 0.1],
 ];
 
 export function traitsOf(site: SiteKind | undefined): SiteTraits {

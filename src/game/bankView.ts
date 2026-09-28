@@ -345,7 +345,17 @@ export class BankView extends Container {
       }
       g.stroke({ width: 2, color: 0x7fb3b0, alpha: 0.35 });
     }
-    g.rect(0, sy - 4, creekX, 6).fill(site === 'dryWash' ? 0x8a7d5a : site === 'gravelBar' ? 0xa99b76 : 0x4d6b35);
+    g.rect(0, sy - 4, creekX, 6).fill(site === 'dryWash' ? 0x8a7d5a : site === 'gravelBar' ? 0xa99b76 : site === 'oldDiggings' ? 0x8c8676 : 0x4d6b35);
+    // Old workings: the old-timers' tailings heaped along the far bank, grey and washed.
+    if (site === 'oldDiggings') {
+      // Mounds on the ground at the left, clear of the hole: half-domes of grey washed gravel.
+      for (const [cx, rx, ry] of [[W * 0.07, W * 0.08, 30], [W * 0.18, W * 0.06, 20]] as const) {
+        const dome: number[] = [];
+        for (let a = 0; a <= 16; a++) dome.push(cx - rx * Math.cos((a / 16) * Math.PI), sy - 2 - ry * Math.sin((a / 16) * Math.PI));
+        g.poly(dome).fill(0x8c8676);
+        for (let r = 0; r < 7; r++) g.circle(cx - rx * 0.7 + r * rx * 0.22, sy - 6 - ((r * 7) % 3) * ry * 0.2, 3.5).fill(0x6d685c);
+      }
+    }
 
     this.drawSigns(g, spot);
     this.drawHole(g, spot);

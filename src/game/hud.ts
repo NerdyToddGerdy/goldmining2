@@ -1515,7 +1515,7 @@ export class Hud {
       const layer = creek.currentLayer(spot);
       const dug = spot.layers.reduce((n, l) => n + l.initialLoads - l.loads, 0);
       rows = [
-        ['Digging', spot.slumped > 0 ? 'slumped bank' : layer ? LAYER_NAMES[layer.kind] : 'worked out'],
+        ['Digging', spot.slumped > 0 ? 'slumped bank' : layer ? (layer.kind === 'overburden' && state.creek.profile.site === 'oldDiggings' ? 'old tailings' : LAYER_NAMES[layer.kind]) : 'worked out'],
         ['Shovelfuls dug', String(dug)],
         ['Water in hole', spot.water >= 1 ? 'flooded' : spot.water > 0.5 ? 'deep' : spot.water > 0.1 ? 'seeping' : 'dry'],
         ['Spoil pile', `${spot.spoil} shovelfuls`],
@@ -1562,6 +1562,7 @@ const GROUND_NAMES: Record<SiteKind, string> = {
   gravelBar: 'a gravel bar',
   ravine: 'a narrow ravine',
   dryWash: 'a dry wash',
+  oldDiggings: 'abandoned diggings',
 };
 
 /**

@@ -81,6 +81,10 @@ export class RegionMapView extends Container {
       // Ravines get a pair of steep contour ticks; gravel bars a pale bar by their dot.
       if (site === 'ravine') g.moveTo(p.x - 14, p.y + 16).lineTo(p.x - 6, p.y + 2).moveTo(p.x + 14, p.y + 16).lineTo(p.x + 6, p.y + 2).stroke({ width: 2, color: INK, alpha: 0.6 });
       if (site === 'gravelBar') g.ellipse(p.x + 16, p.y + 4, 9, 4).fill({ color: 0xb8a57c });
+      // Old workings: crossed pick and shovel, the map-maker's mark for abandoned diggings.
+      if (site === 'oldDiggings') {
+        g.moveTo(p.x + 10, p.y - 14).lineTo(p.x + 22, p.y - 2).moveTo(p.x + 22, p.y - 14).lineTo(p.x + 10, p.y - 2).stroke({ width: 2, color: INK, alpha: 0.75 });
+      }
     }
 
     const town = this.townPos();

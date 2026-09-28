@@ -337,7 +337,7 @@ export class Creek {
 
       spot.water = Math.min(1, spot.water + spot.waterTable * T.seepPerLoad[layer.kind] * rng.range(0.7, 1.3));
 
-      if (!spot.gully && rng.next() < T.clueChance) clue = true;
+      if (!spot.gully && rng.next() < T.clueChance * (traitsOf(this.profile.site).clues ?? 1)) clue = true;
 
       const next = this.currentLayer(spot);
       if (next?.kind === 'bedrock' && layer.kind !== 'bedrock') event = 'reachedBedrock';
@@ -481,10 +481,12 @@ export class Creek {
 
   private loadFrom(layer: Layer): PanLoad {
     const T = CREEK_TUNING;
+    const taken = traitsOf(this.profile.site).coarseTaken?.[layer.kind];
     return {
       richness: layer.richness * this.rng.range(0.6, 1.4),
       clayiness: layer.clayiness,
       rockiness: layer.rockiness,
+      ...(taken ? { coarseTaken: taken } : {}),
       grain: Math.min(1, Math.max(0, T.layerGrain[layer.kind] + this.rng.range(-T.grainSpread, T.grainSpread))),
     };
   }
@@ -529,7 +531,7 @@ export class Creek {
         loads,
         initialLoads: loads,
         richness: T.baseRichness * quality * T.layerRichness[kind] * (gully ? 1 : traits.layerRichness[kind]) * rng.range(0.7, 1.3),
-        clayiness: T.layerClay[kind],
+        clayiness: T.layerClay[kind] * (gully ? 1 : (traits.layerClay?.[kind] ?? 1)),
         rockiness: Math.min(1, T.layerRock[kind] + rockBoost),
       };
     });

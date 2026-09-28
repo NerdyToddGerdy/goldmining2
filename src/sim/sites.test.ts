@@ -6,7 +6,8 @@ import { PanningSession } from './panningSession';
 import { Region } from './region';
 import { createRng } from './rng';
 import { createSave, loadSave } from './save';
-import { SITE_TRAITS, siteAllows, type SiteKind } from './sites';
+import { rollShovelful } from './pan';
+import { SITE_ODDS, SITE_TRAITS, siteAllows, type SiteKind } from './sites';
 
 /** Found stretches of one kind, by forcing the truth of fresh leads. */
 function stretches(seed: number, site: SiteKind, count: number): { region: Region; creeks: Creek[] } {
@@ -124,5 +125,82 @@ describe('site kinds', () => {
       expect(creek.profile.site).toBe(creek.profile.sluiceSites > 0 ? 'creekBend' : 'creekStretch');
     }
     for (const lead of loaded.region.leads) expect(['creekBend', 'creekStretch']).toContain(lead.truth.site);
+  });
+
+  it('give abandoned diggings a heap of fine-gold tailings on top, little below, and no sluice ground', () => {
+    const { region, creeks } = stretches(12, 'oldDiggings', 6);
+    const stretch = stretches(12, 'creekStretch', 6).creeks;
+    const avg = (list: Creek[], f: (c: Creek) => number): number => list.reduce((n, c) => n + f(c), 0) / list.length;
+    for (const creek of creeks) expect(creek.sluiceSpots).toHaveLength(0);
+    expect(region.allows(creeks[0]!, 'rocker')).toBe(true);
+    expect(region.allows(creeks[0]!, 'classifier')).toBe(true);
+    expect(region.allows(creeks[0]!, 'highbanker')).toBe(false);
+    // The tailings are a thick top layer that pays, where a stretch's topsoil barely does...
+    expect(avg(creeks, (c) => loads(c, 'overburden'))).toBeGreaterThan(avg(stretch, (c) => loads(c, 'overburden')) * 1.3);
+    expect(avg(creeks, (c) => richness(c, 'overburden'))).toBeGreaterThan(avg(stretch, (c) => richness(c, 'gravel')));
+    // ...and the pay streak and bedrock were mostly taken.
+    expect(avg(creeks, (c) => loads(c, 'payStreak'))).toBeLessThan(avg(stretch, (c) => loads(c, 'payStreak')) * 0.6);
+    expect(avg(creeks, (c) => richness(c, 'bedrock'))).toBeLessThan(avg(stretch, (c) => richness(c, 'bedrock')) * 0.6);
+  });
+
+  it('leave worked-over ground holding its gold as fines: the coarse gold went to the old-timers', () => {
+    const rng = createRng(3);
+    const count = (coarseTaken?: number): { fine: number; all: number } => {
+      let fine = 0;
+      let all = 0;
+      for (let i = 0; i < 400; i++) {
+        const gold = rollShovelful(rng, { richness: 3, clayiness: 0.2, rockiness: 0.2, ...(coarseTaken ? { coarseTaken } : {}) }).gold;
+        fine += gold.filter((g) => g.size === 'fine').length;
+        all += gold.length;
+      }
+      return { fine, all };
+    };
+    const plain = count();
+    const tailings = count(SITE_TRAITS.oldDiggings.coarseTaken!.overburden);
+    expect(plain.fine / plain.all).toBeLessThan(0.8);
+    expect(tailings.fine / tailings.all).toBeGreaterThan(0.95);
+  });
+
+  it('pay a little salvage on first reaching abandoned diggings, and none on a return', () => {
+    const region = new Region(createRng(4));
+    const lead = region.clueFound();
+    (lead as { truth: unknown }).truth = { real: true, richness: 1, site: 'oldDiggings' };
+    const first = region.follow(lead.id);
+    if (!first.found) throw new Error('not found');
+    expect(first.salvage).toBeGreaterThanOrEqual(SITE_TRAITS.oldDiggings.salvage![0]);
+    expect(first.salvage).toBeLessThanOrEqual(SITE_TRAITS.oldDiggings.salvage![1]);
+    const again = region.follow(lead.id);
+    expect(again.found && again.salvage).toBe(0);
+    const bend = stretches(4, 'creekBend', 1);
+    const other = bend.region.clueFound();
+    (other as { truth: unknown }).truth = { real: true, richness: 1, site: 'creekBend' };
+    const plain = bend.region.follow(other.id);
+    expect(plain.found && plain.salvage).toBe(0);
+  });
+
+  it('turn up clues more often in old workings', () => {
+    let clues = 0;
+    let plainClues = 0;
+    for (const [site, add] of [['oldDiggings', (n: number) => (clues += n)], ['creekStretch', (n: number) => (plainClues += n)]] as const) {
+      const { creeks } = stretches(21, site, 25);
+      for (const creek of creeks) for (const spot of creek.creekSpots) {
+        for (let i = 0; i < 12; i++) {
+          const r = creek.shovel(spot.id, 'spoil');
+          if (!r.ok) {
+            if (r.blocked === 'workedOut') break;
+            if (spot.boulder) while (!creek.pry(spot.id));
+            else creek.bail(spot.id);
+            continue;
+          }
+          if (r.clue) add(1);
+        }
+      }
+    }
+    expect(clues).toBeGreaterThan(plainClues * 1.5);
+  });
+
+  it('turn up about as often as the odds say, and the odds add up', () => {
+    expect(SITE_ODDS.reduce((n, [, odds]) => n + odds, 0)).toBeCloseTo(1, 6);
+    expect(SITE_ODDS.some(([kind]) => kind === 'oldDiggings')).toBe(true);
   });
 });

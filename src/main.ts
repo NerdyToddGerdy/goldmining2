@@ -403,7 +403,8 @@ async function start(): Promise<void> {
     // A slumped bank is mostly topsoil; a bucket pan has no single layer.
     creek.recordPan(from.id, totalMg(collected), panLayer === 'slump' ? 'overburden' : panLayer);
     // Topsoil barely pays: after a few pans of it, say once where the gold actually is.
-    topsoilPans = panLayer === 'overburden' ? topsoilPans + 1 : 0;
+    // (At old diggings the top layer is their tailings, which does pay.)
+    topsoilPans = panLayer === 'overburden' && creek.profile.site !== 'oldDiggings' ? topsoilPans + 1 : 0;
     if (topsoilPans >= 3 && !toldAboutTopsoil) {
       toldAboutTopsoil = true;
       hud.toast('Topsoil rarely pays. Toss it onto the spoil pile to dig down to the gravel: gold settles low, near bedrock.');
@@ -414,15 +415,22 @@ async function start(): Promise<void> {
       if (traced?.found) {
         passTime(ECONOMY_TUNING.travel.lead);
         economy.stakeFound(region);
-        hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name} and stake a claim. It is on your region map (M).`);
+        hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name} and stake a claim. It is on your region map (M).${salvageNote(traced.salvage)}`);
       }
     }
   };
 
   const describeFollow = (result: FollowResult): string =>
     result.found
-      ? `You find ${result.creek.profile.name} and stake a claim ($${economy.claim(result.creek.id)?.fee ?? 1} a day, paid in town). It is on your region map now.`
+      ? `You find ${result.creek.profile.name} and stake a claim ($${economy.claim(result.creek.id)?.fee ?? 1} a day, paid in town). It is on your region map now.${salvageNote(result.salvage)}`
       : `You walk out to ${result.lead.name}, but there's nothing there. The ${result.lead.source === 'rumour' ? 'rumour' : 'lead'} was wrong.`;
+  /** Old workings leave things lying about: gathered up and sold on as scrap, for a few dollars. */
+  const salvageNote = (salvage: number): string => {
+    if (salvage <= 0) return '';
+    session.cash = Math.round((session.cash + salvage) * 100) / 100;
+    checkBooks();
+    return ` Old workings: you gather up rusted riffle bars, a pick head and some good timber, $${salvage.toFixed(2)} in scrap.`;
+  };
 
   /**
    * Game time passes: claim fees and wages run up, and a hand works the sluice if the player is

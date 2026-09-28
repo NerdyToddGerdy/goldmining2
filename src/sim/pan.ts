@@ -47,6 +47,11 @@ export interface PanLoad {
   /** 0..1 */
   readonly rockiness: number;
   /**
+   * Share of the coarse gold (flakes and pickers) someone already took out: old workings kept what
+   * they could see and lost the fines, so what's left of their gold runs fine. Absent means none.
+   */
+  readonly coarseTaken?: number;
+  /**
    * The sand's grain, 0 fine silt to 1 coarse grit. Fine sand washes fast but lets the heavies go
    * at a shallower tip; coarse sand holds at a steeper tip but washes slowly. Absent means medium.
    */
@@ -446,9 +451,13 @@ export function rollShovelful(rng: Rng, load: PanLoad): Shovelful {
 
   const gold: GoldPiece[] = [];
   let budget = load.richness * rng.range(0.3, 1.8);
-  while (budget > 0 && gold.length < 80) {
+  // Worked-over ground holds its gold as many fines, so it gets room for more specks.
+  const maxPieces = load.coarseTaken ? 130 : 80;
+  while (budget > 0 && gold.length < maxPieces) {
     const roll = rng.next();
-    const size: GoldSize = roll < 0.7 ? 'fine' : roll < 0.97 ? 'flake' : 'picker';
+    let size: GoldSize = roll < 0.7 ? 'fine' : roll < 0.97 ? 'flake' : 'picker';
+    // Worked-over ground: the coarse gold went to whoever was here before; the fines stayed.
+    if (size !== 'fine' && load.coarseTaken && rng.next() < load.coarseTaken) size = 'fine';
     const piece = makePiece(rng, size);
     gold.push(piece);
     budget -= piece.mg;
