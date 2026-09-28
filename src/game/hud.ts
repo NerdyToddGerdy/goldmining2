@@ -36,6 +36,9 @@ import {
   OUTFITTER,
   ROCKER_TUNING,
   HIGHBANKER_TUNING,
+  TROMMEL_TUNING,
+  type Trommel,
+  type TrommelStepEvents,
   siteAllows,
   type Rocker,
   type Highbanker,
@@ -62,7 +65,7 @@ import {
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel';
 
 export interface HudActions {
   // Pan
@@ -87,7 +90,7 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher'): void;
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel'): void;
   openClassifier(): void;
   // Classifier
   swapScreen(): void;
@@ -132,6 +135,16 @@ export interface HudActions {
   // Highbanker
   openHighbanker(): void;
   setUpHighbanker(): void;
+  // Trommel
+  openTrommel(): void;
+  setUpTrommel(): void;
+  takeDownTrommel(): void;
+  toggleTrommel(): void;
+  clearTrommel(): void;
+  refuelTrommel(): void;
+  trommelCleanout(): void;
+  cancelTrommelCleanout(): void;
+  liftTrommelMat(): void;
   takeDownHighbanker(): void;
   primePump(): void;
   toggleEngine(): void;
@@ -183,6 +196,11 @@ export interface HudState {
   /** The highbanker set up at the current spot, if any, its last step, throttle, and a prime under way. */
   readonly highbanker: Highbanker | null;
   readonly highbankerEvents: HighbankerStepEvents | null;
+  /** The trommel set up at this spot, its last step, and its drum speed and spray. */
+  readonly trommel: Trommel | null;
+  readonly trommelEvents: TrommelStepEvents | null;
+  readonly drumSpeed: number;
+  readonly spray: number;
   readonly throttle: number;
   readonly priming: boolean;
   /** Dry gear, when the player has it and the ground is dry. */
@@ -221,6 +239,7 @@ export interface HudState {
 const JOB_NAMES: Record<JobKind, string> = {
   sluice: 'Sluice',
   highbanker: 'Highbanker',
+  trommel: 'Trommel',
   rocker: 'Rocker',
   drywasher: 'Drywasher',
   pan: 'Pan',
@@ -292,6 +311,7 @@ const JOB_STATE_WORDS: Record<string, string> = {
 const CREW_GEAR: readonly [CrewMachine, string][] = [
   ['sluice', 'Crew sluice'],
   ['highbanker', 'Crew highbanker'],
+  ['trommel', 'Crew trommel'],
   ['rocker', 'Crew rocker box'],
   ['drywasher', 'Crew drywasher'],
   ['classifier', 'Crew classifier'],
@@ -308,6 +328,7 @@ const HINTS: Record<Mode, string> = {
   magnet: 'Hold Space or Pass to sweep the magnet over the sand · W/S or the wheel sets how close · shake the clump back (B), then strip it off (T)',
   rocker: 'Ladle water over the screen (L) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
   highbanker: 'Prime the pump (P) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
+  trommel: 'Start the engine (E) · set the Drum to tumble and the Spray · shovel into the hopper (F) · clear a jammed drum (R) · clean out the deck (C)',
   drywasher: 'Hold Space or Pump to work the bellows · W/S or the wheel sets the Air · shake out the dust (D) · knock the screen (K) · pull the drawer (C)',
 };
 
@@ -323,6 +344,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   magnet: 'Hold Pass to sweep the magnet · the slider sets how close · shake the clump back, then strip it off',
   rocker: 'Ladle water over the screen · tap Rock on a steady beat · tip the rocks off · clean up the apron before it loads up',
   highbanker: 'Prime the pump · start the engine · set the Throttle · shovel into the hopper · tap the hopper to clear a jam',
+  trommel: 'Start the engine · set the Drum to tumble and the Spray · shovel into the hopper · tap the drum to clear a jam',
   drywasher: 'Hold Pump to work the bellows · the slider sets the Air · shake out the dust · knock the screen · pull the drawer',
 };
 
@@ -620,15 +642,25 @@ export class Hud {
     if (this.sift.textContent !== siftText) this.sift.textContent = siftText;
     const tiltText = magnet ? 'Closeness ' : drywashing ? 'Air ' : 'Tilt ';
     if (this.tiltLabel.firstChild && this.tiltLabel.firstChild.textContent !== tiltText) this.tiltLabel.firstChild.textContent = tiltText;
-    // The same slider is the sluice's Water, or the highbanker's Throttle.
-    const onHighbanker = state.highbanker !== null && (mode === 'bank' || mode === 'highbanker');
-    this.water.hidden = !(onHighbanker || (state.sluice && (mode === 'bank' || mode === 'sluice')));
-    const waterText = onHighbanker ? 'Throttle ' : 'Water ';
+    // The same slider is the sluice's Water, the highbanker's Throttle, or the trommel's Spray;
+    // the second is the sluice's Slope (with legs) or the trommel's Drum speed.
+    const onTrommel = state.trommel !== null && (mode === 'bank' || mode === 'trommel');
+    const onHighbanker = !onTrommel && state.highbanker !== null && (mode === 'bank' || mode === 'highbanker');
+    this.water.hidden = !(onTrommel || onHighbanker || (state.sluice && (mode === 'bank' || mode === 'sluice')));
+    const waterText = onTrommel ? 'Spray ' : onHighbanker ? 'Throttle ' : 'Water ';
     if (this.water.firstChild && this.water.firstChild.textContent !== waterText) this.water.firstChild.textContent = waterText;
-    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(onHighbanker ? state.throttle : state.sluiceFlow);
+    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(onTrommel ? state.spray : onHighbanker ? state.throttle : state.sluiceFlow);
+    const slopeText = onTrommel ? 'Drum ' : 'Slope ';
+    if (this.slope.firstChild && this.slope.firstChild.textContent !== slopeText) this.slope.firstChild.textContent = slopeText;
+    if (onTrommel) {
+      this.slope.hidden = false;
+      this.slopeInput.min = '0';
+      this.slopeInput.max = '1';
+      if (document.activeElement !== this.slopeInput) this.slopeInput.value = String(state.drumSpeed);
+    }
     // Adjustable legs: the slider covers only as far as the legs reach at this site.
-    this.slope.hidden = this.water.hidden || !state.sluice?.kit.legs;
-    if (!this.slope.hidden && state.sluice && document.activeElement !== this.slopeInput) {
+    else this.slope.hidden = this.water.hidden || !state.sluice?.kit.legs;
+    if (!onTrommel && !this.slope.hidden && state.sluice && document.activeElement !== this.slopeInput) {
       const { min, max } = state.sluice.slopeRange;
       this.slopeInput.min = String(min);
       this.slopeInput.max = String(max);
@@ -733,7 +765,7 @@ export class Hud {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
         list.push(...this.refuelButton(state));
-      } else if (spot.sluiceSite && session.owns('sluice') && !state.highbanker) {
+      } else if (spot.sluiceSite && session.owns('sluice') && !state.highbanker && !state.trommel) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
       if (state.drywasher) {
@@ -743,10 +775,16 @@ export class Hud {
       if (state.tub && (state.tub.water < 1 || state.tub.turbidity > 0)) {
         list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (U)', () => this.on.changeTubWater()]);
       }
+      if (state.trommel) {
+        if (blocked === null && !state.trommel.rinsing) list.push(['Shovel into the trommel (F)', () => this.on.shovel('trommel')]);
+        list.push(['Watch the trommel (V)', () => this.on.openTrommel()]);
+      } else if (!state.sluice && !state.highbanker && !spot.gully && session.owns('trommel') && siteAllows(state.creek.profile.site, 'trommel')) {
+        list.push([session.trommelPlace ? 'Move the trommel here' : 'Set up the trommel here', () => this.on.setUpTrommel()]);
+      }
       if (state.highbanker) {
         if (blocked === null && !state.highbanker.rinsing) list.push(['Shovel into the highbanker (F)', () => this.on.shovel('highbanker')]);
         list.push(['Watch the highbanker (V)', () => this.on.openHighbanker()], ...this.highbankerFuelButton(state));
-      } else if (!state.sluice && !spot.gully && session.owns('highbanker') && siteAllows(state.creek.profile.site, 'highbanker')) {
+      } else if (!state.sluice && !state.trommel && !spot.gully && session.owns('highbanker') && siteAllows(state.creek.profile.site, 'highbanker')) {
         list.push([session.highbankerPlace ? 'Move the highbanker here' : 'Set up the highbanker here', () => this.on.setUpHighbanker()]);
       }
       list.push(...this.crewBucketButton(state), ...this.jarButton(session), ...this.magnetButton(state));
@@ -793,6 +831,20 @@ export class Hud {
       list.push(...this.mendButton(state, hb.seized ? 1 : Math.max(hb.engineWear, hb.sluice.wear)));
       list.push(...this.highbankerFuelButton(state), ['Clean out the moss (C)', () => this.on.highbankerCleanout()], ...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the highbanker', () => this.on.takeDownHighbanker()]);
+      return list;
+    }
+    if (mode === 'trommel' && state.trommel) {
+      const t = state.trommel;
+      if (t.rinsing) {
+        return [['Lift the mat (L)', () => this.on.liftTrommelMat()], ['Keep running', () => this.on.cancelTrommelCleanout()], ...this.jarButton(session)];
+      }
+      const list: [string, () => void][] = [[t.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleTrommel()]];
+      if (t.jammed) list.push(['Clear the drum (R)', () => this.on.clearTrommel()]);
+      else if (t.deck.clog > 0.3) list.push(['Rake the deck (R)', () => this.on.clearTrommel()]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null && !t.hopperFull) list.push(['Shovel into the hopper (F)', () => this.on.shovel('trommel')]);
+      if (t.fuel <= TROMMEL_TUNING.tank * 0.75 && session.fuelCans > 0) list.push([`Refuel (G) · ${session.fuelCans} can${session.fuelCans === 1 ? '' : 's'}`, () => this.on.refuelTrommel()]);
+      list.push(['Clean out the deck (C)', () => this.on.trommelCleanout()], ...this.mendButton(state, t.seized ? 1 : t.wear), ...this.jarButton(session));
+      list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the trommel', () => this.on.takeDownTrommel()]);
       return list;
     }
     if (mode === 'rocker' && state.rocker) {
@@ -909,7 +961,7 @@ export class Hud {
           ).join(''),
       );
       // Repair kits, once there's a machine to wear out: the player's own or the crew's.
-      const machines = (['sluice', 'rocker', 'drywasher', 'highbanker'] as const).some((g) => session.owns(g)) || Object.values(crew.spares).some((n) => n > 0) || crew.sites.some((s) => s.crewSluice || s.crewHighbanker || s.rocker || s.drywasher);
+      const machines = (['sluice', 'rocker', 'drywasher', 'highbanker', 'trommel'] as const).some((g) => session.owns(g)) || Object.values(crew.spares).some((n) => n > 0) || crew.sites.some((s) => s.crewSluice || s.crewHighbanker || s.crewTrommel || s.rocker || s.drywasher);
       if (machines) {
         const full = session.repairKits >= REPAIR_KIT.carryLimit;
         gear.push(
@@ -1110,7 +1162,7 @@ export class Hud {
     // The crew as a whole.
     const crewLines = [
       `<b>Your crew</b> <span class="small">${crew.workers.length ? `${crew.workers.length} on the payroll · ${money(crew.dailyWages)} a day` : 'nobody yet'}</span>`,
-      '<p class="small">Your crew works your stretches while you are elsewhere: slower and less careful than you, so they buy you time, not gold. <b>Hands</b> pan, rock, haul, screen loads, prospect and finish concentrate. <b>Operators</b> also run the sluice, highbanker and drywasher. Send them to a stretch and switch on the jobs you want there; jobs are filled in the order you switched them on. What they make waits for you to collect at the stretch.</p>',
+      '<p class="small">Your crew works your stretches while you are elsewhere: slower and less careful than you, so they buy you time, not gold. <b>Hands</b> pan, rock, haul, screen loads, prospect and finish concentrate. <b>Operators</b> also run the sluice, highbanker, trommel and drywasher. Send them to a stretch and switch on the jobs you want there; jobs are filled in the order you switched them on. What they make waits for you to collect at the stretch.</p>',
     ];
     if (crew.wagesOwed > 0) crewLines.push(`<p class="small">Wages owed: ${owing(crew.wagesOwed)}.</p>`);
     // The day's applicants, each with their own skill, pace and asking wage.
@@ -1338,8 +1390,21 @@ export class Hud {
       else if (key === 'n') this.on.serviceMachine();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'trommel' && state.trommel) {
+      const t = state.trommel;
+      if (key === 'e') this.on.toggleTrommel();
+      else if (key === 'r') this.on.clearTrommel();
+      else if (key === 'f' && !t.rinsing) this.on.shovel('trommel');
+      else if (key === 'g') this.on.refuelTrommel();
+      else if (key === 'c' && !t.rinsing) this.on.trommelCleanout();
+      else if (key === 'l' && t.rinsing) this.on.liftTrommelMat();
+      else if (key === 'n') this.on.serviceMachine();
+      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
-      if (key === 'k' && state.classifier) this.on.shovel('classifier');
+      if (key === 'f' && state.trommel) this.on.shovel('trommel');
+      else if (key === 'v' && state.trommel) this.on.openTrommel();
+      else if (key === 'k' && state.classifier) this.on.shovel('classifier');
       else if (key === 'c' && state.classifier) this.on.openClassifier();
       else if (key === 'f' && state.sluice) this.on.shovel('sluice');
       else if (key === 'v' && state.sluice) this.on.openSluice();
@@ -1647,6 +1712,21 @@ export class Hud {
         ['Hopper', hb.jammed ? 'jammed' : hopper > 0.85 ? 'heaped' : hopper > 0.05 ? 'feeding' : 'empty'],
         ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
         ['Riffles', wearWord(hb.sluice.wear)],
+      ];
+    } else if (mode === 'trommel' && state.trommel) {
+      const t = state.trommel;
+      const load = t.drumVolume / TROMMEL_TUNING.drumMax;
+      const moss = t.deck.mossLoading;
+      const fuel = t.fuel / TROMMEL_TUNING.tank;
+      rows = [
+        ['Engine', t.seized ? 'seized' : t.running ? 'running' : t.fuel <= 0 ? 'out of fuel' : 'stopped'],
+        ['Drum', state.trommelEvents?.drum ?? (t.jammed ? 'jammed' : 'stopped')],
+        ['In the drum', load > 0.8 ? 'nearly jammed' : load > 0.4 ? 'heavy' : load > 0.02 ? 'tumbling' : 'empty'],
+        ['Clay', t.drumClay > 0.15 ? 'balling' : t.drumClay > 0.04 ? 'breaking up' : 'broken'],
+        ['Deck water', t.rinsing ? 'rinsing' : (state.trommelEvents?.deck.state ?? 'none')],
+        ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
+        ['Fuel', `${fuel > 0.6 ? 'plenty' : fuel > 0.3 ? 'half' : fuel > 0.1 ? 'low' : fuel > 0 ? 'nearly out' : 'empty'} · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`],
+        ['Wear', wearWord(t.wear)],
       ];
     } else if (mode === 'rocker' && state.rocker) {
       const r = state.rocker;

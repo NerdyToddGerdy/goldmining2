@@ -175,6 +175,8 @@ export class Region {
       if (place?.creekId === creek.id) session.sluiceAt(place.creekId, place.spotId)?.floodHit();
       const hb = session.highbankerPlace;
       if (hb?.creekId === creek.id) session.highbankerAt(hb.creekId, hb.spotId)?.floodHit();
+      const tr = session.trommelPlace;
+      if (tr?.creekId === creek.id) session.trommelAt(tr.creekId, tr.spotId)?.floodHit();
       flooded.push(creek);
     }
     return flooded;

@@ -20,7 +20,8 @@ export type GearId =
   | 'drywasher'
   | 'washTub'
   | 'finishingPan'
-  | 'snuffer';
+  | 'snuffer'
+  | 'trommel';
 
 export interface GearItem {
   readonly id: GearId;
@@ -91,6 +92,12 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Highbanker',
     price: 90,
     description: 'A sluice box on a stand with a hopper, a spray bar and a little gas engine and pump. It sets up on the bank, so you shovel straight into the hopper and it moves far more gravel than the hand sluice. Prime the pump, mind the throttle and the heat, and keep it fuelled. Needs strong water and room: a creek bend, a gravel bar, or a ravine.',
+  },
+  {
+    id: 'trommel',
+    name: 'Trommel',
+    price: 180,
+    description: 'A rotating screen drum on a frame, with a spray bar through it and a riffled deck underneath, run by a small engine. It eats rocky, clayey gravel a highbanker would choke on, and a lot of it: tumbling breaks the clay, fines drop to the deck, rocks roll out the end. Set the drum speed and the spray. Too slow and clay balls carry gold out whole; too fast and it flings fines out with the rocks. It needs a wide, level bar: gravel bars only.',
   },
   {
     id: 'riffleMat',

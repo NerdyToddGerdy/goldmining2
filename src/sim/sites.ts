@@ -261,7 +261,7 @@ export function topLayerPays(site: SiteKind | undefined): boolean {
 }
 
 /** Whether the ground has room and water for a piece of hand gear. */
-export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker' | 'drywasher' | 'washTub';
+export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker' | 'drywasher' | 'washTub' | 'trommel';
 
 export function siteAllows(site: SiteKind | undefined, gear: SiteGear): boolean {
   const traits = traitsOf(site);
@@ -272,6 +272,8 @@ export function siteAllows(site: SiteKind | undefined, gear: SiteGear): boolean 
   // A highbanker needs strong water to pump from and room on the bank for its stand; a ravine
   // takes the compact one.
   if (gear === 'highbanker') return site === 'creekBend' || site === 'gravelBar' || site === 'ravine';
+  // A trommel needs a wide, level bar to stand on and a big pile to feed it: gravel bars only.
+  if (gear === 'trommel') return site === 'gravelBar';
   if (gear === 'rocker') return traits.footprint !== 'narrow';
   return true;
 }

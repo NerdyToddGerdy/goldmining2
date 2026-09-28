@@ -10,6 +10,7 @@ import type { Rng } from './rng';
 import { Rocker, type RockerSnapshot } from './rocker';
 import { siteAllows, topLayerPays, traitsOf } from './sites';
 import { Sluice, bareKit, needsPump, type SluiceSnapshot } from './sluice';
+import { TROMMEL_TUNING, Trommel, type TrommelSnapshot } from './trommel';
 import { WEAR_TUNING } from './wear';
 
 /**
@@ -23,10 +24,10 @@ import { WEAR_TUNING } from './wear';
  * a screen.
  */
 
-export type JobKind = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'pan' | 'screen' | 'haul' | 'prospect' | 'finish' | 'courier' | 'magnet';
+export type JobKind = 'sluice' | 'highbanker' | 'trommel' | 'rocker' | 'drywasher' | 'pan' | 'screen' | 'haul' | 'prospect' | 'finish' | 'courier' | 'magnet';
 
 /** Jobs at a claim. */
-export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 'drywasher', 'pan', 'screen', 'haul', 'prospect', 'finish', 'courier'];
+export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'trommel', 'rocker', 'drywasher', 'pan', 'screen', 'haul', 'prospect', 'finish', 'courier'];
 
 /**
  * The crew's station in town, at the assay office, has a site id of its own. There the crew works
@@ -37,7 +38,7 @@ export const TOWN_SITE = -1;
 export const TOWN_JOBS: readonly JobKind[] = ['magnet', 'finish'];
 
 /** Machines a crew can own: extra units bought for the crew, separate from the player's own. */
-export type CrewMachine = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'classifier';
+export type CrewMachine = 'sluice' | 'highbanker' | 'trommel' | 'rocker' | 'drywasher' | 'classifier';
 
 /** Why a job isn't getting done. */
 export type JobIdle = 'noMachine' | 'noSite' | 'noWater' | 'workedOut' | 'bucketFull' | 'noFuel' | 'nothingToFinish' | 'groundReady' | 'needsService';
@@ -182,6 +183,7 @@ export interface SiteCrewSnapshot {
   readonly machines: {
     readonly sluice: { readonly spotId: number; readonly state: SluiceSnapshot } | null;
     readonly highbanker: { readonly spotId: number; readonly state: HighbankerSnapshot } | null;
+    readonly trommel?: { readonly spotId: number; readonly state: TrommelSnapshot } | null;
     readonly rocker: RockerSnapshot | null;
     readonly drywasher: DrywasherSnapshot | null;
     readonly classifier: boolean;
@@ -205,6 +207,7 @@ export class SiteCrew {
   readonly idle: Partial<Record<JobKind, JobIdle | null>> = {};
   crewSluice: { spotId: number; sluice: Sluice } | null = null;
   crewHighbanker: { spotId: number; machine: Highbanker } | null = null;
+  crewTrommel: { spotId: number; machine: Trommel } | null = null;
   rocker: Rocker | null = null;
   drywasher: Drywasher | null = null;
   classifier = false;
@@ -232,6 +235,7 @@ export class SiteCrew {
     const m = copy.machines;
     if (m.sluice) this.crewSluice = { spotId: m.sluice.spotId, sluice: new Sluice(rng, m.sluice.state.site, m.sluice.state, bareKit()) };
     if (m.highbanker) this.crewHighbanker = { spotId: m.highbanker.spotId, machine: new Highbanker(rng, m.highbanker.state) };
+    if (m.trommel) this.crewTrommel = { spotId: m.trommel.spotId, machine: new Trommel(rng, m.trommel.state) };
     if (m.rocker) this.rocker = new Rocker(rng, m.rocker);
     if (m.drywasher) this.drywasher = new Drywasher(rng, m.drywasher);
     this.classifier = m.classifier;
@@ -252,6 +256,7 @@ export class SiteCrew {
       machines: {
         sluice: this.crewSluice ? { spotId: this.crewSluice.spotId, state: this.crewSluice.sluice.snapshot() } : null,
         highbanker: this.crewHighbanker ? { spotId: this.crewHighbanker.spotId, state: this.crewHighbanker.machine.snapshot() } : null,
+        trommel: this.crewTrommel ? { spotId: this.crewTrommel.spotId, state: this.crewTrommel.machine.snapshot() } : null,
         rocker: this.rocker?.snapshot() ?? null,
         drywasher: this.drywasher?.snapshot() ?? null,
         classifier: this.classifier,
@@ -325,7 +330,7 @@ export interface JobContext {
 
 /** The crew machine a job needs, if the player's own isn't set up here. */
 export function machineFor(job: JobKind): CrewMachine | null {
-  if (job === 'sluice' || job === 'highbanker' || job === 'rocker' || job === 'drywasher') return job;
+  if (job === 'sluice' || job === 'highbanker' || job === 'trommel' || job === 'rocker' || job === 'drywasher') return job;
   if (job === 'screen') return 'classifier';
   return null;
 }
@@ -343,6 +348,8 @@ export function jobFits(job: JobKind, creek: Creek): boolean {
       return creek.sluiceSpots.some((s) => !needsPump(s.sluiceSite!));
     case 'highbanker':
       return siteAllows(site, 'highbanker');
+    case 'trommel':
+      return siteAllows(site, 'trommel');
     case 'rocker':
       return siteAllows(site, 'rocker');
     case 'drywasher':
@@ -386,14 +393,23 @@ export function highbankerFor(ctx: JobContext): { machine: Highbanker; spot: Dig
  * Set a crew machine up at the site, from a spare. Returns false if there's nowhere to put it
  * (no free sluice site, no room for a highbanker).
  */
+/** The trommel a crew can run here: the player's if it's set up at this stretch, else the crew's own. */
+export function trommelFor(ctx: JobContext): { machine: Trommel; spot: DigSpot } | null {
+  const place = ctx.session.trommelPlace;
+  if (place?.creekId === ctx.creek.id) {
+    const machine = ctx.session.trommelAt(place.creekId, place.spotId);
+    if (machine) return { machine, spot: ctx.creek.spot(place.spotId) };
+  }
+  const own = ctx.site.crewTrommel;
+  return own ? { machine: own.machine, spot: ctx.creek.spot(own.spotId) } : null;
+}
+
 export function installMachine(site: SiteCrew, machine: CrewMachine, creek: Creek, session: PanningSession, rng: Rng): boolean {
   const taken = new Set<number>();
-  const sp = session.sluicePlace;
-  const hp = session.highbankerPlace;
-  if (sp?.creekId === creek.id) taken.add(sp.spotId);
-  if (hp?.creekId === creek.id) taken.add(hp.spotId);
+  for (const place of [session.sluicePlace, session.highbankerPlace, session.trommelPlace]) if (place?.creekId === creek.id) taken.add(place.spotId);
   if (site.crewSluice) taken.add(site.crewSluice.spotId);
   if (site.crewHighbanker) taken.add(site.crewHighbanker.spotId);
+  if (site.crewTrommel) taken.add(site.crewTrommel.spotId);
   switch (machine) {
     case 'sluice': {
       const spot = creek.sluiceSpots.find((s) => !needsPump(s.sluiceSite!) && !taken.has(s.id));
@@ -405,6 +421,12 @@ export function installMachine(site: SiteCrew, machine: CrewMachine, creek: Cree
       const spot = creek.creekSpots.find((s) => !taken.has(s.id));
       if (!spot) return false;
       site.crewHighbanker = { spotId: spot.id, machine: new Highbanker(rng) };
+      return true;
+    }
+    case 'trommel': {
+      const spot = creek.creekSpots.find((s) => !taken.has(s.id));
+      if (!spot) return false;
+      site.crewTrommel = { spotId: spot.id, machine: new Trommel(rng) };
       return true;
     }
     case 'rocker':
@@ -443,6 +465,17 @@ export function removeMachine(site: SiteCrew, machine: CrewMachine): boolean {
       site.crewHighbanker = null;
       return true;
     }
+    case 'trommel': {
+      const own = site.crewTrommel;
+      if (!own) return false;
+      own.machine.emptyAll();
+      own.machine.deck.emptyHeader();
+      const mat = own.machine.deck.liftMat();
+      site.bucket.blackSand += mat.blackSand;
+      site.bucket.gold.push(...mat.gold);
+      site.crewTrommel = null;
+      return true;
+    }
     case 'rocker': {
       if (!site.rocker) return false;
       site.rocker.tipOff();
@@ -475,6 +508,8 @@ export function hasMachine(ctx: JobContext, job: JobKind): boolean {
       return sluiceFor(ctx) !== null;
     case 'highbanker':
       return highbankerFor(ctx) !== null;
+    case 'trommel':
+      return trommelFor(ctx) !== null;
     case 'rocker':
       return ctx.site.rocker !== null;
     case 'drywasher':
@@ -598,6 +633,8 @@ export function runJob(job: JobKind, dt: number, ctx: JobContext): JobIdle | nul
       return runSluice(dt, ctx);
     case 'highbanker':
       return runHighbanker(dt, ctx);
+    case 'trommel':
+      return runTrommel(dt, ctx);
     case 'rocker':
       return runRocker(dt, ctx);
     case 'drywasher':
@@ -776,6 +813,93 @@ function runHighbanker(dt: number, ctx: JobContext): JobIdle | null {
     const screened = screen(ctx, dug.load);
     if (screened) hb.feedScreened(screened);
     else hb.feed(dug.load);
+    st.sinceClean += 1;
+  }
+  return null;
+}
+
+/**
+ * An operator on the trommel: keeps it fuelled and serviced, turns the drum at a tumble (quicker
+ * pushing hard, gentler going carefully), bars a jam loose a little late, feeds it without heaping
+ * the hopper, and cleans the deck out on a schedule into the crew bucket.
+ */
+function runTrommel(dt: number, ctx: JobContext): JobIdle | null {
+  const T = CREW_TUNING;
+  const found = trommelFor(ctx);
+  if (!found) return 'noMachine';
+  const { machine: tr, spot } = found;
+  const st = ctx.site.state('trommel');
+  if (tr.fuel <= 0 && !tr.running) {
+    if (ctx.session.fuelCans <= 0) return 'noFuel';
+    ctx.session.fuelCans -= 1;
+    tr.refuel();
+    st.timer = Math.max(st.timer, 4);
+  }
+  if (!tr.running) maintain(ctx, st, tr.wear, tr);
+  if (tr.seized) return 'needsService';
+  if (tr.jammed) {
+    st.clogTime += dt;
+    if (st.clogTime >= T.jamDelay * 2 * ctx.policy.fixDelay) {
+      tr.clearJam();
+      st.clogTime = 0;
+    }
+  } else if (tr.deck.clog > 0.5) {
+    st.clogTime += dt;
+    if (st.clogTime >= T.rakeDelay * ctx.policy.fixDelay) {
+      tr.deck.rake();
+      st.clogTime = 0;
+    }
+  } else st.clogTime = 0;
+  if (!tr.running && !tr.jammed && !tr.rinsing && tr.fuel > 0) tr.start();
+  // Drum speed and spray from the policy's water setting: a tumble, nudged up pushing hard.
+  tr.step(dt, 0.2 + 0.5 * ctx.policy.throttle, Math.min(1, ctx.policy.targetPower + 0.15));
+
+  if (st.rinsing !== null) {
+    tr.rinsing = true;
+    st.rinsing -= dt;
+    if (st.rinsing > 0) return null;
+    const mat = tr.deck.matVolume;
+    if (!ctx.site.addToBucket(mat, tr.deck.liftMat().gold)) {
+      st.rinsing = 0;
+      return 'bucketFull';
+    }
+    tr.rinsing = false;
+    st.rinsing = null;
+    st.sinceClean = 0;
+    ctx.site.report.cleanouts += 1;
+    return null;
+  }
+  st.timer -= dt;
+  if (st.timer > 0) return null;
+  const idle = tr.hopperVolume < 0.05 && tr.drumVolume < 0.1;
+  if (idle && st.sinceClean >= (T.cleanoutEvery * 2) * ctx.policy.cleanEvery) {
+    tr.stop();
+    st.rinsing = T.rinse;
+    return null;
+  }
+  // Keep the hopper fed but never heaped: a jam costs the whole drum.
+  if (tr.hopperVolume > TROMMEL_TUNING.hopperMax * 0.5 || tr.jammed) {
+    st.timer = 0.5;
+    return null;
+  }
+  const dug = dig(ctx, spot.position);
+  if (!dug) {
+    if (idle && st.sinceClean > 0) {
+      tr.stop();
+      st.rinsing = T.rinse;
+      return null;
+    }
+    if (idle) {
+      tr.stop();
+      return 'workedOut';
+    }
+    return null;
+  }
+  st.timer = dug.time;
+  if (dug.load) {
+    const screened = screen(ctx, dug.load);
+    if (screened) tr.feedScreened(screened);
+    else tr.feed(dug.load);
     st.sinceClean += 1;
   }
   return null;
@@ -1061,7 +1185,7 @@ function runProspect(dt: number, ctx: JobContext): JobIdle | null {
  * Roughly how many seconds a hand spends per load of gravel on each digging job: feeding a machine,
  * rocking and fetching water, or panning and resting between pans. Measured from the crew sim.
  */
-const SECONDS_PER_LOAD: Partial<Record<JobKind, number>> = { sluice: 8, highbanker: 8, rocker: 25, drywasher: 10, pan: 60 };
+const SECONDS_PER_LOAD: Partial<Record<JobKind, number>> = { sluice: 8, highbanker: 8, trommel: 7, rocker: 25, drywasher: 10, pan: 60 };
 
 /**
  * Roughly how many game days of digging a stretch has left, with these staffed jobs digging it
@@ -1088,5 +1212,5 @@ export function crewDaysLeft(creek: Creek, jobs: readonly JobKind[], daySeconds:
 }
 
 /** Jobs that dig from the stretch. */
-export const DIGGING_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 'drywasher', 'pan'];
+export const DIGGING_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'trommel', 'rocker', 'drywasher', 'pan'];
 

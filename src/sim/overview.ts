@@ -114,6 +114,7 @@ export function claimOverview(
     0,
     site?.crewSluice?.sluice.wear ?? 0,
     site?.crewHighbanker ? Math.max(site.crewHighbanker.machine.engineWear, site.crewHighbanker.machine.sluice.wear) : 0,
+    site?.crewTrommel?.machine.wear ?? 0,
     site?.rocker?.wear ?? 0,
     site?.drywasher?.wear ?? 0,
     staffed.includes('sluice') && session.sluicePlace?.creekId === creek.id ? (session.sluiceAt(creek.id, session.sluicePlace.spotId)?.wear ?? 0) : 0,

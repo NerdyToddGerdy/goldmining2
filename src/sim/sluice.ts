@@ -324,7 +324,7 @@ export class Sluice {
 
   /** 0 = fresh moss, 1 = full. The true value; any readout of it should stay approximate. */
   get mossLoading(): number {
-    return Math.min(1, (this.moss.black + this.moss.light) / SLUICE_TUNING.mossCapacity);
+    return Math.min(1, (this.moss.black + this.moss.light) / (SLUICE_TUNING.mossCapacity * this.scale));
   }
 
   /** Gold pieces in the moss, for glints; never shown as a number before cleanout. */
@@ -520,7 +520,7 @@ export class Sluice {
     });
 
     // An overloaded mat can't hold any more sand: the excess washes on through.
-    const room = Math.max(0, T.mossCapacity * T.mossOverfill - this.moss.black - this.moss.light);
+    const room = Math.max(0, T.mossCapacity * this.scale * T.mossOverfill - this.moss.black - this.moss.light);
     const blackCaught = Math.min(room, black * T.blackCapture * (1 - 0.8 * over) * (1 - 0.5 * steep) * (1 - fullness));
     this.moss.black += blackCaught;
     this.moss.light += Math.min(room - blackCaught, light * T.lightTrap * (1 - fullness));

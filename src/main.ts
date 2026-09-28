@@ -43,6 +43,8 @@ import {
   refillTub,
   tubHasWater,
   HIGHBANKER_TUNING,
+  type Trommel,
+  type TrommelStepEvents,
   ROCKER_TUNING,
   needsPump,
   traitsOf,
@@ -65,6 +67,7 @@ import { SluiceView } from './game/sluiceView';
 import { MagnetView } from './game/magnetView';
 import { RockerView } from './game/rockerView';
 import { HighbankerView } from './game/highbankerView';
+import { TrommelView } from './game/trommelView';
 import { DrywasherView } from './game/drywasherView';
 import { TownView } from './game/townView';
 import { clearSave, readSave, writeSave } from './game/storage';
@@ -90,6 +93,7 @@ const EVENT_MESSAGES = {
 const CREW_MACHINE_NAMES: Record<CrewMachine, string> = {
   sluice: 'sluice',
   highbanker: 'highbanker',
+  trommel: 'trommel',
   rocker: 'rocker box',
   drywasher: 'drywasher',
   classifier: 'classifier',
@@ -107,6 +111,7 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
   rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
   highbanker: 'A highbanker. Set it up on the bank at a creek bend, gravel bar or ravine: prime the pump, start the engine, and shovel into the hopper. Buy fuel here by the can.',
+  trommel: 'A trommel. Set it up on a gravel bar beside a spot, start the engine, set the Drum so the load tumbles and the Spray to run the deck, and shovel into the hopper. It burns fuel cans.',
   finishingPan: 'A finishing pan. When you pan your jar in town or on a found stretch, it’s the one you reach for: tip it a little less, and it keeps the fines.',
   snuffer: 'A snuffer bottle. At the reveal, tap along the black-sand tail (F) to draw up fine gold. Work the tail thin first, and don’t get greedy.',
   washTub: 'A wash tub. On a dry wash, fill it and you can pan there. Change the water when it gets muddy: muddy water hides colour.',
@@ -202,6 +207,13 @@ async function start(): Promise<void> {
   const sluiceHere = (): Sluice | null => (spot ? session.sluiceAt(creek.id, spot.id) : null);
   /** The highbanker: set up on the bank beside a spot, its throttle, and a prime under way. */
   const highbankerHere = (): Highbanker | null => (spot ? session.highbankerAt(creek.id, spot.id) : null);
+  /** The trommel: set up on a gravel bar beside a spot, its drum speed and spray. */
+  const trommelHere = (): Trommel | null => (spot ? session.trommelAt(creek.id, spot.id) : null);
+  let trommelEvents: TrommelStepEvents | null = null;
+  let drumSpeed = 0.5;
+  let spray = 0.6;
+  let toldAboutTrommel = false;
+  let trommelAccumulator = 0;
   let throttle = 0.6;
   let highbankerEvents: HighbankerStepEvents | null = null;
   let primingLeft: number | null = null;
@@ -289,6 +301,7 @@ async function start(): Promise<void> {
     bankView.visible = mode === 'bank';
     sluiceView.visible = mode === 'sluice';
     highbankerView.visible = mode === 'highbanker';
+    trommelView.visible = mode === 'trommel';
     drywasherView.visible = mode === 'drywasher';
     classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
@@ -322,6 +335,7 @@ async function start(): Promise<void> {
       (into === 'sluice' && mode === 'sluice') ||
       (into === 'rocker' && mode === 'rocker') ||
       (into === 'highbanker' && mode === 'highbanker') ||
+      (into === 'trommel' && mode === 'trommel') ||
       (into === 'drywasher' && mode === 'drywasher');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const blockedClaim = claimBlock();
@@ -334,6 +348,12 @@ async function start(): Promise<void> {
     }
     const sluice = into === 'sluice' ? sluiceHere() : null;
     const highbanker = into === 'highbanker' ? highbankerHere() : null;
+    const trommel = into === 'trommel' ? trommelHere() : null;
+    if (into === 'trommel') {
+      if (!trommel) return;
+      if (trommel.rinsing) return hud.toast('Finish cleaning out the deck before feeding the hopper again.');
+      if (trommel.hopperFull) return hud.toast('The hopper is heaped full. Let the drum take it in.');
+    }
     const drywasher = into === 'drywasher' ? drywasherHere() : null;
     if (into === 'drywasher') {
       if (!drywasher) return;
@@ -400,6 +420,8 @@ async function start(): Promise<void> {
       if (mode !== 'drywasher') openDrywasher();
     } else if (result.load && highbanker) {
       highbanker.feed(result.load);
+    } else if (result.load && trommel) {
+      trommel.feed(result.load);
     } else if (result.load) {
       session.startPan(result.load, panWater(result.load.clayiness));
       panSpot = spot;
@@ -617,6 +639,27 @@ async function start(): Promise<void> {
       );
     }
   };
+  const openTrommel = (): void => {
+    if (!trommelHere()) return;
+    trommelView.reset();
+    setMode('trommel');
+    if (!toldAboutTrommel) {
+      toldAboutTrommel = true;
+      hud.toast(
+        usingTouch()
+          ? 'Start the engine, set the Drum so the load tumbles (not crawling, not racing) and the Spray to run the deck, then shovel into the hopper. Don’t overfeed it.'
+          : 'Start the engine (E), set the Drum so the load tumbles (not crawling, not racing) and the Spray to run the deck, then shovel into the hopper (F). Don’t overfeed it.',
+      );
+    }
+  };
+  const clearTrommel = (): void => {
+    const t = trommelHere();
+    if (!t) return;
+    if (t.jammed) {
+      t.clearJam();
+      hud.toast('You bar the drum loose and turn it out by hand: the whole load goes out the end onto the pile. Start it again, and feed it slower.');
+    } else if (t.deck.clog > 0 && t.deck.rake()) hud.toast('You rake the deck’s header clear.');
+  };
   const openHighbanker = (): void => {
     if (!highbankerHere()) return;
     highbankerView.reset();
@@ -705,12 +748,13 @@ async function start(): Promise<void> {
     }
   };
   const highbankerView = new HighbankerView({ rake: clearHighbanker, clearGrizzly: clearHighbanker });
+  const trommelView = new TrommelView({ rake: clearTrommel, clearJam: clearTrommel });
   const drywasherView = new DrywasherView();
   const magnetView = new MagnetView();
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, drywasherView, classifierView, rockerView, townView, magnetView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, trommelView, drywasherView, classifierView, rockerView, townView, magnetView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -719,6 +763,7 @@ async function start(): Promise<void> {
     bankView.layout(width, height);
     sluiceView.layout(width, height);
     highbankerView.layout(width, height);
+    trommelView.layout(width, height);
     drywasherView.layout(width, height);
     classifierView.layout(width, height);
     rockerView.layout(width, height);
@@ -740,7 +785,7 @@ async function start(): Promise<void> {
     zoomMap: (factor) => regionMap.zoomBy(factor),
     serviceMachine: () => {
       const machine =
-        mode === 'sluice' ? sluiceHere() : mode === 'highbanker' ? highbankerHere() : mode === 'rocker' ? rockerHere() : mode === 'drywasher' ? drywasherHere() : null;
+        mode === 'sluice' ? sluiceHere() : mode === 'highbanker' ? highbankerHere() : mode === 'trommel' ? trommelHere() : mode === 'rocker' ? rockerHere() : mode === 'drywasher' ? drywasherHere() : null;
       if (!machine) return;
       if (session.repairKits <= 0) return hud.toast(`No repair kit to hand. The outfitter sells them, $${REPAIR_KIT.price} each.`);
       session.service(machine);
@@ -851,10 +896,71 @@ async function start(): Promise<void> {
       if (material) sluice.feedScreened(material);
     },
     setWater: (flow) => {
-      if (highbankerHere()) throttle = flow;
+      if (trommelHere()) spray = flow;
+      else if (highbankerHere()) throttle = flow;
       else sluiceFlow = flow;
     },
     openHighbanker,
+    openTrommel,
+    clearTrommel,
+    setUpTrommel: () => {
+      if (!spot || mode !== 'bank') return;
+      const blockedClaim = claimBlock();
+      if (blockedClaim) return hud.toast(blockedClaim);
+      const before = session.trommelPlace;
+      const result = session.setUpTrommel(creek, spot);
+      if (result === 'jarFull') return hud.toast("Your jar can't hold the trommel deck's mat, so it can't come down yet. Pan some of the jar first.");
+      if (result === 'noRoom') return hud.toast('No room for a trommel here. It needs a wide, level bar and a big pile to feed it: gravel bars only.');
+      if (result === 'occupied') return hud.toast('Another machine is set up at this spot. Set the trommel up by another one.');
+      if (result !== 'set') return;
+      const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
+      hud.toast(
+        `${moved ? `You take the trommel down at ${region.creek(before.creekId).profile.name}, wash its deck into your jar, and haul it here. ` : ''}` +
+          `The trommel stands on the bar, its deck below the drum. ${usingTouch() ? 'Start the engine.' : 'Start the engine (E).'}`,
+      );
+    },
+    takeDownTrommel: () => {
+      if (!trommelHere()) return;
+      if (session.takeDownTrommel() === 'jarFull') return hud.toast("Your jar can't hold the deck's mat. Pan some of the jar first.");
+      setMode('bank');
+      hud.toast('You shut it down and pack the trommel. The deck’s mat is washed into your jar; the hopper and drum are tipped out.');
+    },
+    toggleTrommel: () => {
+      const t = trommelHere();
+      if (!t) return;
+      if (t.running) return t.stop();
+      const result = t.start();
+      if (result === 'noFuel') hud.toast(usingTouch() ? 'The tank is dry. Refuel it first.' : 'The tank is dry. Refuel it first (G).');
+      else if (result === 'jammed') hud.toast(usingTouch() ? 'The drum is jammed solid. Clear it first.' : 'The drum is jammed solid. Clear it first (R).');
+      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (N).');
+    },
+    refuelTrommel: () => {
+      if (!trommelHere()) return;
+      const result = session.refuelTrommel();
+      if (result === 'refuelled') hud.toast(`You fill the tank. ${session.fuelCans} can${session.fuelCans === 1 ? '' : 's'} left.`);
+      else if (result === 'noCans') hud.toast('No fuel cans left. The outfitter in town sells them.');
+      else if (result === 'full') hud.toast("The tank is still mostly full. Top it up once it's running low.");
+    },
+    trommelCleanout: () => {
+      const t = trommelHere();
+      if (!t) return;
+      t.stop();
+      t.rinsing = true;
+      hud.toast('The drum stops while clean water rinses the deck. Lift the mat when the gravel has washed off.');
+    },
+    cancelTrommelCleanout: () => {
+      const t = trommelHere();
+      if (t) t.rinsing = false;
+    },
+    liftTrommelMat: () => {
+      const t = trommelHere();
+      if (!t?.rinsing) return;
+      if (!session.fitsInJar(t.deck.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
+      session.addConcentrate(t.deck.liftMat());
+      t.rinsing = false;
+      trommelView.reset();
+      hud.toast('The deck’s mat comes up heavy with black sand. You wash it into your jar: pan it to see what the trommel caught.');
+    },
     openDrywasher,
     knockScreen: () => {
       const dw = drywasherHere();
@@ -975,7 +1081,10 @@ async function start(): Promise<void> {
       const material = c.pour(hb.hopperRoom);
       if (material) hb.feedScreened(material);
     },
-    setSlope: (slope) => sluiceHere()?.setSlope(slope),
+    setSlope: (slope) => {
+      if (trommelHere()) drumSpeed = slope;
+      else sluiceHere()?.setSlope(slope);
+    },
     refuelPump: () => {
       if (!sluiceHere()?.usesPump) return;
       const result = session.refuelPump();
@@ -1139,10 +1248,10 @@ async function start(): Promise<void> {
         hud.toast(
           `${hand.name} signs on as ${role === 'operator' ? 'an operator' : role === 'foreman' ? 'a foreman' : 'a hand'} at $${hand.wage} a day, first day paid, and waits in town. ` +
             (role === 'operator'
-              ? 'Operators can run the sluice, highbanker and drywasher, or lend a hand at anything else.'
+              ? 'Operators can run the sluice, highbanker, trommel and drywasher, or lend a hand at anything else.'
               : role === 'foreman'
                 ? 'Send them to a stretch: they take no job, and lift the whole crew there as far as your field notes cover the ground.'
-                : 'Hands pan, rock, haul, screen, prospect and finish; the sluice, highbanker and drywasher need an operator.'),
+                : 'Hands pan, rock, haul, screen, prospect and finish; the sluice, highbanker, trommel and drywasher need an operator.'),
         );
       }
       else if (result === 'cantAfford') hud.toast("You can't afford the first day's wage yet.");
@@ -1292,10 +1401,11 @@ async function start(): Promise<void> {
   else if (screen === 'region') setMode('region');
   else if (screen === 'sluice' && sluiceHere()) setMode('sluice');
   else if (screen === 'highbanker' && highbankerHere()) setMode('highbanker');
+  else if (screen === 'trommel' && trommelHere()) setMode('trommel');
   else if (screen === 'drywasher' && spot && drywasherHere()) setMode('drywasher');
   else if (screen === 'classifier' && spot && classifierHere()) setMode('classifier');
   else if (screen === 'rocker' && spot && rockerHere()) setMode('rocker');
-  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker' || screen === 'highbanker' || screen === 'drywasher') && spot) setMode('bank');
+  else if ((screen === 'bank' || screen === 'pan' || screen === 'sluice' || screen === 'classifier' || screen === 'rocker' || screen === 'highbanker' || screen === 'drywasher' || screen === 'trommel') && spot) setMode('bank');
   else setMode('creek');
   // Nothing is held up on the magnet between visits.
   if (session.clump.sand > 0 || session.clump.gold.length > 0) session.dropClump();
@@ -1405,6 +1515,26 @@ async function start(): Promise<void> {
       if (mode === 'highbanker') setMode('bank');
     }
     bankView.setHighbanker(highbanker);
+    // The trommel runs whenever the player is at its spot.
+    const trommel = trommelHere();
+    if (trommel && (mode === 'bank' || mode === 'trommel' || mode === 'pan')) {
+      trommelAccumulator += dt;
+      let merged: TrommelStepEvents | null = null;
+      while (trommelAccumulator >= SIM_DT) {
+        trommelAccumulator -= SIM_DT;
+        const e = trommel.step(SIM_DT, drumSpeed, spray);
+        merged = merged ? { ...e, screened: merged.screened + e.screened, oversize: merged.oversize + e.oversize, goldOut: merged.goldOut + e.goldOut, event: e.event ?? merged.event } : e;
+      }
+      if (merged) {
+        trommelEvents = merged;
+        if (merged.event === 'jammed') hud.toast(usingTouch() ? 'The drum has jammed solid: too much in it. Clear it, and feed it slower.' : 'The drum has jammed solid: too much in it. Clear it (R), and feed it slower.');
+        else if (merged.event === 'outOfFuel') hud.toast('The engine coughs and dies: out of fuel.');
+        else if (merged.event === 'seized') hud.toast('The engine grinds to a stop: worn out and seized. Mend it with a repair kit.');
+      }
+    } else if (!trommel) {
+      trommelEvents = null;
+      if (mode === 'trommel') setMode('bank');
+    }
     const drywasher = drywasherHere();
     bankView.setDryGear(drywasher, tubHere());
     if (mode === 'drywasher' && !drywasher) setMode('bank');
@@ -1477,6 +1607,9 @@ async function start(): Promise<void> {
       if (merged) drywasherEvents = merged;
       drywasherCoach.update(dt, drywasher, merged);
       drywasherView.update(dt, drywasher, controls.shake > 0, controls.tilt, merged);
+    } else if (mode === 'trommel' && trommel) {
+      trommelView.keepOut = hud.inspectBounds();
+      trommelView.update(dt, trommel, trommelEvents, drumSpeed, spray);
     } else if (mode === 'highbanker' && highbanker) {
       highbankerView.keepOut = hud.inspectBounds();
       highbankerView.update(dt, highbanker, highbankerEvents, throttle, primingLeft === null ? null : 1 - primingLeft / HIGHBANKER_TUNING.primeSeconds);
@@ -1522,6 +1655,10 @@ async function start(): Promise<void> {
       sluiceFlow,
       highbanker,
       highbankerEvents,
+      trommel,
+      trommelEvents,
+      drumSpeed,
+      spray,
       throttle,
       priming: primingLeft !== null,
       drywasher,

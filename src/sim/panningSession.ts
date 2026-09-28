@@ -1,6 +1,7 @@
 import { Classifier, type ClassifierSnapshot } from './classifier';
 import { Rocker, type RockerSnapshot } from './rocker';
 import { HIGHBANKER_TUNING, Highbanker, type HighbankerSnapshot } from './highbanker';
+import { TROMMEL_TUNING, Trommel, type TrommelSnapshot } from './trommel';
 import { siteAllows } from './sites';
 import { Drywasher, type DrywasherSnapshot } from './drywasher';
 import { freshTub, type WashTub } from './washTub';
@@ -56,6 +57,8 @@ export interface SessionSnapshot {
   readonly fuelCans: number;
   /** Repair kits carried. Absent means none. */
   readonly repairKits?: number;
+  /** Null (or absent) until a trommel is bought. */
+  readonly trommel?: { readonly placedAt: SluicePlace | null; readonly state: TrommelSnapshot | null; readonly packedFuel: number } | null;
 }
 
 /** Where a sluice is set up. */
@@ -91,6 +94,9 @@ export class PanningSession {
   tub: WashTub | null = null;
   /** The highbanker, once owned: packed, or set up on the bank at a spot. */
   private highbankerGear: { placedAt: SluicePlace | null; machine: Highbanker | null } | null = null;
+  /** The trommel, once owned: packed, or set up on a gravel bar beside a spot. */
+  private trommelGear: { placedAt: SluicePlace | null; machine: Trommel | null } | null = null;
+  private packedTrommelFuel = 0;
   /** Simple owned gear, such as the big jar. */
   private readonly gear = new Set<GearId>();
   /** The hand classifier, once bought: its screen, what's on it, and its bucket travel with the player. */
@@ -127,6 +133,11 @@ export class PanningSession {
     if (this.sluiceKit.pump) this.sluiceKit.pump.fuel = saved.pumpFuel;
     this.fuelCans = saved.fuelCans;
     this.repairKits = saved.repairKits ?? 0;
+    if (saved.trommel) {
+      const state = saved.trommel.state;
+      this.trommelGear = { placedAt: saved.trommel.placedAt, machine: state ? new Trommel(rng, state, this.sluiceKit) : null };
+      this.packedTrommelFuel = saved.trommel.packedFuel;
+    }
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.rocker) this.rocker = new Rocker(rng, saved.rocker);
     if (saved.drywasher) this.drywasher = new Drywasher(rng, saved.drywasher);
@@ -166,6 +177,9 @@ export class PanningSession {
       pumpFuel: this.sluiceKit.pump?.fuel ?? 0,
       fuelCans: this.fuelCans,
       repairKits: this.repairKits,
+      trommel: this.trommelGear
+        ? { placedAt: this.trommelGear.placedAt, state: this.trommelGear.machine?.snapshot() ?? null, packedFuel: this.packedTrommelFuel }
+        : null,
     });
   }
 
@@ -207,6 +221,7 @@ export class PanningSession {
     if (id === 'classifier') return this.classifier !== null;
     if (id === 'rocker') return this.rocker !== null;
     if (id === 'highbanker') return this.highbankerGear !== null;
+    if (id === 'trommel') return this.trommelGear !== null;
     if (id === 'drywasher') return this.drywasher !== null;
     if (id === 'washTub') return this.tub !== null;
     return this.gear.has(id);
@@ -226,6 +241,8 @@ export class PanningSession {
       if (!this.tub) this.tub = freshTub();
     } else if (id === 'highbanker') {
       if (!this.highbankerGear) this.highbankerGear = { placedAt: null, machine: null };
+    } else if (id === 'trommel') {
+      if (!this.trommelGear) this.trommelGear = { placedAt: null, machine: null };
     } else {
       this.gear.add(id);
       this.fitKit();
@@ -275,7 +292,7 @@ export class PanningSession {
     if (!spot.sluiceSite) return 'noSite';
     if (needsPump(spot.sluiceSite) && !this.sluiceKit.pump) return 'needsPump';
     if (gear.placedAt?.creekId === creekId && gear.placedAt.spotId === spot.id) return 'set';
-    if (this.highbankerAt(creekId, spot.id)) return 'occupied';
+    if (this.highbankerAt(creekId, spot.id) || this.trommelAt(creekId, spot.id)) return 'occupied';
     if (this.takeDownSluice() === 'jarFull') return 'jarFull';
     gear.placedAt = { creekId, spotId: spot.id };
     gear.sluice = new Sluice(this.rng, spot.sluiceSite, undefined, this.sluiceKit);
@@ -321,13 +338,69 @@ export class PanningSession {
     if (!siteAllows(creek.profile.site, 'highbanker')) return 'noRoom';
     if (spot.gully) return 'gully';
     if (gear.placedAt?.creekId === creek.id && gear.placedAt.spotId === spot.id) return 'set';
-    if (this.sluiceAt(creek.id, spot.id)) return 'occupied';
+    if (this.sluiceAt(creek.id, spot.id) || this.trommelAt(creek.id, spot.id)) return 'occupied';
     const fuel = gear.machine?.fuel ?? this.packedHighbankerFuel;
     if (this.takeDownHighbanker() === 'jarFull') return 'jarFull';
     gear.placedAt = { creekId: creek.id, spotId: spot.id };
     gear.machine = new Highbanker(this.rng, undefined, this.sluiceKit);
     gear.machine.fuel = fuel;
     return 'set';
+  }
+
+  /** Where the trommel is set up, if it is. */
+  get trommelPlace(): SluicePlace | null {
+    return this.trommelGear?.placedAt ?? null;
+  }
+
+  trommelAt(creekId: number, spotId: number): Trommel | null {
+    const gear = this.trommelGear;
+    return gear?.placedAt?.creekId === creekId && gear.placedAt.spotId === spotId ? gear.machine : null;
+  }
+
+  /**
+   * Set the trommel up on the bar beside a spot: gravel bars only, never a gully, never sharing a
+   * spot with the sluice or highbanker. Moving it takes it down first, washing its deck into the jar.
+   */
+  setUpTrommel(creek: Creek, spot: DigSpot): HighbankerSetUpResult {
+    const gear = this.trommelGear;
+    if (!gear) return 'notOwned';
+    if (!siteAllows(creek.profile.site, 'trommel')) return 'noRoom';
+    if (spot.gully) return 'gully';
+    if (gear.placedAt?.creekId === creek.id && gear.placedAt.spotId === spot.id) return 'set';
+    if (this.sluiceAt(creek.id, spot.id) || this.highbankerAt(creek.id, spot.id)) return 'occupied';
+    const fuel = gear.machine?.fuel ?? this.packedTrommelFuel;
+    if (this.takeDownTrommel() === 'jarFull') return 'jarFull';
+    gear.placedAt = { creekId: creek.id, spotId: spot.id };
+    gear.machine = new Trommel(this.rng, undefined, this.sluiceKit);
+    gear.machine.fuel = fuel;
+    return 'set';
+  }
+
+  /** Take the trommel down: the deck's mat washed into the jar, the hopper and drum tipped out. */
+  takeDownTrommel(): Concentrate | 'jarFull' | null {
+    const gear = this.trommelGear;
+    const machine = gear?.machine;
+    if (!gear || !machine) return null;
+    if (!this.fitsInJar(machine.deck.matVolume)) return 'jarFull';
+    machine.emptyAll();
+    machine.deck.emptyHeader();
+    const concentrate = machine.deck.liftMat();
+    this.addConcentrate(concentrate);
+    this.packedTrommelFuel = machine.fuel;
+    gear.placedAt = null;
+    gear.machine = null;
+    return concentrate;
+  }
+
+  /** Pour a can into the trommel's tank. */
+  refuelTrommel(): 'refuelled' | 'notSetUp' | 'noCans' | 'full' {
+    const machine = this.trommelGear?.machine;
+    if (!machine) return 'notSetUp';
+    if (machine.fuel > TROMMEL_TUNING.tank * 0.75) return 'full';
+    if (this.fuelCans <= 0) return 'noCans';
+    this.fuelCans -= 1;
+    machine.refuel();
+    return 'refuelled';
   }
 
   /** Fuel left in the highbanker's tank while it's packed. */
@@ -388,6 +461,15 @@ export class PanningSession {
       this.packedHighbankerFuel = hb.machine.fuel;
       hb.placedAt = null;
       hb.machine = null;
+    }
+    const tr = this.trommelGear;
+    if (tr?.machine) {
+      tr.machine.emptyAll();
+      tr.machine.deck.emptyHeader();
+      keep(tr.machine.deck.liftMat());
+      this.packedTrommelFuel = tr.machine.fuel;
+      tr.placedAt = null;
+      tr.machine = null;
     }
     return overflow;
   }

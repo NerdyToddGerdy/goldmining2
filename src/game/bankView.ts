@@ -11,7 +11,7 @@ import { CLASSIFIER_TUNING, DRYWASHER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, 
  * it; click a flooded hole to bail; tap the sluice or rocker for a close look.
  */
 
-export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher';
+export type ShovelTarget = 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel';
 
 export interface BankActions {
   shovel(into: ShovelTarget): void;

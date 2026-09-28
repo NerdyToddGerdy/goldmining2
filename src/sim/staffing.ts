@@ -60,7 +60,7 @@ export const SKILLS: readonly Skill[] = ['green', 'fair', 'seasoned'];
 export const PACES: readonly Pace[] = ['slow', 'steady', 'quick'];
 
 /** Only operators run the powered and precision machines; hands do the rest. */
-export const OPERATOR_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'drywasher'];
+export const OPERATOR_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'trommel', 'drywasher'];
 
 export const STAFF_TUNING = {
   /** Dollars per game day, by role. The first day is paid up front at hiring. */
@@ -79,7 +79,7 @@ export const STAFF_TUNING = {
   /** Days of the crew's total wages owed before a hand walks off. */
   quitDays: 2,
   /** What a crew unit of each machine costs at the outfitter. */
-  machinePrice: { sluice: 40, highbanker: 90, rocker: 20, drywasher: 45, classifier: 15 } as Record<CrewMachine, number>,
+  machinePrice: { sluice: 40, highbanker: 90, trommel: 220, rocker: 20, drywasher: 45, classifier: 15 } as Record<CrewMachine, number>,
   /** Share of fed gold a hand keeps, for estimates only. */
   estimatedRecovery: 0.65,
 } as const;
@@ -139,7 +139,7 @@ export type SendResult = 'sent' | 'noneFree' | 'homeCreek' | 'full' | 'claimLaps
 export type JobToggle = 'on' | 'off' | 'doesntFit';
 
 function noSpares(): Record<CrewMachine, number> {
-  return { sluice: 0, highbanker: 0, rocker: 0, drywasher: 0, classifier: 0 };
+  return { sluice: 0, highbanker: 0, trommel: 0, rocker: 0, drywasher: 0, classifier: 0 };
 }
 
 export class Crew {
@@ -414,7 +414,7 @@ export class Crew {
     const index = this.sites.findIndex((s) => s.creekId === creekId);
     if (index < 0) return;
     const site = this.sites[index]!;
-    for (const machine of ['sluice', 'highbanker', 'rocker', 'drywasher', 'classifier'] as const) {
+    for (const machine of ['sluice', 'highbanker', 'trommel', 'rocker', 'drywasher', 'classifier'] as const) {
       if (removeMachine(site, machine)) this.spares[machine] += 1;
     }
     this.returned.blackSand += site.bucket.blackSand;
