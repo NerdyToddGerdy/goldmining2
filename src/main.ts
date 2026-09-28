@@ -329,7 +329,20 @@ async function start(): Promise<void> {
       : `Your claim on ${creek.profile.name} has lapsed for unpaid fees. Pay them in town to work it again.`;
   };
 
-  const shovel = (into: ShovelTarget): void => {
+  /** Shovelfuls actually dug, so a held shovel knows when a try was refused. */
+  let dug = 0;
+  /**
+   * One shovelful into a target. Returns whether it went in: a held shovel stops at the first
+   * refusal (a heaped hopper, a boulder, a flooded hole, worked-out ground). Each counts as
+   * activity, so the clock keeps running while the player holds the shovel.
+   */
+  const shovel = (into: ShovelTarget): boolean => {
+    const before = dug;
+    shovelOnce(into);
+    lastInput = performance.now();
+    return dug > before;
+  };
+  const shovelOnce = (into: ShovelTarget): void => {
     // Dig from the bank, or straight from the close-up of the machine being fed, so feeding a run
     // doesn't mean walking back and forth.
     const fromCloseUp =
@@ -338,6 +351,7 @@ async function start(): Promise<void> {
       (into === 'rocker' && mode === 'rocker') ||
       (into === 'highbanker' && mode === 'highbanker') ||
       (into === 'trommel' && mode === 'trommel') ||
+      (into === 'pan' && mode === 'pan' && session.panIsFree) ||
       (into === 'drywasher' && mode === 'drywasher');
     if (!spot || (mode !== 'bank' && !fromCloseUp)) return;
     const blockedClaim = claimBlock();
@@ -402,6 +416,7 @@ async function start(): Promise<void> {
       hud.toast(BLOCKED_MESSAGES[result.blocked]);
       return;
     }
+    dug += 1;
     bankView.landed(into, result.from);
     if (result.event) hud.toast(EVENT_MESSAGES[result.event]);
     if (creek.highWaterEvents > highWaterBefore) hud.toast('High water has come through and left fresh gravel along the creek.');
@@ -576,11 +591,12 @@ async function start(): Promise<void> {
     }
   };
 
-  const goToCreek = (next: Creek): void => {
+  /** Walk to a stretch. `alreadyThere`: the walk was paid for another way (following a lead out). */
+  const goToCreek = (next: Creek, alreadyThere = false): void => {
     tubFetching = null;
     if (next !== creek) {
       spot = null;
-      passTime(ECONOMY_TUNING.travel.creek + traitsOf(next.profile.site).access);
+      if (!alreadyThere) passTime(ECONOMY_TUNING.travel.creek + traitsOf(next.profile.site).access);
     }
     creek = next;
     creekMap.setCreek(next);
@@ -1158,6 +1174,18 @@ async function start(): Promise<void> {
       if (mode === 'town') passTime(ECONOMY_TUNING.travel.town);
       setMode('creek');
     },
+    returnToWork: () => {
+      // Back from town or the map, straight to the hole you left (the creek map is one Esc away).
+      if (mode === 'town') passTime(ECONOMY_TUNING.travel.town);
+      if (spot && creek.creekSpots.includes(spot) && !creek.isWorkedOut(spot)) {
+        bankView.setSpot(creek, spot);
+        setMode('bank');
+      } else setMode('creek');
+    },
+    nextPan: () => {
+      if (mode !== 'pan' || !session.panIsFree || panReturn === 'town') return;
+      shovel('pan');
+    },
     walkToTown,
     openRegion: () => {
       // Leaving town is a walk out, whichever way the player heads from the map.
@@ -1177,6 +1205,8 @@ async function start(): Promise<void> {
       passTime(ECONOMY_TUNING.travel.lead);
       const result = region.follow(leadId);
       economy.stakeFound(region);
+      // A real lead: you're standing on the new stretch. A dud: back to the map.
+      if (result.found) goToCreek(result.creek, true);
       hud.toast(describeFollow(result));
     },
     buyGear: (id) => {

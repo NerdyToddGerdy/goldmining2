@@ -715,6 +715,14 @@ Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the 
 
 A new player's first pan or two come with a small walkthrough card beside the pan, one step at a time, each shown once the last is done: settle it level until the water clears, tip and wash, keep washing (tip back if heavies go over), reveal, collect and save the black sand. It shows Sand left while washing and flags when heavies are going over the lip. It can be skipped, and it stops after the second pan. While it's up, the pan coach keeps only its warnings (gold over the lip, overworking); the card does the teaching. On a short screen it shows just the step at hand.
 
+### In the game: repeated work takes one input
+
+The most repeated actions don't make the player repeat themselves:
+- **Next pan:** after collecting, "Next pan" (P) digs the next shovelful from the same hole straight into the pan, with no walk back to the hole in between.
+- **Holding the shovel:** holding a shovel key or button keeps shovelling at a steady pace: about one every two seconds into a machine (a brisk hand pace, so throughput is unchanged; tapping faster still overfeeds a trommel), and quicker tossing topsoil. It stops at the first refusal (a heaped hopper, a full header, a boulder, a flooded hole) and, tossing, once it's down to gravel. The browser's own key repeat is ignored, so holding a key can't pour loads in faster than a hand could.
+- **Coming back:** returning from town or the region map goes straight to the hole the player left (the creek map is one Esc away).
+- **Following a lead:** when it proves real, the player is standing on the new stretch; a dud leaves them on the map.
+
 ## Sluice UX Specification
 
 The sluice is the reference interaction for the rest of the equipment chain: readable, physical, satisfying, and strategically meaningful.

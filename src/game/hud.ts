@@ -41,6 +41,7 @@ import {
   type Trommel,
   type TrommelStepEvents,
   siteAllows,
+  topLayerPays,
   type Rocker,
   type Highbanker,
   type HighbankerStepEvents,
@@ -91,7 +92,8 @@ export interface HudActions {
   /** Dig at the spot selected by tapping (touch has no hover to preview spots). */
   digSelected(): void;
   // Bank
-  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel'): void;
+  /** One shovelful; returns whether it went in (a held shovel stops at the first refusal). */
+  shovel(into: 'pan' | 'spoil' | 'sluice' | 'classifier' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel'): boolean;
   openClassifier(): void;
   // Classifier
   swapScreen(): void;
@@ -112,6 +114,10 @@ export interface HudActions {
   pry(): void;
   bail(): void;
   walkCreek(): void;
+  /** Back from town or the map to the hole you left, or the creek map if there isn't one. */
+  returnToWork(): void;
+  /** From a finished pan: dig the next shovelful from the same spot. */
+  nextPan(): void;
   newCreek(): void;
   walkToTown(): void;
   openRegion(): void;
@@ -378,6 +384,9 @@ export class Hud {
   private readonly walk: HTMLElement;
   private walkKey = '';
   walkSkipped = false;
+  /** A held shovel: keeps feeding the same target at a steady pace until let go or refused. */
+  private hold: { target: HoldTarget; key: string | null; wait: number; mode: Mode } | null = null;
+  private readonly holdable = new WeakMap<() => void, HoldTarget>();
   /** The way back, pinned top left: whatever Esc does on this screen. */
   private readonly back: HTMLElement;
   private backAction: (() => void) | null = null;
@@ -569,8 +578,24 @@ export class Hud {
     window.addEventListener('keydown', (e) => {
       // Space rocks the rocker one stroke per press; don't let it scroll or press a focused button.
       if (e.key === ' ' && this.state?.mode === 'rocker') e.preventDefault();
-      this.handleKey(e.key.toLowerCase(), e.repeat);
+      const key = e.key.toLowerCase();
+      // Shovel keys: held, they keep shovelling at a steady pace (the browser's own repeat is ignored).
+      const target = this.holdKeyTarget(key);
+      if (target) {
+        if (!e.repeat) this.startHold(target, key);
+        return;
+      }
+      this.handleKey(key, e.repeat);
     });
+    window.addEventListener('keyup', (e) => {
+      if (this.hold && this.hold.key === e.key.toLowerCase()) this.hold = null;
+    });
+    const letGo = (): void => {
+      if (this.hold && this.hold.key === null) this.hold = null;
+    };
+    window.addEventListener('pointerup', letGo);
+    window.addEventListener('pointercancel', letGo);
+    window.addEventListener('blur', () => (this.hold = null));
   }
 
   toast(message: string): void {
@@ -708,7 +733,12 @@ export class Hud {
     const key = buttons.map(([label]) => label).join('|');
     if (key !== this.buttonsKey) {
       this.buttonsKey = key;
-      this.actions.replaceChildren(...buttons.map(([label, action]) => button(label, action)));
+      this.actions.replaceChildren(
+      ...buttons.map(([label, action]) => {
+        const target = this.holdable.get(action);
+        return button(label, action, target ? () => this.startHold(target, null) : undefined);
+      }),
+    );
     }
 
     const resultKey =
@@ -740,6 +770,7 @@ export class Hud {
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
     this.renderInspect(state);
     this.renderWalkthrough(state);
+    this.tickHold(dt, state);
   }
 
   private buttonsFor(state: HudState): [string, () => void][] {
@@ -762,14 +793,17 @@ export class Hud {
       // Keep panning from the classifier's bucket without walking back to it.
       const bucket: [string, () => void][] =
         state.classifier && state.classifier.bucketVolume > 0.005 ? [['Pan from the bucket (B)', () => this.on.panBucket()]] : [];
-      return [...bucket, [state.panInTown ? 'Back to the counter (N)' : 'Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
+      // Straight on to the next shovelful from the same hole, without walking back to it first.
+      const next: [string, () => void][] =
+        !state.panInTown && state.spot && state.canPan && session.pan?.kind === 'gravel' ? [['Next pan (P)', () => this.on.nextPan()]] : [];
+      return [...next, ...bucket, [state.panInTown ? 'Back to the counter (N)' : 'Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
     }
     if (mode === 'bank' && spot) {
       const blocked = creek.blockedBy(spot);
       const list: [string, () => void][] = [];
       if (blocked === null) {
         if (state.canPan) list.push(['Shovel into pan (P)', () => this.on.shovel('pan')]);
-        list.push(['Toss aside (S)', () => this.on.shovel('spoil')]);
+        list.push(['Toss aside (S)', this.feed('spoil')]);
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
@@ -778,31 +812,31 @@ export class Hud {
         list.push(['Classifier (C)', () => this.on.openClassifier()]);
       }
       if (state.rocker) {
-        if (blocked === null) list.push(['Shovel onto the rocker (H)', () => this.on.shovel('rocker')]);
+        if (blocked === null) list.push(['Shovel onto the rocker (H)', this.feed('rocker')]);
         list.push(['Rocker (O)', () => this.on.openRocker()]);
       }
       if (state.sluice) {
-        if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
+        if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', this.feed('sluice')]);
         list.push(['Watch the sluice (V)', () => this.on.openSluice()]);
         list.push(...this.refuelButton(state));
       } else if (spot.sluiceSite && session.owns('sluice') && !state.highbanker && !state.trommel) {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
       if (state.drywasher) {
-        if (blocked === null) list.push(['Shovel onto the drywasher (Y)', () => this.on.shovel('drywasher')]);
+        if (blocked === null) list.push(['Shovel onto the drywasher (Y)', this.feed('drywasher')]);
         list.push(['Drywasher (D)', () => this.on.openDrywasher()]);
       }
       if (state.tub && (state.tub.water < 1 || state.tub.turbidity > 0)) {
         list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (U)', () => this.on.changeTubWater()]);
       }
       if (state.trommel) {
-        if (blocked === null && !state.trommel.rinsing) list.push(['Shovel into the trommel (F)', () => this.on.shovel('trommel')]);
+        if (blocked === null && !state.trommel.rinsing) list.push(['Shovel into the trommel (F)', this.feed('trommel')]);
         list.push(['Watch the trommel (V)', () => this.on.openTrommel()]);
       } else if (!state.sluice && !state.highbanker && !spot.gully && session.owns('trommel') && siteAllows(state.creek.profile.site, 'trommel')) {
         list.push([session.trommelPlace ? 'Move the trommel here' : 'Set up the trommel here', () => this.on.setUpTrommel()]);
       }
       if (state.highbanker) {
-        if (blocked === null && !state.highbanker.rinsing) list.push(['Shovel into the highbanker (F)', () => this.on.shovel('highbanker')]);
+        if (blocked === null && !state.highbanker.rinsing) list.push(['Shovel into the highbanker (F)', this.feed('highbanker')]);
         list.push(['Watch the highbanker (V)', () => this.on.openHighbanker()], ...this.highbankerFuelButton(state));
       } else if (!state.sluice && !state.trommel && !spot.gully && session.owns('highbanker') && siteAllows(state.creek.profile.site, 'highbanker')) {
         list.push([session.highbankerPlace ? 'Move the highbanker here' : 'Set up the highbanker here', () => this.on.setUpHighbanker()]);
@@ -830,7 +864,7 @@ export class Hud {
       if (dw.dust > 0.15) list.push(['Shake out the dust (D)', () => this.on.shakeOutDust()]);
       if (dw.screenClog > 0.15) list.push(['Knock the screen (K)', () => this.on.knockScreen()]);
       if (dw.hasLoad) list.push([dw.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipDrywasher()]);
-      if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (Y)', () => this.on.shovel('drywasher')]);
+      if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (Y)', this.feed('drywasher')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !dw.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoDrywasher()]);
       if (dw.drawerVolume > 0.001 || dw.drawerGoldCount > 0) list.push(['Pull the drawer (C)', () => this.on.pullDrawer()]);
       list.push(...this.mendButton(state, dw.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
@@ -846,7 +880,7 @@ export class Hud {
       list.push([hb.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleEngine()]);
       if (hb.jammed) list.push(['Clear the grizzly (R)', () => this.on.clearHighbanker()]);
       else if (hb.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.clearHighbanker()]);
-      if (state.spot && state.creek.blockedBy(state.spot) === null && !hb.hopperFull) list.push(['Shovel into the hopper (F)', () => this.on.shovel('highbanker')]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null && !hb.hopperFull) list.push(['Shovel into the hopper (F)', this.feed('highbanker')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !hb.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoHighbanker()]);
       list.push(...this.mendButton(state, hb.seized ? 1 : Math.max(hb.engineWear, hb.sluice.wear)));
       list.push(...this.highbankerFuelButton(state), ['Clean out the moss (C)', () => this.on.highbankerCleanout()], ...this.jarButton(session));
@@ -861,7 +895,7 @@ export class Hud {
       const list: [string, () => void][] = [[t.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleTrommel()]];
       if (t.jammed) list.push(['Clear the drum (R)', () => this.on.clearTrommel()]);
       else if (t.deck.clog > 0.3) list.push(['Rake the deck (R)', () => this.on.clearTrommel()]);
-      if (state.spot && state.creek.blockedBy(state.spot) === null && !t.hopperFull) list.push(['Shovel into the hopper (F)', () => this.on.shovel('trommel')]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null && !t.hopperFull) list.push(['Shovel into the hopper (F)', this.feed('trommel')]);
       if (t.fuel <= TROMMEL_TUNING.tank * 0.75 && session.fuelCans > 0) list.push([`Refuel (G) · ${session.fuelCans} can${session.fuelCans === 1 ? '' : 's'}`, () => this.on.refuelTrommel()]);
       list.push(['Clean out the deck (C)', () => this.on.trommelCleanout()], ...this.mendButton(state, t.seized ? 1 : t.wear), ...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the trommel', () => this.on.takeDownTrommel()]);
@@ -874,7 +908,7 @@ export class Hud {
       if (r.bucket > 0) list.push([`Ladle water (L) · ${r.bucket} left`, () => this.on.ladle()]);
       if (r.bucket < ROCKER_TUNING.bucketLadles) list.push(['Fetch water (E)', () => this.on.fetchWater()]);
       if (r.hasLoad) list.push([r.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipRocker()]);
-      if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (H)', () => this.on.shovel('rocker')]);
+      if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (H)', this.feed('rocker')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !r.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoRocker()]);
       if (r.apronVolume > 0.001 || r.apronGoldCount > 0) list.push(['Clean up the apron (C)', () => this.on.cleanUpRocker()]);
       list.push(...this.mendButton(state, r.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
@@ -897,7 +931,7 @@ export class Hud {
       const list: [string, () => void][] = [];
       if (state.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.rakeSluice()]);
       list.push(...this.refuelButton(state));
-      if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
+      if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', this.feed('sluice')]);
       list.push(['Clean out the moss (C)', () => this.on.startCleanout()]);
       list.push(...this.mendButton(state, state.sluice.wear), ...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the sluice', () => this.on.takeDownSluice()]);
@@ -917,13 +951,13 @@ export class Hud {
         ...pan,
         ...this.magnetButton(state),
         ['Region map (Esc)', () => this.on.openRegion()],
-        [`Back to ${state.creek.profile.name}`, () => this.on.walkCreek()],
+        [`Back to ${state.creek.profile.name}`, () => this.on.returnToWork()],
       ];
     }
     if (mode === 'region') {
       // Zoom works by wheel and pinch too; these are for keys and for anyone without either.
       return [
-        [`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()],
+        [`Back to ${state.creek.profile.name} (Esc)`, () => this.on.returnToWork()],
         ['Walk to town (T)', () => this.on.walkToTown()],
         ['Zoom in (+)', () => this.on.zoomMap(1.3)],
         ['Zoom out (−)', () => this.on.zoomMap(1 / 1.3)],
@@ -1336,7 +1370,7 @@ export class Hud {
       else if (key === 'w') this.on.collectCrew();
       else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
-      if (key === 'escape') this.on.walkCreek();
+      if (key === 'escape') this.on.returnToWork();
       else if (key === 't') this.on.walkToTown();
       else if (key === '+' || key === '=') this.on.zoomMap(1.3);
       else if (key === '-' || key === '_') this.on.zoomMap(1 / 1.3);
@@ -1368,6 +1402,7 @@ export class Hud {
       else if (key === 'f' && phase === 'revealed') this.on.snuff();
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
       else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
+      else if (key === 'p' && phase === 'emptied') this.on.nextPan();
       else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();
       else if (key === 'b' && phase === 'emptied' && state.classifier) this.on.panBucket();
       else if (key === 'escape') this.on.backToHole();
@@ -1586,6 +1621,70 @@ export class Hud {
       `</table>` +
       `<p class="small">Owed now: ${money(c.feesOwed + c.wagesOwed)} (fees ${money(c.feesOwed)}, wages ${money(c.wagesOwed)}). Paid from your cash in town.</p>` +
       (owedRows.length ? `<table class="tablet-table">${owedRows.join('')}</table>` : '');
+  }
+
+  /** A shovel action that keeps going while its key or button is held. */
+  private feed(target: HoldTarget): () => void {
+    const fn = (): void => void this.on.shovel(target);
+    this.holdable.set(fn, target);
+    return fn;
+  }
+
+  /** The shovel target a key feeds on this screen, if it's one that can be held. */
+  private holdKeyTarget(key: string): HoldTarget | null {
+    const state = this.state;
+    if (!state || this.tabletOpen) return null;
+    switch (state.mode) {
+      case 'bank':
+        if (key === 's') return 'spoil';
+        if (key === 'f') return state.trommel ? 'trommel' : state.sluice ? 'sluice' : state.highbanker ? 'highbanker' : null;
+        if (key === 'y' && state.drywasher) return 'drywasher';
+        if (key === 'h' && state.rocker) return 'rocker';
+        return null;
+      case 'sluice':
+        return key === 'f' && !state.cleaningOut ? 'sluice' : null;
+      case 'highbanker':
+        return key === 'f' && !state.highbanker?.rinsing ? 'highbanker' : null;
+      case 'trommel':
+        return key === 'f' && !state.trommel?.rinsing ? 'trommel' : null;
+      case 'rocker':
+        return key === 'h' ? 'rocker' : null;
+      case 'drywasher':
+        return key === 'y' ? 'drywasher' : null;
+      default:
+        return null;
+    }
+  }
+
+  /** Shovel once now, and keep going at a steady pace while held. */
+  private startHold(target: HoldTarget, key: string | null): void {
+    const state = this.state;
+    if (!state) return;
+    if (!this.on.shovel(target)) return;
+    this.hold = { target, key, wait: HOLD_EVERY[target], mode: state.mode };
+  }
+
+  private tickHold(dt: number, state: HudState): void {
+    const hold = this.hold;
+    if (!hold) return;
+    if (state.mode !== hold.mode) return void (this.hold = null);
+    hold.wait -= dt;
+    if (hold.wait > 0) return;
+    // Tossing topsoil stops by itself once there's gravel to work.
+    if (hold.target === 'spoil' && !this.topsoilAhead(state)) {
+      this.hold = null;
+      return this.toast('Down through the topsoil: gravel from here.');
+    }
+    if (!this.on.shovel(hold.target)) this.hold = null;
+    else hold.wait = HOLD_EVERY[hold.target];
+  }
+
+  /** Topsoil or a slumped bank still to toss before the gravel. */
+  private topsoilAhead(state: HudState): boolean {
+    const spot = state.spot;
+    if (!spot) return false;
+    const layer = state.creek.currentLayer(spot);
+    return spot.slumped > 0 || (layer?.kind === 'overburden' && !topLayerPays(state.creek.profile.site));
   }
 
   /**
@@ -1994,17 +2093,35 @@ function isBack(label: string): boolean {
   return /\(Esc\)$/.test(label) || /^Back to the (hole|counter) \(N\)$/.test(label) || /^Done \(Esc\)$/.test(label);
 }
 
-function button(label: string, onClick: () => void): HTMLElement {
+function button(label: string, onClick: () => void, onHold?: () => void): HTMLElement {
   const b = el('button', 'hud-action');
   (b as HTMLButtonElement).type = 'button';
   setLabel(b, label);
+  // A holdable button acts on press and keeps going while held; its click (from a pointer) is
+  // then already handled. Enter or Space on a focused button still clicks once.
+  let pressed = false;
+  if (onHold) {
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      pressed = true;
+      onHold();
+    });
+  }
   b.addEventListener('click', () => {
     // Drop focus so Space (sift) cannot re-trigger the button.
     b.blur();
+    if (pressed) {
+      pressed = false;
+      return;
+    }
     onClick();
   });
   return b;
 }
+
+/** Targets a held shovel can keep feeding, and the pace it keeps (seconds a shovelful). */
+type HoldTarget = 'spoil' | 'sluice' | 'highbanker' | 'trommel' | 'rocker' | 'drywasher';
+const HOLD_EVERY: Record<HoldTarget, number> = { spoil: 0.7, sluice: 2, highbanker: 2, trommel: 2, rocker: 2.2, drywasher: 2.2 };
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
