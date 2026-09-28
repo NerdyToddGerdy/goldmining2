@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Creek } from './creek';
-import { CREW_TUNING } from './crewJobs';
+import { CREW_TUNING, type CrewPolicy } from './crewJobs';
 import { ECONOMY_TUNING, Economy } from './economy';
 import { buyGear } from './outfitter';
 import { totalMg } from './pan';
@@ -9,7 +9,7 @@ import { Region } from './region';
 import { createRng } from './rng';
 import { createSave, loadSave } from './save';
 import type { SiteKind } from './sites';
-import { Crew, STAFF_TUNING, crewFromV14, estimateHandTake, type CrewWorld } from './staffing';
+import { Crew, STAFF_TUNING, crewFromV14, crewGroundLeft, estimateHandTake, type CrewWorld } from './staffing';
 
 const DAY = ECONOMY_TUNING.daySeconds;
 
@@ -384,3 +384,96 @@ describe('wages, collecting and saving', () => {
     expect(CREW_TUNING.bucketCapacity).toBeGreaterThan(0);
   });
 });
+
+describe('crew policies', () => {
+  /** Two operators on the player's sluice and a pan at a bend, for half a day under a policy. */
+  function shift(seed: number, policy: CrewPolicy): { loads: number; fed: number; lost: number; topsoil: number; s: Setup } {
+    const s = setup(seed);
+    buyGear(s.session, 'sluice');
+    const spot = s.creek.sluiceSpots[0]!;
+    s.session.setUpSluice(s.creek.id, spot);
+    staff(s, 2, ['sluice', 'pan']);
+    s.crew.setPolicy(s.creek.id, policy);
+    runFor(s, DAY / 2);
+    const sluice = s.session.sluiceAt(s.creek.id, spot.id)!;
+    const topsoil = s.creek.creekSpots.reduce((n, sp) => n + sp.layers[0]!.loads, 0);
+    return { loads: s.crew.findSite(s.creek.id)!.report.shovelfuls, fed: sluice.fedMg, lost: totalMg(sluice.lost), topsoil, s };
+  }
+  function over(policy: CrewPolicy): { loads: number; loss: number; topsoil: number } {
+    let loads = 0;
+    let fed = 0;
+    let lost = 0;
+    let topsoil = 0;
+    for (let seed = 1; seed <= 5; seed++) {
+      const r = shift(seed, policy);
+      loads += r.loads;
+      fed += r.fed;
+      lost += r.lost;
+      topsoil += r.topsoil;
+    }
+    return { loads, loss: lost / fed, topsoil };
+  }
+
+  it('trade ground for gold: careful digs less and loses less, push hard digs more and loses more', () => {
+    const steady = over('steady');
+    const careful = over('careful');
+    const push = over('push');
+    expect(careful.loads).toBeLessThan(steady.loads * 0.9);
+    expect(push.loads).toBeGreaterThan(steady.loads * 1.1);
+    expect(careful.loss).toBeLessThan(steady.loss * 0.7);
+    expect(push.loss).toBeGreaterThan(steady.loss * 1.15);
+    // Gold a day: pushing brings in a little more for all it wastes; care brings in a little less.
+    const kept = (r: { loads: number; loss: number }): number => r.loads * (1 - r.loss);
+    expect(kept(push)).toBeGreaterThan(kept(steady));
+    expect(kept(careful)).toBeLessThan(kept(steady));
+  });
+
+  it('prepare the ground: topsoil stripped, boulders pried, nothing washed, then say it’s ready', () => {
+    const { s, loads, fed } = shift(3, 'prepare');
+    expect(loads).toBe(0);
+    expect(fed).toBe(0);
+    const site = s.crew.findSite(s.creek.id)!;
+    for (const spot of s.creek.creekSpots) {
+      if (s.creek.isWorkedOut(spot)) continue;
+      expect(s.creek.blockedBy(spot)).toBeNull();
+      expect(s.creek.currentLayer(spot)?.kind).not.toBe('overburden');
+      expect(spot.slumped).toBe(0);
+    }
+    expect(site.idle.sluice).toBe('groundReady');
+    expect(site.idle.pan).toBe('groundReady');
+    // No gravel dug away, so no end to the ground at this pace.
+    expect(crewGroundLeft(s.crew, s.creek)).toBe(Infinity);
+  });
+
+  it('wash the old tailings at abandoned diggings instead of tossing them', () => {
+    const s = setup(4, 'oldDiggings');
+    staff(s, 1, ['pan']);
+    runFor(s, DAY / 2);
+    const site = s.crew.findSite(s.creek.id)!;
+    expect(site.report.pans).toBeGreaterThan(3);
+    expect(s.creek.creekSpots.reduce((n, sp) => n + sp.spoil, 0)).toBe(0);
+  });
+
+  it('shape the estimates: more ground a day pushing, no take at all while preparing', () => {
+    const s = setup(5);
+    s.creek.recordPan(s.creek.creekSpots[0]!.id, 4, 'gravel');
+    const steady = estimateHandTake(s.creek, 'steady')!;
+    expect(estimateHandTake(s.creek, 'push')!.high).toBeGreaterThan(steady.high);
+    expect(estimateHandTake(s.creek, 'prepare')).toBeNull();
+    staff(s, 1, ['pan']);
+    const days = crewGroundLeft(s.crew, s.creek);
+    s.crew.setPolicy(s.creek.id, 'push');
+    expect(crewGroundLeft(s.crew, s.creek)).toBeLessThan(days);
+  });
+
+  it('keeps each stretch’s policy through a save, and a version 17 crew works steady', () => {
+    const s = setup(6);
+    staff(s, 1, ['pan']);
+    s.crew.setPolicy(s.creek.id, 'careful');
+    const save = JSON.parse(JSON.stringify(createSave(s.region, s.session, { screen: 'creek', creekId: s.creek.id, spotId: null }, 0, s)));
+    expect(loadSave(save, createRng(1))!.crew.policyAt(s.creek.id)).toBe('careful');
+    for (const site of save.crew.sites) delete site.policy;
+    expect(loadSave({ ...save, version: 17 }, createRng(1))!.crew.policyAt(s.creek.id)).toBe('steady');
+  });
+});
+

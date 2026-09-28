@@ -1,7 +1,9 @@
 import type { Creek } from './creek';
 import {
+  CREW_POLICIES,
   CREW_TUNING,
   DIGGING_JOBS,
+  POLICY_TUNING,
   SiteCrew,
   crewDaysLeft,
   emptyReport,
@@ -12,6 +14,7 @@ import {
   removeMachine,
   runJob,
   type CrewMachine,
+  type CrewPolicy,
   type JobContext,
   type JobIdle,
   type JobKind,
@@ -239,6 +242,17 @@ export class Crew {
    * Pull the crew off a stretch (the claim is being given up): hands back to town, crew machines
    * back to spare, and the bucket and poke carried back to town for the player.
    */
+  /** Set how the crew at a stretch works (see CrewPolicy). */
+  setPolicy(creekId: number, policy: CrewPolicy): void {
+    if (!CREW_POLICIES.includes(policy)) return;
+    this.site(creekId).policy = policy;
+  }
+
+  /** The policy at a stretch: steady until the player says otherwise. */
+  policyAt(creekId: number): CrewPolicy {
+    return this.findSite(creekId)?.policy ?? 'steady';
+  }
+
   closeSite(creekId: number): void {
     for (const worker of this.workersAt(creekId)) worker.siteId = null;
     const index = this.sites.findIndex((s) => s.creekId === creekId);
@@ -325,6 +339,8 @@ export class Crew {
         economy: world.economy,
         boost: staffed.includes('haul') ? CREW_TUNING.haulBoost : 1,
         screened: staffed.includes('screen') && site.classifier,
+        policy: POLICY_TUNING[site.policy],
+        preparing: site.policy === 'prepare',
       };
       let left = seconds;
       while (left > 1e-9) {
@@ -417,14 +433,16 @@ function machineContext(creek: Creek, site: SiteCrew, session: PanningSession): 
 /** Roughly how many game days of digging a crewed stretch has left at their pace. */
 export function crewGroundLeft(crew: Crew, creek: Creek): number {
   const diggers = crew.staffedJobs(creek.id).filter((j) => DIGGING_JOBS.includes(j));
-  return crewDaysLeft(creek, diggers, ECONOMY_TUNING.daySeconds);
+  return crewDaysLeft(creek, diggers, ECONOMY_TUNING.daySeconds, crew.policyAt(creek.id));
 }
 
 /**
  * A rough daily take for one hand digging a stretch, built only from the player's own field
  * notes there: no notes, no estimate. Wide, because notes are few and a hand's recovery varies.
  */
-export function estimateHandTake(creek: Creek): Estimate | null {
+export function estimateHandTake(creek: Creek, policy: CrewPolicy = 'steady'): Estimate | null {
+  const p = POLICY_TUNING[policy];
+  if (p.recoveryGuess <= 0) return null;
   let pans = 0;
   let mg = 0;
   for (const spot of creek.creekSpots) {
@@ -433,8 +451,8 @@ export function estimateHandTake(creek: Creek): Estimate | null {
     mg += spot.notes.mg;
   }
   if (pans === 0) return null;
-  const loadsPerDay = ECONOMY_TUNING.daySeconds / (CREW_TUNING.feedTime + CREW_TUNING.haulPerLength * 0.25);
-  const dollars = (mg / pans) * loadsPerDay * STAFF_TUNING.estimatedRecovery * MARKET.spotPerMg * 0.8;
+  const loadsPerDay = ECONOMY_TUNING.daySeconds / ((CREW_TUNING.feedTime + CREW_TUNING.haulPerLength * 0.25) * p.pace);
+  const dollars = (mg / pans) * loadsPerDay * STAFF_TUNING.estimatedRecovery * p.recoveryGuess * MARKET.spotPerMg * 0.8;
   return estimateAround(dollars, pans < 5 ? 1.2 : 0.7);
 }
 
@@ -452,6 +470,7 @@ export function crewFromV14(old: {
         {
           creekId: old.sluiceCreekId!,
           jobs: ['sluice'],
+          policy: 'steady',
           bucket: old.bucket,
           poke: [],
           report: emptyReport(),
@@ -472,4 +491,4 @@ export function crewFromV14(old: {
   };
 }
 
-export type { CrewMachine, JobIdle, JobKind, SiteReport };
+export type { CrewMachine, CrewPolicy, JobIdle, JobKind, SiteReport };

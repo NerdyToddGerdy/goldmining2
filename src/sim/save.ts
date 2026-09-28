@@ -16,7 +16,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher'] as const;
 
@@ -96,6 +96,7 @@ export interface LoadedGame {
  * v15 → v16: financial decline and recovery. Nobody had been shut down.
  * v16 → v17: leads read the ground (kind, and any thin-water bench) instead of an optional hint.
  *   Older leads say nothing about it.
+ * v17 → v18: crew policies. Every crewed stretch works steady.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -246,6 +247,11 @@ function migrate(data: unknown): unknown {
         offers: Array.isArray(region.offers) ? region.offers.map((o) => (isObject(o) ? { ...o, lead: leadV17(o.lead) } : o)) : region.offers,
       },
     };
+  }
+  if (save.version === 17 && isObject(save.crew)) {
+    const crew = save.crew;
+    const sites = Array.isArray(crew.sites) ? crew.sites.map((s) => (isObject(s) ? { ...s, policy: 'steady' } : s)) : crew.sites;
+    save = { ...save, version: 18, crew: { ...crew, sites } };
   }
   return save;
 }

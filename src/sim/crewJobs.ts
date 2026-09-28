@@ -7,7 +7,7 @@ import type { PanningSession } from './panningSession';
 import type { Region } from './region';
 import type { Rng } from './rng';
 import { Rocker, type RockerSnapshot } from './rocker';
-import { siteAllows, traitsOf } from './sites';
+import { siteAllows, topLayerPays, traitsOf } from './sites';
 import { Sluice, bareKit, needsPump, type SluiceSnapshot } from './sluice';
 
 /**
@@ -29,7 +29,51 @@ export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 
 export type CrewMachine = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'classifier';
 
 /** Why a job isn't getting done. */
-export type JobIdle = 'noMachine' | 'noSite' | 'noWater' | 'workedOut' | 'bucketFull' | 'noFuel' | 'nothingToFinish';
+export type JobIdle = 'noMachine' | 'noSite' | 'noWater' | 'workedOut' | 'bucketFull' | 'noFuel' | 'nothingToFinish' | 'groundReady';
+
+/**
+ * A site-level crew policy (see "Crew policies" in the design doc): one setting for how the whole
+ * crew at a stretch works, never per-worker orders. Each changes how they drive the same machines
+ * the player does, so each has a cost:
+ *
+ * - Steady: the default pace and care.
+ * - Careful (conserve the claim): slower feeding, gentler water and a lighter tip, cleanouts and
+ *   fixes sooner. Less ground a day, less gold lost from it.
+ * - Push hard (extract aggressively): quicker feeding, harder water, a heavier tip, cleanouts and
+ *   fixes put off. More ground a day, more gold washed away with it.
+ * - Prepare the ground (maintain and prepare): no washing at all. The diggers strip topsoil and
+ *   slumped bank, pry boulders and bail holes, so the player comes back to open pay gravel.
+ */
+export type CrewPolicy = 'steady' | 'careful' | 'push' | 'prepare';
+
+export const CREW_POLICIES: readonly CrewPolicy[] = ['steady', 'careful', 'push', 'prepare'];
+
+export interface PolicyTuning {
+  /** Multiplies time per dig, toss, pry and bail. */
+  readonly pace: number;
+  /** Sluice water power aimed for, highbanker throttle, drywasher air. */
+  readonly targetPower: number;
+  readonly throttle: number;
+  readonly air: number;
+  /** Multiplies loads between cleanouts, and how full a rocker apron or drywasher drawer gets. */
+  readonly cleanEvery: number;
+  /** Multiplies how long trouble (a clog, a jam, dust) goes unseen. */
+  readonly fixDelay: number;
+  /** Pan tilt while washing, and a multiplier on the rest between pans. */
+  readonly panTilt: number;
+  readonly panRest: number;
+  /** Multiplies the time between rocker strokes. */
+  readonly rockerBeat: number;
+  /** A rough guess at recovery against steady, for estimates only. */
+  readonly recoveryGuess: number;
+}
+
+export const POLICY_TUNING: Record<CrewPolicy, PolicyTuning> = {
+  steady: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 1 },
+  careful: { pace: 1.35, targetPower: 0.38, throttle: 0.5, air: 0.5, cleanEvery: 0.6, fixDelay: 0.4, panTilt: 0.34, panRest: 1.3, rockerBeat: 1.3, recoveryGuess: 1.15 },
+  push: { pace: 0.7, targetPower: 0.5, throttle: 0.75, air: 0.62, cleanEvery: 1.15, fixDelay: 1.2, panTilt: 0.48, panRest: 0.5, rockerBeat: 0.8, recoveryGuess: 0.9 },
+  prepare: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 0 },
+};
 
 export const CREW_TUNING = {
   /** Seconds to dig, carry and feed a load, plus hauling per creek length. */
@@ -102,6 +146,7 @@ function freshState(): JobState {
 export interface SiteCrewSnapshot {
   readonly creekId: number;
   readonly jobs: readonly JobKind[];
+  readonly policy: CrewPolicy;
   readonly bucket: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
   readonly poke: readonly GoldPiece[];
   readonly report: SiteReport;
@@ -125,6 +170,7 @@ export function emptyReport(): SiteReport {
 export class SiteCrew {
   readonly creekId: number;
   jobs: JobKind[] = [];
+  policy: CrewPolicy = 'steady';
   readonly bucket: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
   poke: GoldPiece[] = [];
   report: SiteReport = emptyReport();
@@ -148,6 +194,7 @@ export class SiteCrew {
     if (!saved) return;
     const copy = structuredClone(saved) as SiteCrewSnapshot;
     this.jobs = [...copy.jobs];
+    this.policy = CREW_POLICIES.includes(copy.policy) ? copy.policy : 'steady';
     this.bucket.blackSand = copy.bucket.blackSand;
     this.bucket.gold.push(...copy.bucket.gold);
     this.poke = [...copy.poke];
@@ -168,6 +215,7 @@ export class SiteCrew {
     return structuredClone({
       creekId: this.creekId,
       jobs: this.jobs,
+      policy: this.policy,
       bucket: this.bucket,
       poke: this.poke,
       report: this.report,
@@ -236,6 +284,10 @@ export interface JobContext {
   readonly boost: number;
   /** A hand on the classifier screens every load: no rocks reach the machines. */
   readonly screened: boolean;
+  /** How the site's policy has them work. */
+  readonly policy: PolicyTuning;
+  /** Prepare the ground instead of washing it. */
+  readonly preparing: boolean;
 }
 
 /** The crew machine a job needs, if the player's own isn't set up here. */
@@ -410,25 +462,64 @@ function dig(ctx: JobContext, near: number): Dug | null {
     .sort((a, b) => Math.abs(a.position - near) - Math.abs(b.position - near))[0];
   if (!spot) return null;
   const blocked = creek.blockedBy(spot);
+  const pace = ctx.boost * ctx.policy.pace;
   if (blocked === 'boulder') {
     creek.pry(spot.id);
-    return { load: null, time: T.pryTime * ctx.boost };
+    return { load: null, time: T.pryTime * pace };
   }
   if (blocked === 'flooded') {
     creek.bail(spot.id);
-    return { load: null, time: T.bailTime * ctx.boost };
+    return { load: null, time: T.bailTime * pace };
   }
-  const layer = creek.currentLayer(spot);
-  if (spot.slumped > 0 || layer?.kind === 'overburden') {
+  if (needsClearing(creek, spot)) {
     const tossed = creek.shovel(spot.id, 'spoil');
     if (tossed.ok && tossed.clue) clue(ctx);
-    return { load: null, time: T.tossTime * ctx.boost };
+    return { load: null, time: T.tossTime * pace };
   }
   const result = creek.shovel(spot.id, 'pan');
   if (!result.ok || !result.load) return { load: null, time: 1 };
   if (result.clue) clue(ctx);
   ctx.site.report.shovelfuls += 1;
-  return { load: result.load, time: (T.feedTime + T.haulPerLength * Math.abs(spot.position - near)) * ctx.boost };
+  return { load: result.load, time: (T.feedTime + T.haulPerLength * Math.abs(spot.position - near)) * pace };
+}
+
+/** Slumped bank or topsoil in the way: tossed aside, not washed (old tailings, though, are washed). */
+function needsClearing(creek: Creek, spot: DigSpot): boolean {
+  return spot.slumped > 0 || (creek.currentLayer(spot)?.kind === 'overburden' && !topLayerPays(creek.profile.site));
+}
+
+/**
+ * Preparing the ground: one piece of clearing work at the next spot that needs it (a boulder, a
+ * flooded hole, slumped bank or topsoil), so the pay gravel lies open. Null when it all does.
+ */
+function prepare(ctx: JobContext): number | null {
+  const T = CREW_TUNING;
+  const { creek } = ctx;
+  const pace = ctx.boost * ctx.policy.pace;
+  const spot = creek.creekSpots.find((s) => !creek.isWorkedOut(s) && (creek.blockedBy(s) !== null || needsClearing(creek, s)));
+  if (!spot) return null;
+  const blocked = creek.blockedBy(spot);
+  if (blocked === 'boulder') {
+    creek.pry(spot.id);
+    return T.pryTime * pace;
+  }
+  if (blocked === 'flooded') {
+    creek.bail(spot.id);
+    return T.bailTime * pace;
+  }
+  const tossed = creek.shovel(spot.id, 'spoil');
+  if (tossed.ok && tossed.clue) clue(ctx);
+  return T.tossTime * pace;
+}
+
+function runPrepare(job: JobKind, dt: number, ctx: JobContext): JobIdle | null {
+  const st = ctx.site.state(job);
+  st.timer -= dt;
+  if (st.timer > 0) return null;
+  const time = prepare(ctx);
+  if (time === null) return 'groundReady';
+  st.timer = time;
+  return null;
 }
 
 function clue(ctx: JobContext): void {
@@ -450,6 +541,7 @@ function screen(ctx: JobContext, load: PanLoad): { light: number; black: number;
 
 /** Run one staffed job for a slice of time. Returns why it's idle, or null while it works. */
 export function runJob(job: JobKind, dt: number, ctx: JobContext): JobIdle | null {
+  if (ctx.preparing && DIGGING_JOBS.includes(job)) return runPrepare(job, dt, ctx);
   switch (job) {
     case 'sluice':
       return runSluice(dt, ctx);
@@ -488,11 +580,11 @@ function runSluice(dt: number, ctx: JobContext): JobIdle | null {
   }
   if (st.timer <= 0 && st.rinsing === null) {
     const full = sluice.power({ flow: 1 });
-    if (full > 0) st.flow = Math.min(1, Math.max(0.1, T.targetPower / full + (ctx.rng.next() * 2 - 1) * T.flowNoise));
+    if (full > 0) st.flow = Math.min(1, Math.max(0.1, ctx.policy.targetPower / full + (ctx.rng.next() * 2 - 1) * T.flowNoise));
   }
   sluice.step(dt, { flow: st.flow });
   st.clogTime = sluice.clog > 0.5 ? st.clogTime + dt : 0;
-  if (st.clogTime >= T.rakeDelay) {
+  if (st.clogTime >= T.rakeDelay * ctx.policy.fixDelay) {
     sluice.rake();
     st.clogTime = 0;
   }
@@ -513,7 +605,7 @@ function runSluice(dt: number, ctx: JobContext): JobIdle | null {
   st.timer -= dt;
   if (st.timer > 0) return null;
   const headerClear = sluice.headerVolume < 0.05;
-  const due = st.sinceClean >= T.cleanoutEvery;
+  const due = st.sinceClean >= T.cleanoutEvery * ctx.policy.cleanEvery;
   if (headerClear && st.sinceClean > 0 && due) {
     st.rinsing = T.rinse;
     return null;
@@ -556,13 +648,13 @@ function runHighbanker(dt: number, ctx: JobContext): JobIdle | null {
   // Prime when it's lost prime; start it when it's cool enough; clear jams and clogs, late.
   if (!hb.primed) {
     st.clogTime += dt;
-    if (st.clogTime >= T.primeTime) {
+    if (st.clogTime >= T.primeTime * ctx.policy.fixDelay) {
       hb.prime();
       st.clogTime = 0;
     }
   } else if (hb.jammed || hb.sluice.clog > 0.5) {
     st.clogTime += dt;
-    if (st.clogTime >= T.jamDelay) {
+    if (st.clogTime >= T.jamDelay * ctx.policy.fixDelay) {
       if (hb.jammed) hb.clearGrizzly();
       else hb.sluice.rake();
       st.clogTime = 0;
@@ -571,7 +663,7 @@ function runHighbanker(dt: number, ctx: JobContext): JobIdle | null {
     st.clogTime = 0;
   }
   if (!hb.running && !hb.tooHot && hb.fuel > 0) hb.start();
-  hb.step(dt, T.throttle);
+  hb.step(dt, ctx.policy.throttle);
 
   if (st.rinsing !== null) {
     hb.rinsing = true;
@@ -591,7 +683,7 @@ function runHighbanker(dt: number, ctx: JobContext): JobIdle | null {
   st.timer -= dt;
   if (st.timer > 0) return null;
   const idle = hb.hopperVolume < 0.01 && hb.sluice.headerVolume < 0.05;
-  if (idle && st.sinceClean >= T.cleanoutEvery + 2) {
+  if (idle && st.sinceClean >= (T.cleanoutEvery + 2) * ctx.policy.cleanEvery) {
     st.rinsing = T.rinse;
     return null;
   }
@@ -633,7 +725,7 @@ function runRocker(dt: number, ctx: JobContext): JobIdle | null {
     st.fetching = null;
     rocker.fillBucket();
   }
-  if (rocker.apronLoading > 0.6) {
+  if (rocker.apronLoading > Math.min(0.9, 0.6 * ctx.policy.cleanEvery)) {
     const volume = rocker.apronVolume;
     if (!ctx.site.addToBucket(volume, [])) return 'bucketFull';
     ctx.site.bucket.gold.push(...rocker.cleanUp().gold);
@@ -648,7 +740,7 @@ function runRocker(dt: number, ctx: JobContext): JobIdle | null {
   st.rest -= dt;
   if (st.rest <= 0 && rocker.hopperVolume > 0.01) {
     rocker.rock();
-    st.rest = T.rockerBeat;
+    st.rest = T.rockerBeat * ctx.policy.rockerBeat;
   }
   st.timer -= dt;
   if (st.timer > 0) return null;
@@ -677,15 +769,15 @@ function runDrywasher(dt: number, ctx: JobContext): JobIdle | null {
   const dw = ctx.site.drywasher;
   if (!dw) return 'noMachine';
   const st = ctx.site.state('drywasher');
-  dw.step(dt, dw.hopperVolume > 0.005, T.air);
+  dw.step(dt, dw.hopperVolume > 0.005, ctx.policy.air);
   // Dust and a blinded screen get seen to a little late.
   st.clogTime = dw.dust > T.dustAt || dw.screenClog > T.clogAt ? st.clogTime + dt : 0;
-  if (st.clogTime > 3) {
+  if (st.clogTime > 3 * ctx.policy.fixDelay) {
     if (dw.dust > T.dustAt) dw.shakeOutDust();
     if (dw.screenClog > T.clogAt) dw.knockScreen();
     st.clogTime = 0;
   }
-  if (dw.drawerLoading > 0.6) {
+  if (dw.drawerLoading > Math.min(0.9, 0.6 * ctx.policy.cleanEvery)) {
     const volume = dw.drawerVolume;
     if (!ctx.site.addToBucket(volume, [])) return 'bucketFull';
     ctx.site.bucket.gold.push(...dw.pullDrawer().gold);
@@ -747,7 +839,7 @@ function runPan(dt: number, ctx: JobContext): JobIdle | null {
   }
   st.timer -= dt;
   if (st.timer > 0) return null;
-  if (!workPan(pan, dt, T.panTilt)) return null;
+  if (!workPan(pan, dt, ctx.policy.panTilt)) return null;
   pan.reveal();
   const keep = !pan.residueSpent && ctx.site.bucket.blackSand + pan.blackSand <= T.bucketCapacity;
   const { collected, toJar, blackSand } = pan.collect(keep);
@@ -755,7 +847,7 @@ function runPan(dt: number, ctx: JobContext): JobIdle | null {
   if (keep) ctx.site.addToBucket(blackSand, toJar);
   ctx.site.setPan('pan', null);
   ctx.site.report.pans += 1;
-  st.rest = T.panRest * ctx.boost;
+  st.rest = T.panRest * ctx.policy.panRest * ctx.boost;
   return null;
 }
 
@@ -841,22 +933,28 @@ function runProspect(dt: number, ctx: JobContext): JobIdle | null {
  */
 const SECONDS_PER_LOAD: Partial<Record<JobKind, number>> = { sluice: 8, highbanker: 8, rocker: 25, drywasher: 10, pan: 60 };
 
-/** Roughly how many game days of digging a stretch has left, with these staffed jobs digging it. */
-export function crewDaysLeft(creek: Creek, jobs: readonly JobKind[], daySeconds: number): number {
+/**
+ * Roughly how many game days of digging a stretch has left, with these staffed jobs digging it
+ * under this policy. Preparing the ground digs none of it away.
+ */
+export function crewDaysLeft(creek: Creek, jobs: readonly JobKind[], daySeconds: number, policy: CrewPolicy = 'steady'): number {
   const T = CREW_TUNING;
+  if (policy === 'prepare') return Infinity;
+  const pace = POLICY_TUNING[policy].pace;
   const diggers = jobs.filter((j) => SECONDS_PER_LOAD[j]);
-  const loadsPerSecond = diggers.reduce((n, j) => n + 1 / SECONDS_PER_LOAD[j]!, 0);
+  const loadsPerSecond = diggers.reduce((n, j) => n + 1 / (SECONDS_PER_LOAD[j]! * pace), 0);
   if (loadsPerSecond <= 0) return Infinity;
+  const tossTop = !topLayerPays(creek.profile.site);
   let loads = 0;
   let tosses = 0;
   for (const spot of creek.creekSpots) {
     tosses += spot.slumped;
     for (const layer of spot.layers) {
-      if (layer.kind === 'overburden') tosses += layer.loads;
+      if (layer.kind === 'overburden' && tossTop) tosses += layer.loads;
       else loads += layer.loads;
     }
   }
-  return (loads / loadsPerSecond + (tosses * T.tossTime) / diggers.length) / daySeconds;
+  return (loads / loadsPerSecond + (tosses * T.tossTime * pace) / diggers.length) / daySeconds;
 }
 
 /** Jobs that dig from the stretch. */

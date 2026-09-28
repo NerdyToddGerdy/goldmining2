@@ -556,6 +556,13 @@ Example warning:
   - **Haul:** everyone else's carrying and water-fetching takes about 70% of the time.
   - **Prospect:** test-pans the stretch's gullies, following a source gully to a new staked stretch, then roams and turns up leads now and then.
   - **Finish concentrate:** pans the crew bucket down into the poke at a hand's recovery. This is the one job that gives up the player's reveal, and it's the player's choice.
+- **Policy, one per stretch** (set in the Claims & crew tab, shown on the tablet): how the whole crew there works, never orders per worker. Each changes how they drive the same machines, so each costs something. Measured on a bend with a sluice and a pan:
+  - **Steady** (the default): their usual pace and care.
+  - **Careful** (conserve the claim): slower feeding, gentler water, a lighter tip, cleanouts and fixes sooner. About 20% less ground a day, with about half the sluice loss: roughly 10% less gold a day, but more gold from every shovelful.
+  - **Push hard** (extract aggressively): quicker feeding, harder water, a heavier tip, cleanouts and fixes put off. About 20% more ground a day at about a third lost: a little more gold a day while the ground lasts, and the ground goes faster.
+  - **Prepare the ground** (maintain and prepare): no washing. The diggers strip topsoil and slumped bank, pry boulders and bail holes, then report the ground ready, so the player arrives to open pay gravel. The tablet says when there's nothing left to clear.
+  - At abandoned diggings the crew washes the old tailings rather than tossing them as topsoil.
+  - Not yet: foremen (who raise a crew's efficiency on mapped ground) and worker traits.
 - **Machines:** crew units are bought at the outfitter (crew sluice $40, highbanker $90, rocker box $20, drywasher $45, classifier $15) and wait as spares until a switched-on job needs one. Switching a job off sends its unit back to spare, washing what it held into the crew bucket. Crew engines burn the player's fuel cans.
 - **How they work:** every job drives the same simulation the player does, slower and less attentive: digging from the nearest ground, tossing topsoil, feeding cautiously, raking and clearing late, cleaning out on a schedule, panning with a heavier tip. A hand on the sluice keeps roughly half what the player would in the same time. Crews work only while the player is at another stretch, and stand back while the player works theirs.
 - **What they make:** each stretch's crew bucket (concentrate, about five mats) and poke (gold) wait for the player. "Collect from the crew" at the stretch puts the poke in the vial and as much of the bucket as fits in the jar. On arrival the player hears who worked, for how long, and what they did.

@@ -246,6 +246,11 @@ export function traitsOf(site: SiteKind | undefined): SiteTraits {
   return SITE_TRAITS[site ?? 'creekStretch'];
 }
 
+/** Whether the top layer is worth washing (old tailings) rather than topsoil to toss aside. */
+export function topLayerPays(site: SiteKind | undefined): boolean {
+  return (traitsOf(site).coarseTaken?.overburden ?? 0) > 0;
+}
+
 /** Whether the ground has room and water for a piece of hand gear. */
 export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker' | 'drywasher' | 'washTub';
 

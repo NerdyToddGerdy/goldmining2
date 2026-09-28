@@ -1,5 +1,5 @@
 import type { Creek } from './creek';
-import { DIGGING_JOBS, type JobIdle, type JobKind } from './crewJobs';
+import { DIGGING_JOBS, type CrewPolicy, type JobIdle, type JobKind } from './crewJobs';
 import type { Claim, Economy } from './economy';
 import type { Estimate } from './estimate';
 import { needsPump } from './sluice';
@@ -24,6 +24,8 @@ export interface JobLine {
 export interface ClaimOverview {
   readonly creekId: number;
   readonly claim: Claim;
+  /** How the crew here works. */
+  readonly policy: CrewPolicy;
   readonly crew: readonly { readonly name: string; readonly role: Role }[];
   readonly jobs: readonly JobLine[];
   readonly wagesPerDay: number;
@@ -69,7 +71,8 @@ export function claimOverview(
   const pumped = session.sluicePlace?.creekId === creek.id && creek.sluiceSpots.some((s) => s.id === session.sluicePlace!.spotId && needsPump(s.sluiceSite!));
   const burnsFuel = staffed.includes('highbanker') || (staffed.includes('sluice') && pumped);
   const daysLeft = crewGroundLeft(crew, creek);
-  const take = estimateHandTake(creek);
+  const policy = crew.policyAt(creek.id);
+  const take = estimateHandTake(creek, policy);
   // Gold in the bucket stays hidden in the concentrate until it's panned: only the poke is counted.
   const waiting = { sand: site?.bucket.blackSand ?? 0, gold: site?.poke.length ?? 0 };
 
@@ -80,12 +83,15 @@ export function claimOverview(
   if (claim.status === 'held' && economy.isLapsed(claim)) critical.push(`The claim has lapsed for unpaid fees: nobody can work ${name} until it's paid.`);
   const working = jobs.filter((j) => j.state === 'working');
   const diggers = staffed.filter((j) => DIGGING_JOBS.includes(j)).length;
-  if (workers.length > 0 && !here && working.length === 0 && jobs.length > 0) critical.push(`The crew at ${name} is standing idle while you pay them.`);
+  // Preparing the ground runs out of work once the pay gravel is open everywhere.
+  const prepared = jobs.length > 0 && jobs.every((j) => j.state === 'groundReady' || !DIGGING_JOBS.includes(j.job));
+  if (workers.length > 0 && !here && working.length === 0 && jobs.length > 0 && !prepared) critical.push(`The crew at ${name} is standing idle while you pay them.`);
   if (workers.length > 0 && jobs.length === 0) critical.push(`The crew at ${name} has no jobs switched on.`);
   if (workers.length > 0 && take && diggers > 0 && take.high * diggers < wagesPerDay + claim.fee) {
     critical.push('From your notes, this crew likely costs more than it brings in.');
   }
   if (jobs.some((j) => j.state === 'bucketFull') || waiting.sand >= BUCKET_WARN) warn.push('The crew bucket is (nearly) full: collect it, or the machines stop.');
+  if (jobs.some((j) => j.state === 'groundReady')) warn.push('The ground is prepared: set the crew back to washing, or come and work it.');
   if (jobs.some((j) => j.state === 'noFuel')) warn.push('Out of fuel cans for the engines.');
   if (jobs.some((j) => j.state === 'noMachine')) warn.push('A job is waiting for a crew machine from the outfitter.');
   if (jobs.some((j) => j.state === 'needsOperator')) warn.push('A job needs an operator.');
@@ -94,12 +100,13 @@ export function claimOverview(
   else if (diggers > 0 && daysLeft < 1) {
     warn.push(daysLeft < 0.5 ? `At this pace, ${name} will be worked out within half a day.` : `At this pace, ${name} will be worked out in about a day.`);
   }
-  if (workers.length > 0 && diggers > 0 && !take) warn.push('No field notes here yet: pan it yourself to judge whether the crew pays.');
+  if (workers.length > 0 && diggers > 0 && !take && policy !== 'prepare') warn.push('No field notes here yet: pan it yourself to judge whether the crew pays.');
 
   const status: ClaimHealth = workers.length === 0 ? 'noCrew' : critical.length > 0 ? 'critical' : warn.length > 0 ? 'warn' : 'steady';
   return {
     creekId: creek.id,
     claim,
+    policy,
     crew: workers.map((w) => ({ name: w.name, role: w.role })),
     jobs,
     wagesPerDay,

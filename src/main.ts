@@ -1102,6 +1102,17 @@ async function start(): Promise<void> {
       const hand = crew.recall(creekId);
       if (hand) hud.toast(`${hand.name} comes back to town.`);
     },
+    setPolicy: (creekId, policy) => {
+      if (crew.policyAt(creekId) === policy) return;
+      crew.setPolicy(creekId, policy);
+      const said: Record<typeof policy, string> = {
+        steady: 'back to their usual pace',
+        careful: 'to go carefully: slower, and less gold lost',
+        push: 'to push hard: more ground a day, and more gold washed away',
+        prepare: 'to prepare the ground: no washing, just opening up the pay gravel',
+      };
+      hud.toast(`You tell the crew at ${region.creek(creekId).profile.name} ${said[policy]}.`);
+    },
     toggleJob: (creekId, job) => {
       const result = crew.toggleJob(region.creek(creekId), job);
       if (result === 'doesntFit') hud.toast("That work doesn't fit the ground there.");

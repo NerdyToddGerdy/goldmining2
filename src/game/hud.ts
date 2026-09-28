@@ -2,6 +2,9 @@ import {
   ECONOMY_TUNING,
   STAFF_TUNING,
   JOB_KINDS,
+  CREW_POLICIES,
+  DIGGING_JOBS,
+  type CrewPolicy,
   crewGroundLeft,
   estimateHandTake,
   jobFits,
@@ -101,6 +104,7 @@ export interface HudActions {
   sendHand(creekId: number, role: Role): void;
   recallHand(creekId: number): void;
   toggleJob(creekId: number, job: JobKind): void;
+  setPolicy(creekId: number, policy: CrewPolicy): void;
   buyCrewMachine(machine: CrewMachine): void;
   washReturned(): void;
   releaseClaim(creekId: number): void;
@@ -215,6 +219,15 @@ const IDLE_WORDS: Record<JobIdle, string> = {
   bucketFull: 'crew bucket full: collect it',
   noFuel: 'out of fuel cans',
   nothingToFinish: 'nothing to finish yet',
+  groundReady: 'ground prepared: pay gravel open',
+};
+
+/** Crew policies as the player reads them: a name, and what it costs. */
+const POLICY_WORDS: Record<CrewPolicy, { readonly name: string; readonly note: string }> = {
+  steady: { name: 'Steady', note: 'Their usual pace and care.' },
+  careful: { name: 'Careful', note: 'Slower and gentler: less ground a day, less gold lost from it.' },
+  push: { name: 'Push hard', note: 'Faster and rougher: more ground a day, more gold washed away.' },
+  prepare: { name: 'Prepare the ground', note: 'No washing: they strip topsoil, pry boulders and bail holes, so the pay gravel is open when you come.' },
 };
 
 type TabletTab = 'overview' | 'claims' | 'crew' | 'leads' | 'costs';
@@ -233,6 +246,7 @@ const JOB_STATE_WORDS: Record<string, string> = {
   bucketFull: 'crew bucket full',
   noFuel: 'out of fuel cans',
   nothingToFinish: 'nothing to finish yet',
+  groundReady: 'ground prepared, nothing left to clear',
 };
 
 const CREW_GEAR: readonly [CrewMachine, string][] = [
@@ -449,6 +463,7 @@ export class Hud {
       if (target.dataset.action === 'send') this.on.sendHand(Number(target.dataset.creek), target.dataset.role as Role);
       if (target.dataset.action === 'recall') this.on.recallHand(Number(target.dataset.creek));
       if (target.dataset.action === 'job') this.on.toggleJob(Number(target.dataset.creek), target.dataset.job as JobKind);
+      if (target.dataset.action === 'policy') this.on.setPolicy(Number(target.dataset.creek), target.dataset.policy as CrewPolicy);
       if (target.dataset.action === 'crewgear') this.on.buyCrewMachine(target.dataset.machine as CrewMachine);
       if (target.dataset.action === 'returned') this.on.washReturned();
       if (target.dataset.action === 'release') this.on.releaseClaim(Number(target.dataset.creek));
@@ -901,7 +916,7 @@ export class Hud {
     const { economy, crew } = state;
     const claims = economy.allClaims.map((c) => `${c.creekId}${c.status}${c.owed.toFixed(2)}${Math.round(state.region.creek(c.creekId).groundLeft * 10)}`).join();
     const workers = crew.workers.map((w) => `${w.id}@${w.siteId}`).join();
-    const sites = crew.sites.map((s) => `${s.creekId}:${s.jobs.join('+')}:${JOB_KINDS.map((j) => s.idle[j] ?? '').join('')}`).join();
+    const sites = crew.sites.map((s) => `${s.creekId}:${s.policy}:${s.jobs.join('+')}:${JOB_KINDS.map((j) => s.idle[j] ?? '').join('')}`).join();
     return `${claims}:${workers}:${sites}:${JSON.stringify(crew.spares)}:${crew.returned.blackSand.toFixed(3)}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
   }
 
@@ -1028,17 +1043,26 @@ export class Hud {
               ? `: ${IDLE_WORDS[idleWhy]}`
               : !crew.jobReady(creek, job, session)
                 ? `: ${IDLE_WORDS.noMachine}`
-                : ': working';
+                : site?.policy === 'prepare' && DIGGING_JOBS.includes(job)
+                  ? ': clearing ground'
+                  : ': working';
         return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${claim.creekId}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
       });
       lines.push(`<div class="jobs">${jobs.join('')}</div>`);
+      // One setting for how the whole crew here works.
+      const policy = site?.policy ?? 'steady';
+      lines.push(
+        `<p class="small">How they work:</p><div class="jobs policies">${CREW_POLICIES.map(
+          (p) => `<button type="button" class="job ${p === policy ? 'on' : ''}" data-action="policy" data-creek="${claim.creekId}" data-policy="${p}" aria-pressed="${p === policy}">${POLICY_WORDS[p].name}</button>`,
+        ).join('')}</div><p class="small">${POLICY_WORDS[policy].note}</p>`,
+      );
       if (here.length > 0) {
         const days = crewGroundLeft(crew, creek);
         if (Number.isFinite(days)) {
           lines.push(`<p class="small">${days <= 0 ? 'The ground is worked out.' : days < 0.5 ? 'Less than half a day of ground left at their pace.' : `About ${Math.round(days * 2) / 2} days of ground left at their pace.`}</p>`);
         }
-        const take = estimateHandTake(creek);
-        lines.push(
+        const take = estimateHandTake(creek, crew.policyAt(claim.creekId));
+        if (crew.policyAt(claim.creekId) !== 'prepare') lines.push(
           take
             ? `<p class="small">From your field notes, an operator on a machine here might bring in very roughly ${money(Math.max(0, take.low))} to ${money(take.high)} a day, against ${money(STAFF_TUNING.wage.operator)} in wages. Hand work brings in much less.</p>`
             : '<p class="small">Pan this stretch yourself to judge whether hands will pay here.</p>',
@@ -1386,6 +1410,7 @@ export class Hud {
       `${v.warnings.length ? `<ul class="warnings">${v.warnings.map((w) => `<li>${w}</li>`).join('')}</ul>` : '<p class="found">Nothing needs you here.</p>'}` +
       `<table class="tablet-table">` +
       `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map((c) => `${c.name} (${c.role})`).join(', ') : 'none'}</td></tr>` +
+      `<tr><td>Working</td><td>${POLICY_WORDS[v.policy].name.toLowerCase()} <span class="small">(set in town)</span></td></tr>` +
       `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
       `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +
       `<tr><td>Take</td><td>${take}</td></tr>` +
