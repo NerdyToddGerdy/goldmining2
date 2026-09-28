@@ -723,6 +723,7 @@ The most repeated actions don't make the player repeat themselves:
 - **Coming back:** returning from town or the region map goes straight to the hole the player left (the creek map is one Esc away).
 - **Following a lead:** when it proves real, the player is standing on the new stretch; a dud leaves them on the map.
 - **One Feed key, one Watch key:** at the hole, F feeds and V opens whatever machine stands there (the sluice, highbanker or trommel, or else the drywasher or rocker), and F feeds it inside its close-up too. The classifier keeps its own keys (K, C) since it stands beside a machine, and a second portable machine keeps its old ones.
+- **A short bar on a phone:** on a short screen, a machine close-up's occasional jobs (refuel, mend, clean out, take down, pan the jar, pour in the bucket) fold under a More button, leaving the bar to running, feeding and clearing it. Their keys still work.
 
 ## Sluice UX Specification
 

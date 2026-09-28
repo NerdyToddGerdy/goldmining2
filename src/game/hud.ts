@@ -425,6 +425,9 @@ export class Hud {
   /** Which tab of the town's side menu is open; remembered between visits. */
   private townTab: 'outfitter' | 'claims' | 'office' = 'outfitter';
   private buttonsKey = '';
+  /** The More menu on a short screen's machine close-up, and the screen it was opened on. */
+  private moreOpen = false;
+  private moreMode: Mode | null = null;
   private resultKey = '';
   private lossRate = 0;
   private toastTimer = 0;
@@ -729,16 +732,33 @@ export class Hud {
     this.back.hidden = !backEntry;
     this.backAction = backEntry?.[1] ?? null;
     if (backEntry) setLabel(this.back, forInput(`‹ ${backEntry[0]}`));
-    const buttons = all.map(([label, action]): [string, () => void] => [forInput(label), action]);
-    const key = buttons.map(([label]) => label).join('|');
+    let buttons = all.map(([label, action]): [string, () => void] => [forInput(label), action]);
+    // On a short screen a machine's rarer jobs fold under More, leaving the bar to the moment-to-moment ones.
+    if (mode !== this.moreMode) this.moreOpen = false;
+    this.moreMode = mode;
+    const rare = window.innerHeight < 500 && CLOSE_UPS.has(mode) ? buttons.filter(([label]) => isRare(label)) : [];
+    if (rare.length < 2) this.moreOpen = false;
+    else buttons = buttons.filter(([label]) => !isRare(label));
+    const key = `${buttons.map(([label]) => label).join('|')}|${rare.length < 2 ? '' : this.moreOpen ? rare.map(([label]) => label).join('|') : 'more'}`;
     if (key !== this.buttonsKey) {
       this.buttonsKey = key;
-      this.actions.replaceChildren(
-      ...buttons.map(([label, action]) => {
+      const children = buttons.map(([label, action]) => {
         const target = this.holdable.get(action);
         return button(label, action, target ? () => this.startHold(target, null) : undefined);
-      }),
-    );
+      });
+      if (rare.length >= 2) {
+        const more = el('span', 'hud-more');
+        const toggle = button(this.moreOpen ? 'Less ▾' : 'More ▴', () => (this.moreOpen = !this.moreOpen));
+        toggle.setAttribute('aria-expanded', String(this.moreOpen));
+        more.append(toggle);
+        if (this.moreOpen) {
+          const menu = el('span', 'hud-more-menu');
+          menu.append(...rare.map(([label, action]) => button(label, () => { this.moreOpen = false; action(); })));
+          more.append(menu);
+        }
+        children.push(more);
+      }
+      this.actions.replaceChildren(...children);
     }
 
     const resultKey =
@@ -2094,6 +2114,14 @@ export function setLabel(b: HTMLElement, label: string): void {
   const cap = document.createElement('kbd');
   cap.textContent = match[1]!;
   b.replaceChildren(words, cap);
+}
+
+/** Machine close-ups, whose rarer jobs fold under More on a short screen. */
+const CLOSE_UPS: ReadonlySet<Mode> = new Set<Mode>(['sluice', 'highbanker', 'trommel', 'rocker', 'drywasher']);
+
+/** A machine's occasional jobs, as against feeding, running and clearing it: still on their keys. */
+function isRare(label: string): boolean {
+  return /^(Take down|Refuel|Mend it|Clean out|Pan the concentrate jar|Pour in the classifier bucket)/.test(label);
 }
 
 /** The action Esc performs on a screen: going back to the hole, the creek, the map or the counter. */

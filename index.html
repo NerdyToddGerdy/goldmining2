@@ -358,6 +358,13 @@
       }
       .hud-tilt input:focus-visible { outline: 2px solid #f3d77a; outline-offset: 2px; border-radius: 4px; }
       .hud-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      /* A short screen's More menu: the machine's rarer jobs, stacked up out of the bar. */
+      .hud-more { position: relative; }
+      .hud-more-menu {
+        position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; gap: 6px; padding: 6px;
+        background: rgba(20, 26, 18, 0.92); border: 1px solid rgba(239, 230, 207, 0.3); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      }
+      .hud-more-menu button { white-space: nowrap; text-align: left; }
       #fullscreen {
         position: fixed; right: var(--edge-r); bottom: var(--edge-b); padding: 6px 10px;
         background: rgba(20, 26, 18, 0.85); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.45);
