@@ -1,5 +1,6 @@
 import { rollShovelful, totalMg, type GoldPiece, type GoldSize, type PanLoad, type Rock } from './pan';
 import type { Rng } from './rng';
+import { WEAR_TUNING, wornKeep } from './wear';
 
 /**
  * Hand sluice (see "Sluice UX Specification" in the design doc).
@@ -184,6 +185,8 @@ export interface SluiceSnapshot {
   readonly elapsed: number;
   /** The slope the legs are set to (the site's own without legs). */
   readonly slope: number;
+  /** Riffles and moss scuffed by use, 0 new .. 1 worn out. Absent means new. */
+  readonly wear?: number;
 }
 
 export class Sluice {
@@ -192,6 +195,8 @@ export class Sluice {
   private moss: { black: number; light: number; gold: GoldPiece[] } = { black: 0, light: 0, gold: [] };
   /** Material on the riffles right now: what a short rinse leaves behind. */
   bedLoad = 0;
+  /** Riffles and moss scuffed by use, 0 new .. 1 worn out (see wear.ts). */
+  wear = 0;
   /** 0 = clear, 1 = jammed solid. */
   clog = 0;
   readonly lost: GoldPiece[] = [];
@@ -225,6 +230,7 @@ export class Sluice {
     this.shovelfulsFed = copy.shovelfulsFed;
     this.elapsed = copy.elapsed;
     this.legSlope = copy.slope;
+    this.wear = copy.wear ?? 0;
   }
 
   snapshot(): SluiceSnapshot {
@@ -240,7 +246,13 @@ export class Sluice {
       shovelfulsFed: this.shovelfulsFed,
       elapsed: this.elapsed,
       slope: this.legSlope,
+      ...(this.wear > 0 ? { wear: this.wear } : {}),
     });
+  }
+
+  /** Fit fresh moss and tighten the riffles: back to new. */
+  service(): void {
+    this.wear = 0;
   }
 
   /** The slope the box actually runs at: set by the legs if it has them, else the site's. */
@@ -474,6 +486,7 @@ export class Sluice {
 
     // Rocks tumble off the header; in weak water they catch and build the clog. Pickers stuck in them go too.
     let goldLost = 0;
+    const rocksBefore = this.header.rocks.length;
     this.header.rocks = this.header.rocks.filter((rock) => {
       if (rng.next() >= share) return true;
       this.clog = Math.min(1, this.clog + T.rockClog * (1 - power));
@@ -491,9 +504,13 @@ export class Sluice {
     const keep = (1 - fullness) * (1 - T.packedLoss * packing) * (1 - clayShare * T.clayGoldCarry) * (1 - T.shallowPack * this.shallowness);
     const capture = this.kit.improvedMat ? T.improvedCapture : T.capture;
     const steep = this.steepness;
+    // Every load scuffs the riffles and moss; rocks and hard water scuff them faster.
+    const rocksOver = rocksBefore - this.header.rocks.length;
+    // A bigger box (a highbanker's) is built heavier: the same load wears it less.
+    this.wear += (released * WEAR_TUNING.perVolume.sluice * (1 + WEAR_TUNING.overStress * over) + rocksOver * WEAR_TUNING.perRock) / this.scale;
     this.header.gold = this.header.gold.filter((piece) => {
       if (rng.next() >= share) return true;
-      const caught = capture[piece.size] * (1 - T.overpowerLoss[piece.size] * over) * (1 - T.steepLoss[piece.size] * steep) * keep;
+      const caught = capture[piece.size] * (1 - T.overpowerLoss[piece.size] * over) * (1 - T.steepLoss[piece.size] * steep) * keep * wornKeep(this.wear, piece.size);
       if (rng.next() < caught) this.moss.gold.push(piece);
       else {
         this.lost.push(piece);

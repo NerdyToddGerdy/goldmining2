@@ -1,6 +1,7 @@
 import { rollShovelful, totalMg, type GoldPiece, type PanLoad, type Rock } from './pan';
 import type { Rng } from './rng';
 import { Sluice, bareKit, type SluiceKit, type SluiceSnapshot, type SluiceStepEvents } from './sluice';
+import { WEAR_TUNING } from './wear';
 
 /**
  * Highbanker (see the gear interaction matrix in the design doc: "Prime, feed, monitor · pump
@@ -51,7 +52,7 @@ export const HIGHBANKER_TUNING = {
   restartBelow: 0.5,
 } as const;
 
-export type EngineEvent = 'lostPrime' | 'overheated' | 'outOfFuel' | 'jammed' | null;
+export type EngineEvent = 'lostPrime' | 'overheated' | 'outOfFuel' | 'jammed' | 'seized' | null;
 
 export interface HighbankerStepEvents {
   readonly sluice: SluiceStepEvents;
@@ -82,9 +83,11 @@ export interface HighbankerSnapshot {
   readonly jammed: boolean;
   readonly rinsing: boolean;
   readonly fedMg: number;
+  /** Engine hours worn in, 0 new .. 1 seized. Absent means new. */
+  readonly engineWear?: number;
 }
 
-export type StartResult = 'started' | 'noFuel' | 'tooHot' | 'running';
+export type StartResult = 'started' | 'noFuel' | 'tooHot' | 'running' | 'seized';
 
 export class Highbanker {
   readonly sluice: Sluice;
@@ -101,6 +104,8 @@ export class Highbanker {
   rinsing = false;
   /** Gold shovelled into the hopper so far (including pickers in rocks), for recovery figures. */
   fedMg = 0;
+  /** The engine's running hours, 0 new .. 1 seized (see wear.ts). */
+  engineWear = 0;
 
   constructor(
     private readonly rng: Rng,
@@ -119,6 +124,7 @@ export class Highbanker {
     this.jammed = saved.jammed;
     this.rinsing = saved.rinsing;
     this.fedMg = saved.fedMg;
+    this.engineWear = saved.engineWear ?? 0;
   }
 
   snapshot(): HighbankerSnapshot {
@@ -132,7 +138,19 @@ export class Highbanker {
       jammed: this.jammed,
       rinsing: this.rinsing,
       fedMg: this.fedMg,
+      ...(this.engineWear > 0 ? { engineWear: this.engineWear } : {}),
     };
+  }
+
+  /** The engine has worn out and seized: it won't turn over until it's serviced. */
+  get seized(): boolean {
+    return this.engineWear >= 1;
+  }
+
+  /** Service the engine and pump, and fit the box with fresh moss: back to new. */
+  service(): void {
+    this.engineWear = 0;
+    this.sluice.service();
   }
 
   get hopperVolume(): number {
@@ -187,6 +205,7 @@ export class Highbanker {
 
   start(): StartResult {
     if (this.running) return 'running';
+    if (this.seized) return 'seized';
     if (this.fuel <= 0) return 'noFuel';
     if (this.heat > HIGHBANKER_TUNING.restartBelow) return 'tooHot';
     this.running = true;
@@ -256,6 +275,14 @@ export class Highbanker {
     if (this.running && this.heat >= 1) {
       this.running = false;
       event = 'overheated';
+    }
+    // Running hours wear the engine, much faster run hot; worn out, it seizes.
+    if (this.running) {
+      this.engineWear += dt * WEAR_TUNING.enginePerSecond * (0.4 + 0.6 * t) * (1 + WEAR_TUNING.hotStress * this.heat);
+      if (this.seized) {
+        this.running = false;
+        event = 'seized';
+      }
     }
 
     // The hose shifts and sucks air, more often pumping hard.

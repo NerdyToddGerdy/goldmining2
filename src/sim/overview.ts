@@ -1,3 +1,5 @@
+import type { Region } from './region';
+import { WEAR_TUNING } from './wear';
 import type { Creek } from './creek';
 import { DIGGING_JOBS, type CrewPolicy, type JobIdle, type JobKind } from './crewJobs';
 import type { Claim, Economy } from './economy';
@@ -32,6 +34,10 @@ export interface ClaimOverview {
   readonly hasForeman: boolean;
   readonly jobs: readonly JobLine[];
   readonly wagesPerDay: number;
+  /** Supplies packed in for the crew at a remote stretch. */
+  readonly suppliesPerDay: number;
+  /** The most worn machine the crew runs here, 0 new .. 1 worn out. */
+  readonly machineWear: number;
   readonly feePerDay: number;
   /** A job here burns the player's fuel cans (a highbanker, or a sluice on a pump). */
   readonly burnsFuel: boolean;
@@ -103,6 +109,17 @@ export function claimOverview(
   else if (diggers > 0 && daysLeft < 1) {
     warn.push(daysLeft < 0.5 ? `At this pace, ${name} will be worked out within half a day.` : `At this pace, ${name} will be worked out in about a day.`);
   }
+  // How worn the machines the crew runs here are (their own units, or the player's set up here).
+  const machineWear = Math.max(
+    0,
+    site?.crewSluice?.sluice.wear ?? 0,
+    site?.crewHighbanker ? Math.max(site.crewHighbanker.machine.engineWear, site.crewHighbanker.machine.sluice.wear) : 0,
+    site?.rocker?.wear ?? 0,
+    site?.drywasher?.wear ?? 0,
+    staffed.includes('sluice') && session.sluicePlace?.creekId === creek.id ? (session.sluiceAt(creek.id, session.sluicePlace.spotId)?.wear ?? 0) : 0,
+  );
+  if (jobs.some((j) => j.state === 'needsService')) critical.push('The highbanker engine has seized: the crew needs a repair kit.');
+  else if (machineWear >= WEAR_TUNING.crewServiceAt && session.repairKits <= 0) warn.push('The machines here are worn and you carry no repair kits: they are losing fine gold.');
   const hasForeman = crew.foremanAt(creek.id) !== null;
   const foremanLift = crew.foremanLift(creek);
   if (hasForeman && foremanLift === 0) warn.push('The foreman has no field notes to work from here: pan a few spots yourself.');
@@ -118,6 +135,8 @@ export function claimOverview(
     hasForeman,
     jobs,
     wagesPerDay,
+    suppliesPerDay: crew.suppliesAt(creek),
+    machineWear,
     feePerDay: claim.fee,
     burnsFuel,
     groundLeft: creek.groundLeft,
@@ -130,9 +149,10 @@ export function claimOverview(
 }
 
 /** The whole operation's daily costs and what's owed, for the tablet's cost tab. */
-export function costOverview(world: { readonly crew: Crew; readonly economy: Economy }): {
+export function costOverview(world: { readonly crew: Crew; readonly economy: Economy; readonly region?: Pick<Region, 'creek'> }): {
   readonly feesPerDay: number;
   readonly wagesPerDay: number;
+  readonly suppliesPerDay: number;
   readonly feesOwed: number;
   readonly wagesOwed: number;
 } {
@@ -140,6 +160,7 @@ export function costOverview(world: { readonly crew: Crew; readonly economy: Eco
   return {
     feesPerDay: held.reduce((n, c) => n + c.fee, 0),
     wagesPerDay: world.crew.dailyWages,
+    suppliesPerDay: world.region ? world.crew.dailySupplies(world.region) : 0,
     feesOwed: world.economy.feesOwed,
     wagesOwed: Math.max(0, world.crew.wagesOwed),
   };

@@ -1,5 +1,6 @@
 import { rollShovelful, totalMg, type GoldPiece, type GoldSize, type PanLoad, type Rock } from './pan';
 import type { Rng } from './rng';
+import { WEAR_TUNING, wornKeep } from './wear';
 
 /**
  * Drywasher (see the gear interaction matrix and "Dry-wash chain" in the design doc: "Pulse and
@@ -80,6 +81,8 @@ export interface DrywasherSnapshot {
   readonly dust: number;
   readonly screenClog: number;
   readonly fedMg: number;
+  /** Cloth and riffles worn by dry grit, 0 new .. 1 worn out. Absent means new. */
+  readonly wear?: number;
 }
 
 export class Drywasher {
@@ -91,6 +94,8 @@ export class Drywasher {
   screenClog = 0;
   /** Gold lost since this drywasher was loaded; not saved (it travels with the player for good). */
   readonly lost: GoldPiece[] = [];
+  /** Cloth and riffles worn by dry grit, 0 new .. 1 worn out (see wear.ts). */
+  wear = 0;
   fedMg = 0;
 
   constructor(
@@ -104,10 +109,16 @@ export class Drywasher {
     this.dust = copy.dust;
     this.screenClog = copy.screenClog;
     this.fedMg = copy.fedMg;
+    this.wear = copy.wear ?? 0;
   }
 
   snapshot(): DrywasherSnapshot {
-    return structuredClone({ hopper: this.hopper, drawer: this.drawer, dust: this.dust, screenClog: this.screenClog, fedMg: this.fedMg });
+    return structuredClone({ hopper: this.hopper, drawer: this.drawer, dust: this.dust, screenClog: this.screenClog, fedMg: this.fedMg, ...(this.wear > 0 ? { wear: this.wear } : {}) });
+  }
+
+  /** A new cloth and riffle tray: back to new. */
+  service(): void {
+    this.wear = 0;
   }
 
   get hopperVolume(): number {
@@ -206,10 +217,12 @@ export class Drywasher {
     this.dust = Math.min(1, this.dust + amount * T.dustPerMaterial + clay * T.dustPerClay);
 
     const fullness = clamp01((this.drawerLoading - T.fullFrom) / (1 - T.fullFrom)) * T.fullLoss;
+    // Dry grit wears the cloth; overblown air and clay grit wear it faster.
+    this.wear += amount * WEAR_TUNING.perVolume.drywasher * (1 + WEAR_TUNING.overStress * over) + clay * 0.02;
     let goldLost = 0;
     this.hopper.gold = this.hopper.gold.filter((piece) => {
       if (share < 1 && rng.next() >= share) return true;
-      const caught = T.capture[piece.size] * (1 - T.underLoss[piece.size] * under) * (1 - T.overLoss[piece.size] * over) * (1 - fullness);
+      const caught = T.capture[piece.size] * (1 - T.underLoss[piece.size] * under) * (1 - T.overLoss[piece.size] * over) * (1 - fullness) * wornKeep(this.wear, piece.size);
       if (rng.next() < caught) this.drawer.gold.push(piece);
       else {
         this.lost.push(piece);

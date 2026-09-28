@@ -1,5 +1,6 @@
 import { rollShovelful, totalMg, type GoldPiece, type GoldSize, type PanLoad, type Rock } from './pan';
 import type { Rng } from './rng';
+import { WEAR_TUNING, wornKeep } from './wear';
 
 /**
  * Rocker box (see the gear interaction matrix in the design doc: "Rock · material advances with
@@ -82,6 +83,8 @@ export interface RockerSnapshot {
   readonly elapsed: number;
   readonly lastStroke: number;
   readonly fedMg: number;
+  /** Canvas apron and riffles scuffed by use, 0 new .. 1 worn out. Absent means new. */
+  readonly wear?: number;
 }
 
 export class Rocker {
@@ -95,6 +98,8 @@ export class Rocker {
   private lastStroke = -10;
   /** Gold washed out or tipped off since this rocker was loaded; not saved, since it travels with the player for good. */
   readonly lost: GoldPiece[] = [];
+  /** Canvas apron and riffles scuffed by use, 0 new .. 1 worn out (see wear.ts). */
+  wear = 0;
   fedMg = 0;
 
   constructor(
@@ -110,6 +115,7 @@ export class Rocker {
     this.elapsed = copy.elapsed;
     this.lastStroke = copy.lastStroke;
     this.fedMg = copy.fedMg;
+    this.wear = copy.wear ?? 0;
   }
 
   snapshot(): RockerSnapshot {
@@ -121,6 +127,7 @@ export class Rocker {
       elapsed: this.elapsed,
       lastStroke: this.lastStroke,
       fedMg: this.fedMg,
+      ...(this.wear > 0 ? { wear: this.wear } : {}),
     });
   }
 
@@ -250,13 +257,15 @@ export class Rocker {
     this.hopper.black -= black;
     // Clay balls rolling through carry gold with them.
     const clayShare = this.hopper.clay > 0 ? Math.min(1, this.hopper.clay / Math.max(held, 0.05)) : 0;
+    // Every stroke scuffs the apron; rocks rattling on the screen and a choppy, flooded box more so.
+    this.wear += (light + black) * WEAR_TUNING.perVolume.rocker * (1 + WEAR_TUNING.overStress * Math.max(choppy, flood)) + this.hopper.rocks.length * WEAR_TUNING.perRock * 0.01;
 
     const fullness = clamp01((this.apronLoading - T.fullFrom) / (1 - T.fullFrom)) * T.fullLoss;
     let goldLost = 0;
     this.hopper.gold = this.hopper.gold.filter((piece) => {
       if (rng.next() >= share) return true;
       const caught =
-        T.capture[piece.size] * (1 - T.choppyLoss[piece.size] * choppy) * (1 - T.floodLoss[piece.size] * flood) * (1 - fullness) * (1 - clayShare * T.clayGoldCarry);
+        T.capture[piece.size] * (1 - T.choppyLoss[piece.size] * choppy) * (1 - T.floodLoss[piece.size] * flood) * (1 - fullness) * (1 - clayShare * T.clayGoldCarry) * wornKeep(this.wear, piece.size);
       if (rng.next() < caught) this.apron.gold.push(piece);
       else {
         this.lost.push(piece);
@@ -284,6 +293,11 @@ export class Rocker {
   }
 
   /** Tip whatever is on the screen off onto the spoil pile: rocks, and any unwashed gravel, gold and all. */
+  /** Patch the canvas and replace the worn riffles: back to new. */
+  service(): void {
+    this.wear = 0;
+  }
+
   tipOff(): number {
     const pickers = this.hopper.rocks.flatMap((r) => (r.stuckPicker ? [r.stuckPicker] : []));
     const gold = [...this.hopper.gold, ...pickers];

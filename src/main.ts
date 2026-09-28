@@ -9,6 +9,9 @@ import {
   loadSave,
   buyGear,
   buyFuel,
+  buyRepairKit,
+  REPAIR_KIT,
+  WEAR_TUNING,
   CLASSIFIER_TUNING,
   Crew,
   ECONOMY_TUNING,
@@ -465,7 +468,7 @@ async function start(): Promise<void> {
     for (let left = seconds; left > 1e-9; left -= 30) {
       const chunk = Math.min(30, left);
       economy.advance(chunk);
-      const quit = crew.accrue(chunk);
+      const quit = crew.accrue(chunk, region);
       if (quit) hud.toast(`${quit.name} has walked off the job over unpaid wages. You still owe the crew; pay it in town.`);
       const leadsBefore = region.leads.length;
       crew.work(chunk, { session, region, economy, playerAt: !inTown() && mode !== 'region' ? creek.id : null });
@@ -733,6 +736,29 @@ async function start(): Promise<void> {
     },
     collect,
     backToHole: () => setMode(mode === 'pan' && panReturn === 'town' ? 'town' : 'bank'),
+    serviceMachine: () => {
+      const machine =
+        mode === 'sluice' ? sluiceHere() : mode === 'highbanker' ? highbankerHere() : mode === 'rocker' ? rockerHere() : mode === 'drywasher' ? drywasherHere() : null;
+      if (!machine) return;
+      if (session.repairKits <= 0) return hud.toast(`No repair kit to hand. The outfitter sells them, $${REPAIR_KIT.price} each.`);
+      session.service(machine);
+      passTime(WEAR_TUNING.crewServiceTime);
+      hud.toast(
+        mode === 'highbanker'
+          ? 'You service the engine and pump and fit fresh moss. It runs like new.'
+          : mode === 'rocker'
+            ? 'You patch the canvas and fit new riffles. The apron will hold the fines again.'
+            : mode === 'drywasher'
+              ? 'You fit a new cloth and riffle tray. The air comes through even again.'
+              : 'You fit fresh moss and tighten the riffles. The box will hold the fines again.',
+      );
+    },
+    buyRepairKit: () => {
+      const result = buyRepairKit(session);
+      if (result === 'bought') hud.toast(`A repair kit. You're carrying ${session.repairKits}. Use one at any worn machine, or leave them for your crew.`);
+      else if (result === 'full') hud.toast("You can't carry any more kits.");
+      else hud.toast("You can't afford that yet.");
+    },
     snuff: () => {
       snuffAt(snuffNext);
       snuffNext = snuffNext >= 0.85 ? 0.05 : snuffNext + 0.2;
@@ -901,6 +927,7 @@ async function start(): Promise<void> {
       const result = hb.start();
       if (result === 'noFuel') hud.toast(usingTouch() ? 'The tank is dry. Refuel it first.' : 'The tank is dry. Refuel it first (G).');
       else if (result === 'tooHot') hud.toast('The engine is still too hot to start. Give it a minute to cool.');
+      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (N).');
       else if (result === 'started' && !hb.primed) hud.toast("The engine catches, but the pump isn't primed: no water, and it will overheat running dry.");
     },
     clearHighbanker,

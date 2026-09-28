@@ -1,4 +1,5 @@
 import type { PanningSession } from './panningSession';
+import { REPAIR_KIT } from './wear';
 
 /**
  * The outfitter in town. Buying gear never unlocks where it can be used: a sluice only sets up
@@ -131,6 +132,15 @@ export function buyGear(session: PanningSession, id: GearId): BuyResult {
 }
 
 export type FuelResult = 'bought' | 'noPump' | 'full' | 'cantAfford';
+
+/** A repair kit, for any worn machine: the player's own or the crew's. */
+export function buyRepairKit(session: PanningSession): 'bought' | 'full' | 'cantAfford' {
+  if (session.repairKits >= REPAIR_KIT.carryLimit) return 'full';
+  if (session.cash < REPAIR_KIT.price) return 'cantAfford';
+  session.cash = Math.round((session.cash - REPAIR_KIT.price) * 100) / 100;
+  session.repairKits += 1;
+  return 'bought';
+}
 
 export function buyFuel(session: PanningSession): FuelResult {
   if (!session.owns('pump') && !session.owns('highbanker')) return 'noPump';

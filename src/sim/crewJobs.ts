@@ -9,6 +9,7 @@ import type { Rng } from './rng';
 import { Rocker, type RockerSnapshot } from './rocker';
 import { siteAllows, topLayerPays, traitsOf } from './sites';
 import { Sluice, bareKit, needsPump, type SluiceSnapshot } from './sluice';
+import { WEAR_TUNING } from './wear';
 
 /**
  * What a crew does at one site, job by job (see "Staffing System" in the design doc).
@@ -29,7 +30,7 @@ export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 
 export type CrewMachine = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'classifier';
 
 /** Why a job isn't getting done. */
-export type JobIdle = 'noMachine' | 'noSite' | 'noWater' | 'workedOut' | 'bucketFull' | 'noFuel' | 'nothingToFinish' | 'groundReady';
+export type JobIdle = 'noMachine' | 'noSite' | 'noWater' | 'workedOut' | 'bucketFull' | 'noFuel' | 'nothingToFinish' | 'groundReady' | 'needsService';
 
 /**
  * A site-level crew policy (see "Crew policies" in the design doc): one setting for how the whole
@@ -578,12 +579,23 @@ export function runJob(job: JobKind, dt: number, ctx: JobContext): JobIdle | nul
   }
 }
 
+/**
+ * A worn machine gets serviced with one of the player's repair kits, taking a while. Returns true
+ * while that holds the job up.
+ */
+function maintain(ctx: JobContext, st: JobState, wear: number, machine: { service(): void }): boolean {
+  if (wear < WEAR_TUNING.crewServiceAt || !ctx.session.service(machine)) return false;
+  st.timer = Math.max(st.timer, WEAR_TUNING.crewServiceTime * ctx.policy.pace);
+  return true;
+}
+
 function runSluice(dt: number, ctx: JobContext): JobIdle | null {
   const T = CREW_TUNING;
   const found = sluiceFor(ctx);
   if (!found) return 'noMachine';
   const { sluice, spot } = found;
   const st = ctx.site.state('sluice');
+  if (st.rinsing === null) maintain(ctx, st, sluice.wear, sluice);
 
   // Keep a pumped sluice fuelled from the player's cans.
   const pump = sluice.usesPump ? sluice.kit.pump : null;
@@ -676,6 +688,8 @@ function runHighbanker(dt: number, ctx: JobContext): JobIdle | null {
   } else {
     st.clogTime = 0;
   }
+  if (!hb.running) maintain(ctx, st, Math.max(hb.engineWear, hb.sluice.wear), hb);
+  if (hb.seized) return 'needsService';
   if (!hb.running && !hb.tooHot && hb.fuel > 0) hb.start();
   hb.step(dt, ctx.policy.throttle);
 
@@ -732,6 +746,7 @@ function runRocker(dt: number, ctx: JobContext): JobIdle | null {
   const rocker = ctx.site.rocker;
   if (!rocker) return 'noMachine';
   const st = ctx.site.state('rocker');
+  if (rocker.hopperVolume < 0.15) maintain(ctx, st, rocker.wear, rocker);
   rocker.step(dt);
   if (st.fetching !== null) {
     st.fetching -= dt;
@@ -783,6 +798,7 @@ function runDrywasher(dt: number, ctx: JobContext): JobIdle | null {
   const dw = ctx.site.drywasher;
   if (!dw) return 'noMachine';
   const st = ctx.site.state('drywasher');
+  if (!dw.hasLoad) maintain(ctx, st, dw.wear, dw);
   dw.step(dt, dw.hopperVolume > 0.005, ctx.policy.air);
   // Dust and a blinded screen get seen to a little late.
   st.clogTime = dw.dust > T.dustAt || dw.screenClog > T.clogAt ? st.clogTime + dt : 0;

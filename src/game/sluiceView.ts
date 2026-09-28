@@ -263,6 +263,14 @@ export class SluiceView extends Container {
       const p = this.pointAt(0.17 + ((i * 0.618) % 1) * 0.8);
       g.circle(p.x + up.x * 3, p.y + up.y * 3, 1.2).fill(0x0c0b0a);
     }
+    // Wear shows as bare patches where the moss has torn away from the riffles.
+    const torn = Math.floor(Math.min(1, sluice.wear) * 12);
+    for (let i = 0; i < torn; i++) {
+      const t = 0.18 + ((i * 0.381 + 0.13) % 1) * 0.78;
+      const p = this.pointAt(t);
+      const q = this.pointAt(t + 0.035);
+      g.poly([p.x, p.y - 1, q.x, q.y - 1, q.x + up.x * 7, q.y + up.y * 7, p.x + up.x * 7, p.y + up.y * 7]).fill(0xb8a47a);
+    }
     for (const glint of this.glints) {
       const p = this.pointAt(glint.t);
       const k = 6 * (glint.life / 0.4);

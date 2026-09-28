@@ -42,6 +42,8 @@ export interface SiteTraits {
   readonly fee: number;
   /** Most hired hands the ground has room and work for (see "Staff capacity by site scale"). */
   readonly crewMax: number;
+  /** Dollars a day per crew member there for supplies packed in: food, tools, water to a dry wash. */
+  readonly supplies: number;
   /** What ground like this means for the work, as a lead or the notebook puts it. */
   readonly groundNote: string;
   /** Worked-over ground: share of each layer's coarse gold already taken (see PanLoad.coarseTaken). */
@@ -78,6 +80,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 0,
     crewMax: 0,
+    supplies: 0,
     groundNote: 'shovel and pan ground',
   },
   creekStretch: {
@@ -101,6 +104,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 7,
     fee: 1,
     crewMax: 2,
+    supplies: 0,
     groundNote: 'shovel, pan and rocker ground, no steady water for a sluice',
   },
   creekBend: {
@@ -124,6 +128,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 2,
     crewMax: 2,
+    supplies: 0,
     groundNote: 'steady water and room on the bank: sluice ground',
   },
   gravelBar: {
@@ -148,6 +153,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 3,
     crewMax: 4,
+    supplies: 0,
     groundNote: 'wide and shallow, with sluice sites and room for a big crew, but high water comes through',
   },
   ravine: {
@@ -172,6 +178,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 3,
     fee: 2,
     crewMax: 2,
+    supplies: 3,
     groundNote: 'fast water and rich bedrock, but hard going and no room for a rocker',
   },
   dryWash: {
@@ -196,6 +203,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 20,
     fee: 1,
     crewMax: 3,
+    supplies: 4,
     groundNote: 'good ground with no water: drywasher country',
   },
   oldDiggings: {
@@ -226,6 +234,7 @@ export const SITE_TRAITS: Record<SiteKind, SiteTraits> = {
     fetchSeconds: 7,
     fee: 1,
     crewMax: 2,
+    supplies: 0,
     groundNote: 'old workings: tailings heaps of fine gold the old-timers lost, for a careful pan or a rocker, and not much left below',
     clues: 3,
     salvage: [2, 7],

@@ -14,6 +14,9 @@ import {
   type JobIdle,
   type JobKind,
   type Role,
+  wearWord,
+  WEAR_TUNING,
+  REPAIR_KIT,
   type Skill,
   type Pace,
   type FinancialState,
@@ -64,6 +67,9 @@ export interface HudActions {
   reveal(): void;
   collect(saveBlackSand: boolean): void;
   backToHole(): void;
+  /** Service the machine in the close-up with a repair kit. */
+  serviceMachine(): void;
+  buyRepairKit(): void;
   /** Snuff at the next point along the tail (keyboard and button). */
   snuff(): void;
   panConcentrate(): void;
@@ -226,6 +232,7 @@ const IDLE_WORDS: Record<JobIdle, string> = {
   noFuel: 'out of fuel cans',
   nothingToFinish: 'nothing to finish yet',
   groundReady: 'ground prepared: pay gravel open',
+  needsService: 'engine seized: needs a repair kit',
 };
 
 const ROLE_WORDS: Record<Role, string> = { hand: 'hand', operator: 'operator', foreman: 'foreman' };
@@ -270,6 +277,7 @@ const JOB_STATE_WORDS: Record<string, string> = {
   noFuel: 'out of fuel cans',
   nothingToFinish: 'nothing to finish yet',
   groundReady: 'ground prepared, nothing left to clear',
+  needsService: 'engine seized, waiting on a repair kit',
 };
 
 const CREW_GEAR: readonly [CrewMachine, string][] = [
@@ -481,6 +489,7 @@ export class Hud {
       const id = Number(target.dataset.lead);
       if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
       if (target.dataset.action === 'fuel') this.on.buyFuel();
+      if (target.dataset.action === 'kit') this.on.buyRepairKit();
       if (target.dataset.action === 'hire') this.on.hireApplicant(Number(target.dataset.applicant));
       if (target.dataset.action === 'dismiss') this.on.dismissHand(Number(target.dataset.worker));
       if (target.dataset.action === 'send') this.on.sendHand(Number(target.dataset.creek), target.dataset.role as Role);
@@ -746,7 +755,7 @@ export class Hud {
       if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (Y)', () => this.on.shovel('drywasher')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !dw.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoDrywasher()]);
       if (dw.drawerVolume > 0.001 || dw.drawerGoldCount > 0) list.push(['Pull the drawer (C)', () => this.on.pullDrawer()]);
-      list.push(...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
+      list.push(...this.mendButton(state, dw.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
     if (mode === 'highbanker' && state.highbanker) {
@@ -761,6 +770,7 @@ export class Hud {
       else if (hb.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.clearHighbanker()]);
       if (state.spot && state.creek.blockedBy(state.spot) === null && !hb.hopperFull) list.push(['Shovel into the hopper (F)', () => this.on.shovel('highbanker')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !hb.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoHighbanker()]);
+      list.push(...this.mendButton(state, hb.seized ? 1 : Math.max(hb.engineWear, hb.sluice.wear)));
       list.push(...this.highbankerFuelButton(state), ['Clean out the moss (C)', () => this.on.highbankerCleanout()], ...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the highbanker', () => this.on.takeDownHighbanker()]);
       return list;
@@ -775,7 +785,7 @@ export class Hud {
       if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (H)', () => this.on.shovel('rocker')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !r.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoRocker()]);
       if (r.apronVolume > 0.001 || r.apronGoldCount > 0) list.push(['Clean up the apron (C)', () => this.on.cleanUpRocker()]);
-      list.push(...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
+      list.push(...this.mendButton(state, r.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
     if (mode === 'magnet') {
@@ -797,7 +807,7 @@ export class Hud {
       list.push(...this.refuelButton(state));
       if (state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel into sluice (F)', () => this.on.shovel('sluice')]);
       list.push(['Clean out the moss (C)', () => this.on.startCleanout()]);
-      list.push(...this.jarButton(session));
+      list.push(...this.mendButton(state, state.sluice.wear), ...this.jarButton(session));
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()], ['Take down the sluice', () => this.on.takeDownSluice()]);
       return list;
     }
@@ -830,7 +840,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${state.crew.applicants.map((a) => a.id).join()}:${mode}:${this.townTab}:${this.panelCollapsed}:${this.showOldLeads}:${this.showReleased}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${session.repairKits}:${state.crew.applicants.map((a) => a.id).join()}:${mode}:${this.townTab}:${this.panelCollapsed}:${this.showOldLeads}:${this.showReleased}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -867,6 +877,18 @@ export class Hud {
             ),
           ).join(''),
       );
+      // Repair kits, once there's a machine to wear out: the player's own or the crew's.
+      const machines = (['sluice', 'rocker', 'drywasher', 'highbanker'] as const).some((g) => session.owns(g)) || Object.values(crew.spares).some((n) => n > 0) || crew.sites.some((s) => s.crewSluice || s.crewHighbanker || s.rocker || s.drywasher);
+      if (machines) {
+        const full = session.repairKits >= REPAIR_KIT.carryLimit;
+        gear.push(
+          ware(
+            REPAIR_KIT.name,
+            `<p class="small">Fresh moss, canvas, riffle bolts and a gasket set. Machines wear with every load, faster fed rocks or run hard, and a worn one keeps less of the fine gold; an engine worn out seizes. One kit puts any machine right, yours or the crew's: your crew uses yours. You're carrying ${session.repairKits} of ${REPAIR_KIT.carryLimit}.</p>`,
+            priceTag('data-action="kit"', REPAIR_KIT.price, session.cash, full ? 'Can’t carry more' : null),
+          ),
+        );
+      }
       if (session.owns('pump') || session.owns('highbanker')) {
         const full = session.fuelCans >= FUEL_CAN.carryLimit;
         gear.push(
@@ -919,6 +941,13 @@ export class Hud {
     }
   }
 
+  /** Offered once a machine has worn enough to be worth a repair kit. */
+  private mendButton(state: HudState, wear: number): [string, () => void][] {
+    if (wear < WEAR_TUNING.serviceAt) return [];
+    const kits = state.session.repairKits;
+    return [[kits > 0 ? `Mend it (N) · ${kits} kit${kits === 1 ? '' : 's'}` : 'Mend it (N) · no kits', () => this.on.serviceMachine()]];
+  }
+
   /** Offered once the highbanker's tank is low enough for a can to be worth pouring in. */
   private highbankerFuelButton(state: HudState): [string, () => void][] {
     const hb = state.highbanker;
@@ -965,10 +994,10 @@ export class Hud {
     });
     const home = `<tr><td><span class="entry">${region.home.profile.name}</span><span class="note">free, always yours</span></td><td>—</td><td>—</td></tr>`;
     const payroll = crew.workers.length
-      ? `<tr><td><span class="entry">Wages</span><span class="note">${crew.workers.length} on the payroll</span></td><td>${crew.dailyWages.toFixed(2)}</td><td>${cents(Math.max(0, crew.wagesOwed))}</td></tr>`
+      ? `<tr><td><span class="entry">Wages</span><span class="note">${crew.workers.length} on the payroll${crew.dailySupplies(region) > 0 ? `, supplies $${crew.dailySupplies(region).toFixed(2)}` : ''}</span></td><td>${(crew.dailyWages + crew.dailySupplies(region)).toFixed(2)}</td><td>${cents(Math.max(0, crew.wagesOwed))}</td></tr>`
       : '';
     const fees = economy.allClaims.filter((c) => c.status === 'held').reduce((n, c) => n + c.fee, 0);
-    const total = `<tr class="total"><td>Total</td><td>${(fees + crew.dailyWages).toFixed(2)}</td><td>${cents(economy.feesOwed + Math.max(0, crew.wagesOwed))}</td></tr>`;
+    const total = `<tr class="total"><td>Total</td><td>${(fees + crew.dailyWages + crew.dailySupplies(region)).toFixed(2)}</td><td>${cents(economy.feesOwed + Math.max(0, crew.wagesOwed))}</td></tr>`;
     return (
       `<div class="ledger"><div class="ledger-head">Claims ledger<span>Day ${economy.day}</span></div>` +
       `<table><thead><tr><th>Claim</th><th>A day</th><th>Owed</th></tr></thead><tbody>${rows.join('')}${home}${payroll}${total}</tbody></table></div>`
@@ -1162,6 +1191,7 @@ export class Hud {
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
     } else if (state.mode === 'rocker') {
+      if (key === 'n') return this.on.serviceMachine();
       if (key === ' ' && !repeat) this.on.rock();
       else if (key === 'l') this.on.ladle();
       else if (key === 'e') this.on.fetchWater();
@@ -1197,6 +1227,7 @@ export class Hud {
       else if (key === 'c' && !state.cleaningOut) this.on.startCleanout();
       else if (key === 'l' && state.cleaningOut) this.on.liftMat();
       else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'n') this.on.serviceMachine();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'classifier' && state.classifier) {
       if (key === 't' && state.classifier.hasLoad) this.on.tipOff();
@@ -1211,6 +1242,7 @@ export class Hud {
       else if (key === 'c') this.on.pullDrawer();
       else if (key === 'y') this.on.shovel('drywasher');
       else if (key === 'b') this.on.pourIntoDrywasher();
+      else if (key === 'n') this.on.serviceMachine();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'highbanker' && state.highbanker) {
@@ -1223,6 +1255,7 @@ export class Hud {
       else if (key === 'g') this.on.refuelHighbanker();
       else if (key === 'c' && !hb.rinsing) this.on.highbankerCleanout();
       else if (key === 'l' && hb.rinsing) this.on.liftHighbankerMat();
+      else if (key === 'n') this.on.serviceMachine();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
@@ -1358,7 +1391,7 @@ export class Hud {
 
     // Costs.
     const c = costOverview(state);
-    const burn = c.feesPerDay + c.wagesPerDay;
+    const burn = c.feesPerDay + c.wagesPerDay + c.suppliesPerDay;
     const m = state.money;
     const runway = burn > 0 ? session.cash / burn : Infinity;
     const stateLine =
@@ -1378,6 +1411,7 @@ export class Hud {
       `<tr><td>Cash on hand</td><td>${money(session.cash)}</td></tr>` +
       `<tr><td>Claim fees a day</td><td>${money(c.feesPerDay)}</td></tr>` +
       `<tr><td>Wages a day</td><td>${money(c.wagesPerDay)}</td></tr>` +
+      (c.suppliesPerDay > 0 ? `<tr><td>Supplies a day</td><td>${money(c.suppliesPerDay)} <span class="small">(remote crews)</span></td></tr>` : '') +
       `<tr><td><b>Costs a day</b></td><td><b>${money(burn)}</b></td></tr>` +
       `<tr><td>Cash lasts</td><td>${burn <= 0 ? '—' : runway < 0.5 ? 'under half a day' : `about ${Math.round(runway * 2) / 2} days`}</td></tr>` +
       `</table>` +
@@ -1403,7 +1437,10 @@ export class Hud {
       if (g.id === 'highbanker' && session.highbankerPlace) return `${g.name} (set up at ${region.creek(session.highbankerPlace.creekId).profile.name})`;
       return g.name;
     });
-    const gear = ['Shovel', 'Pan', ...owned].join(', ') + (session.fuelCans ? `; ${session.fuelCans} fuel can${session.fuelCans === 1 ? '' : 's'}` : '');
+    const gear =
+      ['Shovel', 'Pan', ...owned].join(', ') +
+      (session.fuelCans ? `; ${session.fuelCans} fuel can${session.fuelCans === 1 ? '' : 's'}` : '') +
+      (session.repairKits ? `; ${session.repairKits} repair kit${session.repairKits === 1 ? '' : 's'}` : '');
     const held = views.length;
     const openLeads = region.leads.filter((l) => l.status === 'open').length;
     const wages = crew.dailyWages;
@@ -1457,7 +1494,8 @@ export class Hud {
       `<table class="tablet-table">` +
       `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map(workerWords).join(', ') : 'none'}</td></tr>` +
       `<tr><td>Working</td><td>${POLICY_WORDS[v.policy].name.toLowerCase()} <span class="small">(set in town)</span></td></tr>` +
-      `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
+      `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages${v.suppliesPerDay > 0 ? ` + ${money(v.suppliesPerDay)} supplies` : ''} + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
+      (v.machineWear > 0 ? `<tr><td>Machines</td><td>${wearWord(v.machineWear)}</td></tr>` : '') +
       `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +
       `<tr><td>Take</td><td>${take}</td></tr>` +
       `<tr><td>Waiting to collect</td><td>crew bucket ${sand}${v.waiting.gold ? `, ${v.waiting.gold} piece${v.waiting.gold === 1 ? '' : 's'} of gold in the poke` : ''}</td></tr>` +
@@ -1511,6 +1549,7 @@ export class Hud {
         ['Screen', dw.screenClog > 0.6 ? 'blinded' : dw.screenClog > 0.25 ? 'clogging' : 'clear'],
         ['On the screen', !dw.hasLoad ? 'empty' : dw.screened ? 'only rocks left' : hopper > 0.8 ? 'heaped' : 'gravel'],
         ['Drawer', drawer > 0.85 ? 'full' : drawer > 0.6 ? 'heavy' : drawer > 0.25 ? 'filling' : 'light'],
+        ['Cloth', wearWord(dw.wear)],
       ];
     } else if (mode === 'highbanker' && state.highbanker) {
       const hb = state.highbanker;
@@ -1519,13 +1558,15 @@ export class Hud {
       const hopper = hb.hopperVolume / HIGHBANKER_TUNING.hopperMax;
       const moss = hb.sluice.mossLoading;
       rows = [
-        ['Engine', hb.running ? 'running' : hb.tooHot ? 'stalled, too hot' : hb.fuel <= 0 ? 'out of fuel' : 'stopped'],
+        ['Engine', hb.seized ? 'seized' : hb.running ? 'running' : hb.tooHot ? 'stalled, too hot' : hb.fuel <= 0 ? 'out of fuel' : 'stopped'],
+        ['Engine hours', wearWord(hb.engineWear)],
         ['Pump', state.priming ? 'priming' : hb.primed ? 'primed' : hb.running ? 'sucking air' : 'not primed'],
         ['Water', hb.rinsing ? 'rinsing' : state.highbankerEvents?.spraying ? state.highbankerEvents.sluice.state : 'none'],
         ['Heat', heat > 0.85 ? 'overheating' : heat > 0.6 ? 'hot' : heat > 0.3 ? 'warm' : 'cool'],
         ['Fuel', `${fuel > 0.6 ? 'plenty' : fuel > 0.3 ? 'half' : fuel > 0.1 ? 'low' : fuel > 0 ? 'nearly out' : 'empty'} · ${state.session.fuelCans} can${state.session.fuelCans === 1 ? '' : 's'}`],
         ['Hopper', hb.jammed ? 'jammed' : hopper > 0.85 ? 'heaped' : hopper > 0.05 ? 'feeding' : 'empty'],
         ['Moss', moss > 0.85 ? 'full' : moss > 0.6 ? 'heavy' : moss > 0.25 ? 'loading' : 'fresh'],
+        ['Riffles', wearWord(hb.sluice.wear)],
       ];
     } else if (mode === 'rocker' && state.rocker) {
       const r = state.rocker;
@@ -1537,6 +1578,7 @@ export class Hud {
         ['Bucket', `${r.bucket} of ${ROCKER_TUNING.bucketLadles} ladles`],
         ['Screen', !r.hasLoad ? 'empty' : r.screened ? 'only rocks left' : 'gravel'],
         ['Apron', apron > 0.85 ? 'full' : apron > 0.6 ? 'heavy' : apron > 0.25 ? 'loading' : 'fresh'],
+        ['Canvas', wearWord(r.wear)],
       ];
     } else if (mode === 'magnet') {
       const fill = session.jar.blackSand / session.jarCapacity;
@@ -1576,6 +1618,7 @@ export class Hud {
         ['Slope', SLOPE_WORDS[sl.slopeState()]],
         ['Run duration', runLabel],
         ['Tailings loss', tailingsLabel],
+        ['Riffles', wearWord(sl.wear)],
       ];
       const pump = sl.usesPump ? sl.kit.pump : null;
       if (pump) {

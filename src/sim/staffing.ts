@@ -184,6 +184,19 @@ export class Crew {
     return this.workers.reduce((n, w) => n + w.wage, 0);
   }
 
+  /**
+   * Supplies a day for crews out at remote stretches (a ravine's long walk in, water hauled to a
+   * dry wash), paid in town with the wages. Near stretches need none.
+   */
+  dailySupplies(region: Pick<Region, 'creek'>): number {
+    return this.workers.reduce((n, w) => (w.siteId === null ? n : n + traitsOf(region.creek(w.siteId).profile.site).supplies), 0);
+  }
+
+  /** Supplies a day for the crew at one stretch. */
+  suppliesAt(creek: Creek): number {
+    return this.workersAt(creek.id).length * traitsOf(creek.profile.site).supplies;
+  }
+
   /** More than a day's wages behind (or any owed with no crew left): expansion is restricted. */
   get wagesOverdue(): boolean {
     return this.wagesOwed > this.dailyWages;
@@ -397,10 +410,11 @@ export class Crew {
    * Wages run by the game day, working or not. If they go too long unpaid, the last hand hired
    * walks off; whatever is owed stays owed. Returns who quit, if anyone.
    */
-  accrue(seconds: number): Worker | null {
+  accrue(seconds: number, region?: Pick<Region, 'creek'>): Worker | null {
     if (this.workers.length === 0 || seconds <= 0) return null;
-    this.wagesOwed += (this.dailyWages * seconds) / ECONOMY_TUNING.daySeconds;
-    const limit = this.dailyWages * STAFF_TUNING.quitDays;
+    const daily = this.dailyWages + (region ? this.dailySupplies(region) : 0);
+    this.wagesOwed += (daily * seconds) / ECONOMY_TUNING.daySeconds;
+    const limit = daily * STAFF_TUNING.quitDays;
     if (this.wagesOwed <= limit) return null;
     this.wagesOwed = limit;
     return this.workers.pop() ?? null;

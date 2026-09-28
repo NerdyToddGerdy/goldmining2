@@ -54,6 +54,8 @@ export interface SessionSnapshot {
   readonly pumpFuel: number;
   /** Spare cans of fuel carried. */
   readonly fuelCans: number;
+  /** Repair kits carried. Absent means none. */
+  readonly repairKits?: number;
 }
 
 /** Where a sluice is set up. */
@@ -100,6 +102,8 @@ export class PanningSession {
   /** Magnetite share of the last jar pour, so what goes back keeps it. */
   private pourMagnetiteShare: number = MAGNET_TUNING.share;
   fuelCans = 0;
+  /** Repair kits carried, for servicing worn machines (see wear.ts). */
+  repairKits = 0;
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -122,6 +126,7 @@ export class PanningSession {
     this.fitKit();
     if (this.sluiceKit.pump) this.sluiceKit.pump.fuel = saved.pumpFuel;
     this.fuelCans = saved.fuelCans;
+    this.repairKits = saved.repairKits ?? 0;
     if (saved.classifier) this.classifier = new Classifier(rng, saved.classifier);
     if (saved.rocker) this.rocker = new Rocker(rng, saved.rocker);
     if (saved.drywasher) this.drywasher = new Drywasher(rng, saved.drywasher);
@@ -160,7 +165,19 @@ export class PanningSession {
         : null,
       pumpFuel: this.sluiceKit.pump?.fuel ?? 0,
       fuelCans: this.fuelCans,
+      repairKits: this.repairKits,
     });
+  }
+
+  /**
+   * Service a worn machine with one of the repair kits carried: it's back to new. Refused (false)
+   * with no kit to hand.
+   */
+  service(machine: { service(): void }): boolean {
+    if (this.repairKits <= 0) return false;
+    this.repairKits -= 1;
+    machine.service();
+    return true;
   }
 
   /** Bring the sluice kit in line with the gear owned. */

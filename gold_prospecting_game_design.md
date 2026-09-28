@@ -316,6 +316,8 @@ Low-cost recovery options:
 - **Paying:** fees and wages come out of cash automatically in town, as far as the cash goes, on arriving and after each sale.
 - **Lapsing:** a claim more than three days behind lapses. It can't be dug, the sluice can't be set up on it, and a hand won't work it until it's paid up.
 - **Ground left:** each claim in the Claims & crew tab shows roughly how much of the stretch is left to dig, to the nearest 10% ("About 60% of its ground left to dig", "Untouched", "Worked out"). It measures digging left, not gold left, so what the ground holds stays hidden.
+- **Wear and repair kits:** every sluice, rocker, drywasher and highbanker wears with the material through it, faster fed unscreened rocks or run too hard (overpowered water, a choppy or flooded rocker, overblown air). A sluice lasts about 200 shovelfuls before it's worn out, a rocker or drywasher about 100; a highbanker's heavier box wears slower but its engine wears with running hours, faster run hot, and seizes when worn out. A worn machine still runs but keeps less of the fine gold (a worn-out one loses about half its fines), which the player sees as torn moss, reads in the inspect panel (sound, wearing, worn, worn out), and finds at cleanout. A **repair kit** ($5, carry four) puts any machine right in the close-up (Mend it, N); crews use the player's kits the way they use the fuel cans, and a crew highbanker with a seized engine stands idle until a kit arrives. The pan and shovel never wear.
+- **Supplies:** crews at remote stretches cost supplies on top of wages, paid in town with them: $3 a day per crew member at a narrow ravine, $4 at a dry wash (water hauled in). Nearer stretches need none.
 - **Releasing** a claim writes off what it owes; re-staking it later costs a $5 recording fee. A claim with the sluice set up on it can't be released until the sluice comes down. Released claims leave the ledger and fold into a "released claims" list at the end of Claims & crew, still there to re-stake, since ground given up for a pan can pay later for a better machine.
 - **Being behind** (any claim lapsed, or wages more than a day overdue) blocks new gear, leads and hires. Nothing owned is ever taken, and fuel can still be bought. The Home Creek is never a claim and never costs anything, so panning it always pays the way back.
 
@@ -579,7 +581,7 @@ Example warning:
   - **Crew:** who is at each stretch, their wages, jobs left unfilled, who is waiting in town, and spare crew gear; with nobody hired, what hiring would get you.
   - **Leads:** the notebook (on the region map, drawn as a paper field book: leads pencilled in, duds struck out, finds circled; only leads still to follow are shown, with followed and dud leads folded away as "old leads" at the back), read-only here, and how many leads are for sale in town.
   - **Costs:** cash, fees and wages a day, how long cash lasts at that rate, what's owed, and the financial state with the countdown to shutdown when insolvent.
-  - Not yet: accident and maintenance risk (not modelled), and setting crew policy from the tablet (see "Crew policies").
+  - Not yet: accident risk (not modelled), and setting crew policy from the tablet (see "Crew policies"). Machine wear shows on each claim's sheet.
 - **Town, on paper:** in town the side panel is the counter. The outfitter's wares carry manila price tags that are also the buy buttons (saying what's short, or why not), with a red stamp on gear the player owns; leads for sale are pinned index cards; and the claims office opens on a ledger page of every claim's fee a day and what it owes, the payroll, and the total.
 
 ## Equipment UX Philosophy
@@ -919,7 +921,7 @@ Example sluice progression:
 2. Better classifier: fewer jams and more consistent material size. *(the hand classifier is in the game)*
 3. Improved miner's moss or riffle insert: better fine-material capture. *(in the game)*
 4. Adjustable legs: reliable slope control at imperfect sites. *(in the game)*
-5. Recirculating pump: allows operation away from a naturally strong creek, at fuel and maintenance cost. *(in the game, fuel only so far)*
+5. Recirculating pump: allows operation away from a naturally strong creek, at fuel and maintenance cost. *(in the game: fuel, and the sluice it feeds wears like any other)*
 6. Highbanker hopper: increases material movement but introduces hoses, pump management, and clog risk.
 7. Worker operation: staff can run the system at reduced efficiency while the player prospects.
 8. Instrumented setup: improved reporting and estimates, while retaining site-specific risks.
