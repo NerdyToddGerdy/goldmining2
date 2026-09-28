@@ -722,6 +722,7 @@ The most repeated actions don't make the player repeat themselves:
 - **Holding the shovel:** holding a shovel key or button keeps shovelling at a steady pace: about one every two seconds into a machine (a brisk hand pace, so throughput is unchanged; tapping faster still overfeeds a trommel), and quicker tossing topsoil. It stops at the first refusal (a heaped hopper, a full header, a boulder, a flooded hole) and, tossing, once it's down to gravel. The browser's own key repeat is ignored, so holding a key can't pour loads in faster than a hand could.
 - **Coming back:** returning from town or the region map goes straight to the hole the player left (the creek map is one Esc away).
 - **Following a lead:** when it proves real, the player is standing on the new stretch; a dud leaves them on the map.
+- **One Feed key, one Watch key:** at the hole, F feeds and V opens whatever machine stands there (the sluice, highbanker or trommel, or else the drywasher or rocker), and F feeds it inside its close-up too. The classifier keeps its own keys (K, C) since it stands beside a machine, and a second portable machine keeps its old ones.
 
 ## Sluice UX Specification
 

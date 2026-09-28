@@ -627,15 +627,15 @@ export class Hud {
       mode === 'bank' && state.drywasher
         ? usingTouch()
           ? 'A dry wash: drag shovelfuls up to the drywasher behind the classifier, or to the pan if the wash tub has water. Tap the drywasher for a close look.'
-          : 'A dry wash: drag shovelfuls up to the drywasher (Y), or to the pan (P) if the wash tub has water. Click the drywasher for a close look.'
+          : 'A dry wash: drag shovelfuls up to the drywasher (F), or to the pan (P) if the wash tub has water. Click the drywasher for a close look.'
         : mode === 'bank' && !state.canPan
         ? usingTouch()
           ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile. A wash tub or a drywasher from town would help.'
-          : 'No water in a dry wash: drag shovelfuls to the rocker (H), with water you haul in, or the spoil pile (S). A wash tub or a drywasher from town would help.'
+          : 'No water in a dry wash: drag shovelfuls to the rocker (F), with water you haul in, or the spoil pile (S). A wash tub or a drywasher from town would help.'
         : mode === 'bank' && state.rocker && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls up to the rocker behind the pan, to the pan, or to the spoil pile. Tap the rocker for a close look.'
-          : 'Drag shovelfuls up to the rocker behind the pan (H), to the pan (P), or to the spoil pile (S). Click the rocker for a close look.'
+          : 'Drag shovelfuls up to the rocker behind the pan (F), to the pan (P), or to the spoil pile (S). Click the rocker for a close look.'
         : mode === 'bank' && state.classifier && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
@@ -811,9 +811,11 @@ export class Hud {
         if (blocked === null) list.push(['Shovel onto the classifier (K)', () => this.on.shovel('classifier')]);
         list.push(['Classifier (C)', () => this.on.openClassifier()]);
       }
+      // F feeds and V watches the machine at the hole; a second one keeps its own keys.
+      const main = machineAtHole(state);
       if (state.rocker) {
-        if (blocked === null) list.push(['Shovel onto the rocker (H)', this.feed('rocker')]);
-        list.push(['Rocker (O)', () => this.on.openRocker()]);
+        if (blocked === null) list.push([main === 'rocker' ? 'Shovel onto the rocker (F)' : 'Shovel onto the rocker (H)', this.feed('rocker')]);
+        list.push([main === 'rocker' ? 'Watch the rocker (V)' : 'Rocker (O)', () => this.on.openRocker()]);
       }
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', this.feed('sluice')]);
@@ -823,8 +825,8 @@ export class Hud {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
       if (state.drywasher) {
-        if (blocked === null) list.push(['Shovel onto the drywasher (Y)', this.feed('drywasher')]);
-        list.push(['Drywasher (D)', () => this.on.openDrywasher()]);
+        if (blocked === null) list.push([main === 'drywasher' ? 'Shovel onto the drywasher (F)' : 'Shovel onto the drywasher (Y)', this.feed('drywasher')]);
+        list.push([main === 'drywasher' ? 'Watch the drywasher (V)' : 'Drywasher (D)', () => this.on.openDrywasher()]);
       }
       if (state.tub && (state.tub.water < 1 || state.tub.turbidity > 0)) {
         list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (U)', () => this.on.changeTubWater()]);
@@ -864,7 +866,7 @@ export class Hud {
       if (dw.dust > 0.15) list.push(['Shake out the dust (D)', () => this.on.shakeOutDust()]);
       if (dw.screenClog > 0.15) list.push(['Knock the screen (K)', () => this.on.knockScreen()]);
       if (dw.hasLoad) list.push([dw.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipDrywasher()]);
-      if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (Y)', this.feed('drywasher')]);
+      if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (F)', this.feed('drywasher')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !dw.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoDrywasher()]);
       if (dw.drawerVolume > 0.001 || dw.drawerGoldCount > 0) list.push(['Pull the drawer (C)', () => this.on.pullDrawer()]);
       list.push(...this.mendButton(state, dw.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
@@ -908,7 +910,7 @@ export class Hud {
       if (r.bucket > 0) list.push([`Ladle water (L) · ${r.bucket} left`, () => this.on.ladle()]);
       if (r.bucket < ROCKER_TUNING.bucketLadles) list.push(['Fetch water (E)', () => this.on.fetchWater()]);
       if (r.hasLoad) list.push([r.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipRocker()]);
-      if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (H)', this.feed('rocker')]);
+      if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (F)', this.feed('rocker')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !r.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoRocker()]);
       if (r.apronVolume > 0.001 || r.apronGoldCount > 0) list.push(['Clean up the apron (C)', () => this.on.cleanUpRocker()]);
       list.push(...this.mendButton(state, r.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
@@ -1382,7 +1384,7 @@ export class Hud {
       else if (key === 'e') this.on.fetchWater();
       else if (key === 't') this.on.tipRocker();
       else if (key === 'c') this.on.cleanUpRocker();
-      else if (key === 'h') this.on.shovel('rocker');
+      else if (key === 'f' || key === 'h') this.on.shovel('rocker');
       else if (key === 'b') this.on.pourIntoRocker();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
@@ -1427,7 +1429,7 @@ export class Hud {
       else if (key === 'k') this.on.knockScreen();
       else if (key === 't') this.on.tipDrywasher();
       else if (key === 'c') this.on.pullDrawer();
-      else if (key === 'y') this.on.shovel('drywasher');
+      else if (key === 'f' || key === 'y') this.on.shovel('drywasher');
       else if (key === 'b') this.on.pourIntoDrywasher();
       else if (key === 'n') this.on.serviceMachine();
       else if (key === 'j') this.on.panConcentrate();
@@ -1457,18 +1459,15 @@ export class Hud {
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
-      if (key === 'f' && state.trommel) this.on.shovel('trommel');
-      else if (key === 'v' && state.trommel) this.on.openTrommel();
+      const main = machineAtHole(state);
+      if (key === 'f' && main) this.on.shovel(main);
+      else if (key === 'v' && main) this.watch(main);
       else if (key === 'k' && state.classifier) this.on.shovel('classifier');
       else if (key === 'c' && state.classifier) this.on.openClassifier();
-      else if (key === 'f' && state.sluice) this.on.shovel('sluice');
-      else if (key === 'v' && state.sluice) this.on.openSluice();
       else if (key === 'g' && state.sluice) this.on.refuelPump();
-      else if (key === 'f' && state.highbanker) this.on.shovel('highbanker');
       else if (key === 'y' && state.drywasher) this.on.shovel('drywasher');
       else if (key === 'd' && state.drywasher) this.on.openDrywasher();
       else if (key === 'u' && state.tub) this.on.changeTubWater();
-      else if (key === 'v' && state.highbanker) this.on.openHighbanker();
       else if (key === 'g' && state.highbanker) this.on.refuelHighbanker();
       else if (key === 'w') this.on.collectCrew();
       else if (key === 'p') this.on.shovel('pan');
@@ -1482,6 +1481,15 @@ export class Hud {
       else if (key === 'h' && state.rocker) this.on.shovel('rocker');
       else if (key === 'o' && state.rocker) this.on.openRocker();
     }
+  }
+
+  /** Open the close-up of the machine at the hole. */
+  private watch(machine: Exclude<HoldTarget, 'spoil'>): void {
+    if (machine === 'trommel') this.on.openTrommel();
+    else if (machine === 'highbanker') this.on.openHighbanker();
+    else if (machine === 'sluice') this.on.openSluice();
+    else if (machine === 'drywasher') this.on.openDrywasher();
+    else this.on.openRocker();
   }
 
   openTablet(): void {
@@ -1637,7 +1645,7 @@ export class Hud {
     switch (state.mode) {
       case 'bank':
         if (key === 's') return 'spoil';
-        if (key === 'f') return state.trommel ? 'trommel' : state.sluice ? 'sluice' : state.highbanker ? 'highbanker' : null;
+        if (key === 'f') return machineAtHole(state);
         if (key === 'y' && state.drywasher) return 'drywasher';
         if (key === 'h' && state.rocker) return 'rocker';
         return null;
@@ -1648,9 +1656,9 @@ export class Hud {
       case 'trommel':
         return key === 'f' && !state.trommel?.rinsing ? 'trommel' : null;
       case 'rocker':
-        return key === 'h' ? 'rocker' : null;
+        return key === 'f' || key === 'h' ? 'rocker' : null;
       case 'drywasher':
-        return key === 'y' ? 'drywasher' : null;
+        return key === 'f' || key === 'y' ? 'drywasher' : null;
       default:
         return null;
     }
@@ -2121,6 +2129,20 @@ function button(label: string, onClick: () => void, onHold?: () => void): HTMLEl
 
 /** Targets a held shovel can keep feeding, and the pace it keeps (seconds a shovelful). */
 type HoldTarget = 'spoil' | 'sluice' | 'highbanker' | 'trommel' | 'rocker' | 'drywasher';
+/**
+ * The machine at the hole that the one Feed key (F) and Watch key (V) work: the big wash machine
+ * if one's set up here (only one ever is), otherwise the drywasher or rocker. The classifier keeps
+ * its own keys, since it stands beside a machine rather than instead of one.
+ */
+function machineAtHole(state: HudState): Exclude<HoldTarget, 'spoil'> | null {
+  if (state.trommel) return 'trommel';
+  if (state.highbanker) return 'highbanker';
+  if (state.sluice) return 'sluice';
+  if (state.drywasher) return 'drywasher';
+  if (state.rocker) return 'rocker';
+  return null;
+}
+
 const HOLD_EVERY: Record<HoldTarget, number> = { spoil: 0.7, sluice: 2, highbanker: 2, trommel: 2, rocker: 2.2, drywasher: 2.2 };
 
 function escapeHtml(text: string): string {
