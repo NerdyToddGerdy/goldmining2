@@ -274,6 +274,38 @@
       .tablet-group { padding: 8px 0; border-top: 1px solid rgba(239, 230, 207, 0.15); }
       .tablet-group:first-child { border-top: none; }
       /* Messages drop out from under the corner tablet, on the same screen. */
+      /* The first-pan walkthrough: a small note beside the pan, one step at a time. */
+      .walk {
+        position: absolute; left: var(--edge-l); bottom: calc(var(--edge-b) + 60px); width: min(270px, 34vw); padding: 10px 12px 12px;
+        background: #ece0ad; color: #3a3830; border-top: 6px solid #4b5530; border-radius: 3px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        pointer-events: auto; font-size: 13px; line-height: 1.4;
+      }
+      .walk[hidden] { display: none; }
+      .walk-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+      .walk-head b { font: 700 17px Kalam, cursive; }
+      .hud .walk button.link { background: none; border: none; padding: 0; min-height: 0; color: #3a3830; text-decoration: underline; font-size: 12px; }
+      .walk ol { margin: 0; padding-left: 20px; }
+      .walk li { color: rgba(58, 56, 48, 0.45); padding: 1px 0; }
+      .walk li.done { color: rgba(58, 56, 48, 0.55); text-decoration: line-through; }
+      .walk li.now { color: #3a3830; }
+      .walk li p { margin: 2px 0 4px; }
+      .walk-read { margin: 6px 0 0; font: 700 15px Kalam, cursive; }
+      .walk-warn { margin: 4px 0 0; color: #a3402a; font-weight: 600; }
+      .walk-count { margin-left: auto; margin-right: 10px; font-size: 12px; opacity: 0.7; }
+      /* Short screens: just the step at hand, so the card stays clear of the pan. */
+      @media (max-height: 500px) {
+        .walk { bottom: calc(var(--edge-b) + 52px); width: min(230px, 30vw); font-size: 12px; padding: 6px 10px 8px; }
+        .walk ol { padding-left: 0; list-style: none; }
+        .walk li:not(.now) { display: none; }
+        .walk li p { margin: 1px 0 2px; }
+      }
+      .tablet-body .checklist { list-style: none; margin: 4px 0 10px; padding: 0; }
+      .tablet-body .checklist li { display: flex; gap: 8px; padding: 2px 0; opacity: 0.6; }
+      .tablet-body .checklist li.done { opacity: 0.55; }
+      .tablet-body .checklist li.done > span:last-child { text-decoration: line-through; }
+      .tablet-body .checklist li.next { opacity: 1; font-weight: 600; }
+      .tablet-body .checklist li.next .small { font-weight: 400; margin-top: 2px; }
+      .tablet-body .checklist .tick { width: 1em; color: #9fd08a; }
       .hud-toast {
         position: absolute; right: calc(var(--edge-r) + 6px); top: 60px; z-index: 6; max-width: min(360px, 60vw);
         pointer-events: auto; cursor: pointer;

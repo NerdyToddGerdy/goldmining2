@@ -20,6 +20,8 @@ export class PanCoach {
   private cooldown = 0;
   private revealWarnedAt = -Infinity;
   private time = 0;
+  /** The first-pan walkthrough is showing: leave the teaching to it, and only warn about losses. */
+  guided = false;
 
   constructor(private readonly say: (message: string) => void) {}
 
@@ -55,6 +57,8 @@ export class PanCoach {
             ? 'Gold is going over the lip. This sand is fine and silty: it washes quick but won’t take much tip. Tip less, or sift level to settle it.'
             : 'Gold is going over the lip. Tip the pan less, or sift it level for a moment to settle it.',
       );
+    } else if (this.guided) {
+      // The walkthrough card is teaching this pan.
     } else if (!this.toldAboutClay && this.tippedWithClay > 2) {
       this.toldAboutClay = true;
       this.nudge('Nothing washes out while there is clay holding the gravel together. Keep sifting until the water clears.');

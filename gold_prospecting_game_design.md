@@ -580,6 +580,7 @@ Example warning:
 - **Estimates:** the claim's entry shows how many days of ground are left at the crew's pace, and a rough daily take for a hand built only from the player's own field notes.
 - **Field tablet:** the player's central place for information, always to hand on a creek, the region map and in town, crew or no crew. The clock and cash in the corner are drawn as the tablet itself: tap it (or press O) to open it, and its light turns red when the books or a claim need the player. It only reads; buying, hiring and setting jobs still happen in town. Game time stands still while it's open.
   - **Messages** arrive on the tablet: each one drops out from under it and its light blinks, and the last few are kept on the Overview.
+  - **Getting started:** until they're all done, the Overview opens with the early game's first steps: pan some colour, sell it in town, save black sand, find a lead, stake a new stretch, buy a machine, hire a crew. Each ticks the first time it happens and stays ticked (it's kept in the save); the next one shows how. A message marks each as it's done and names the next. It's a guide, never a gate: nothing is locked behind it.
   - **Overview:** where the player is, cash, the vial (weight and what the buyer would pay), the jar (how full; its gold unknown until panned), gear owned and where machines are set up, claims, crew, leads, and a "Needs you" list gathered from everything below.
   - **Claims:** a card for each held claim, sorted by what needs attention: Trouble (lapsed, crew idle on wages, no jobs, or likely costing more than it brings in by the player's own notes), Needs a look (bucket nearly full, out of fuel, waiting for a crew unit or an operator, fees owed, ground nearly worked out, no field notes), Steady, and No crew. The Home Creek is always listed: free, always yours. Tapping a card shows the crew, each job's state, costs a day, ground left, the rough take, what's waiting to collect, and a "Walk there" button.
   - **What waiting shows:** how full the crew bucket is, and pieces in the poke. Gold still in the bucket's concentrate is never counted: it's unknown until panned.
@@ -709,6 +710,10 @@ Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the 
 | Vial contents | Recovered gold, shown physically first, weight second |
 
 ---
+
+### In the game: the first pan
+
+A new player's first pan or two come with a small walkthrough card beside the pan, one step at a time, each shown once the last is done: settle it level until the water clears, tip and wash, keep washing (tip back if heavies go over), reveal, collect and save the black sand. It shows Sand left while washing and flags when heavies are going over the lip. It can be skipped, and it stops after the second pan. While it's up, the pan coach keeps only its warnings (gold over the lip, overworking); the card does the teaching. On a short screen it shows just the step at hand.
 
 ## Sluice UX Specification
 

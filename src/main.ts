@@ -11,6 +11,8 @@ import {
   buyFuel,
   buyRepairKit,
   TOWN_SITE,
+  MILESTONES,
+  noteMilestones,
   REPAIR_KIT,
   WEAR_TUNING,
   CLASSIFIER_TUNING,
@@ -1367,6 +1369,16 @@ async function start(): Promise<void> {
   });
 
   const coach = new PanCoach((message) => hud.toast(message));
+  // The getting-started checklist: anything already done (an older save) is noted quietly; from
+  // then on each first step gets a word, and a pointer to the next.
+  noteMilestones(session, { region, crew });
+  const noteProgress = (): void => {
+    const fresh = noteMilestones(session, { region, crew });
+    if (fresh.length === 0) return;
+    const done = MILESTONES.find((m) => m.id === fresh[fresh.length - 1])!;
+    const next = MILESTONES.find((m) => !session.milestones.has(m.id));
+    hud.toast(next ? `Done: ${done.goal.toLowerCase()}. Next: ${next.goal.toLowerCase()} (see the tablet).` : `Done: ${done.goal.toLowerCase()}. That's the whole getting-started list: the rest is yours to find.`);
+  };
   // Anything that throws (a click handler, a frame) is shown, not just logged to the console.
   showError = (message) => hud.toast(`Something went wrong: ${message}. Please tell the developer what you were doing.`);
   window.addEventListener('error', (e) => reportError(e.error ?? e.message));
@@ -1571,6 +1583,7 @@ async function start(): Promise<void> {
         goldLost += e.goldLost;
         events = { ...e, darkSpilled, lightSpilled, glints, goldLost };
       }
+      coach.guided = hud.walkthroughActive(mode, session);
       coach.update(dt, pan, controls, events);
       scene.setMurk(pan.waterMurk);
       scene.update(dt);
@@ -1641,6 +1654,7 @@ async function start(): Promise<void> {
     } else {
       creekMap.update(dt);
     }
+    noteProgress();
     hud.update(dt, {
       mode,
       session,

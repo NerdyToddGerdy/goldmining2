@@ -1,6 +1,7 @@
 import { Classifier, type ClassifierSnapshot } from './classifier';
 import { Rocker, type RockerSnapshot } from './rocker';
 import { HIGHBANKER_TUNING, Highbanker, type HighbankerSnapshot } from './highbanker';
+import type { Milestone } from './milestones';
 import { TROMMEL_TUNING, Trommel, type TrommelSnapshot } from './trommel';
 import { siteAllows } from './sites';
 import { Drywasher, type DrywasherSnapshot } from './drywasher';
@@ -57,6 +58,8 @@ export interface SessionSnapshot {
   readonly fuelCans: number;
   /** Repair kits carried. Absent means none. */
   readonly repairKits?: number;
+  /** First steps of the early game already taken (see milestones.ts). Absent means none. */
+  readonly milestones?: readonly string[];
   /** Null (or absent) until a trommel is bought. */
   readonly trommel?: { readonly placedAt: SluicePlace | null; readonly state: TrommelSnapshot | null; readonly packedFuel: number } | null;
 }
@@ -110,6 +113,8 @@ export class PanningSession {
   fuelCans = 0;
   /** Repair kits carried, for servicing worn machines (see wear.ts). */
   repairKits = 0;
+  /** First steps of the early game already taken, for the getting-started checklist. */
+  readonly milestones = new Set<Milestone>();
 
   /** A fresh start, or with `saved`, the vial, jar, and any pan in progress as they were left. */
   constructor(
@@ -133,6 +138,7 @@ export class PanningSession {
     if (this.sluiceKit.pump) this.sluiceKit.pump.fuel = saved.pumpFuel;
     this.fuelCans = saved.fuelCans;
     this.repairKits = saved.repairKits ?? 0;
+    for (const m of saved.milestones ?? []) this.milestones.add(m as Milestone);
     if (saved.trommel) {
       const state = saved.trommel.state;
       this.trommelGear = { placedAt: saved.trommel.placedAt, machine: state ? new Trommel(rng, state, this.sluiceKit) : null };
@@ -177,6 +183,7 @@ export class PanningSession {
       pumpFuel: this.sluiceKit.pump?.fuel ?? 0,
       fuelCans: this.fuelCans,
       repairKits: this.repairKits,
+      milestones: [...this.milestones],
       trommel: this.trommelGear
         ? { placedAt: this.trommelGear.placedAt, state: this.trommelGear.machine?.snapshot() ?? null, packedFuel: this.packedTrommelFuel }
         : null,

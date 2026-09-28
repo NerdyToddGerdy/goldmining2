@@ -24,3 +24,4 @@ export * from './finance';
 export * from './overview';
 export * from './wear';
 export * from './trommel';
+export * from './milestones';

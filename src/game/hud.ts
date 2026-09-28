@@ -2,6 +2,7 @@ import {
   ECONOMY_TUNING,
   STAFF_TUNING,
   JOB_KINDS,
+  MILESTONES,
   TOWN_JOBS,
   TOWN_SITE,
   CREW_POLICIES,
@@ -373,6 +374,10 @@ export class Hud {
   private readonly panControls: HTMLElement;
   private readonly tilt: HTMLInputElement;
   private readonly sift: HTMLButtonElement;
+  /** The first-pan walkthrough card, and whether the player has waved it off. */
+  private readonly walk: HTMLElement;
+  private walkKey = '';
+  walkSkipped = false;
   /** The way back, pinned top left: whatever Esc does on this screen. */
   private readonly back: HTMLElement;
   private backAction: (() => void) | null = null;
@@ -425,6 +430,7 @@ export class Hud {
       <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span><span class="hud-idle" hidden>Clock stopped while you're idle</span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
+      <div class="walk" hidden></div>
       <div class="hud-toast" role="status" aria-live="polite" hidden><span class="hud-led"></span><span class="hud-toast-text"></span></div>
       <div class="hud-panel" hidden></div>
       <div class="tablet" hidden>
@@ -548,6 +554,13 @@ export class Hud {
     this.sift = shake;
     shake.addEventListener('pointerdown', () => on.setShake(true));
     for (const type of ['pointerup', 'pointerleave', 'pointercancel']) shake.addEventListener(type, () => on.setShake(false));
+    this.walk = this.root.querySelector('.walk') as HTMLElement;
+    this.walk.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('[data-walk="skip"]')) {
+        this.walkSkipped = true;
+        this.walk.hidden = true;
+      }
+    });
     this.back = this.root.querySelector('.hud-back') as HTMLElement;
     this.back.addEventListener('click', () => {
       this.back.blur();
@@ -726,6 +739,7 @@ export class Hud {
     const spilled = events ? events.darkSpilled / Math.max(dt, 1e-6) : 0;
     this.lossRate += (spilled - this.lossRate) * Math.min(1, dt * 3);
     this.renderInspect(state);
+    this.renderWalkthrough(state);
   }
 
   private buttonsFor(state: HudState): [string, () => void][] {
@@ -1457,7 +1471,7 @@ export class Hud {
       .filter((c) => c.status === 'held')
       .map((c) => claimOverview(region.creek(c.creekId), c, world))
       .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || region.creek(a.creekId).profile.name.localeCompare(region.creek(b.creekId).profile.name));
-    const key = `${this.tabletTab}:${this.tabletSelected}:${clock}:${views.map((v) => `${v.creekId}${v.status}${v.warnings.length}${v.jobs.map((j) => j.state).join('')}${Math.round(v.groundLeft * 10)}${v.waiting.gold}${v.waiting.sand.toFixed(1)}`).join()}:${crew.workers.map((w) => `${w.id}@${w.siteId}`).join()}:${state.money.state}:${session.vial.length}:${session.jar.blackSand.toFixed(2)}:${session.fuelCans}:${OUTFITTER.map((g) => (session.owns(g.id) ? 1 : 0)).join('')}:${JSON.stringify(session.sluicePlace)}:${JSON.stringify(session.highbankerPlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.length}:${Math.round(region.home.groundLeft * 20)}:${crew.returned.blackSand.toFixed(2)}`;
+    const key = `${this.tabletTab}:${this.tabletSelected}:${clock}:${views.map((v) => `${v.creekId}${v.status}${v.warnings.length}${v.jobs.map((j) => j.state).join('')}${Math.round(v.groundLeft * 10)}${v.waiting.gold}${v.waiting.sand.toFixed(1)}`).join()}:${crew.workers.map((w) => `${w.id}@${w.siteId}`).join()}:${state.money.state}:${session.vial.length}:${session.jar.blackSand.toFixed(2)}:${session.fuelCans}:${OUTFITTER.map((g) => (session.owns(g.id) ? 1 : 0)).join('')}:${JSON.stringify(session.sluicePlace)}:${JSON.stringify(session.highbankerPlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.length}:${Math.round(region.home.groundLeft * 20)}:${crew.returned.blackSand.toFixed(2)}:${session.milestones.size}`;
     if (key === this.tabletKey) return;
     this.tabletKey = key;
     for (const tab of this.tablet.querySelectorAll<HTMLElement>('[data-ttab]')) tab.classList.toggle('active', tab.dataset.ttab === this.tabletTab);
@@ -1574,6 +1588,50 @@ export class Hud {
       (owedRows.length ? `<table class="tablet-table">${owedRows.join('')}</table>` : '');
   }
 
+  /**
+   * Whether the first-pan walkthrough is up: a gravel pan on the go, for the first couple of pans,
+   * unless waved off.
+   */
+  walkthroughActive(mode: Mode, session: PanningSession): boolean {
+    const pan = session.pan;
+    return !this.walkSkipped && mode === 'pan' && pan !== null && pan.kind === 'gravel' && pan.phase !== 'emptied' && session.pansWorked < 2;
+  }
+
+  /**
+   * The first-pan walkthrough: one step at a time, each shown once the last is done, with the
+   * readout that tells the player how it's going. It teaches the pan; the coach's warnings about
+   * losing gold still come through as messages.
+   */
+  private renderWalkthrough(state: HudState): void {
+    if (!this.walkthroughActive(state.mode, state.session)) {
+      if (!this.walk.hidden) this.walk.hidden = true;
+      return;
+    }
+    const pan = state.session.pan!;
+    const touch = usingTouch();
+    const sandLeft = pan.lightSand / pan.initialLightSand;
+    const settled = pan.clay <= 0 && pan.stratification > 0.6;
+    const step =
+      pan.phase === 'revealed' ? 4 : sandLeft < 0.3 ? 3 : sandLeft < 0.75 ? 2 : settled || state.controls.tilt > 0.12 ? 1 : 0;
+    const steps = [
+      ['Settle it', touch ? 'Hold the pan (or Sift) with it level. The clay breaks up, the water clears, and the heavy things sink.' : 'Hold Space (or the pan) with it level. The clay breaks up, the water clears, and the heavy things sink.'],
+      ['Wash', touch ? 'Tip it toward the lip with the Tilt slider and keep sifting. Light sand washes over.' : 'Tip it toward the lip (W or the mouse wheel) and keep sifting. Light sand washes over.'],
+      ['Keep washing', 'Work the sand down. If dark sand or a spark of gold goes over the lip, tip back and settle it level for a moment.'],
+      ['Reveal', touch ? 'With most of the sand gone, tap Stop & reveal.' : 'With most of the sand gone, stop and reveal (R).'],
+      ['Collect', touch ? 'Pick out the colour. Save the black sand: it hides fine gold you can pan again later.' : 'Pick out the colour. Save the black sand (C): it hides fine gold you can pan again later.'],
+    ] as const;
+    const loss = state.events?.state === 'aggressive' && pan.phase === 'working';
+    const key = `${step}:${Math.round(sandLeft * 20)}:${loss}:${touch}`;
+    if (key === this.walkKey && !this.walk.hidden) return;
+    this.walkKey = key;
+    this.walk.hidden = false;
+    this.walk.innerHTML =
+      `<div class="walk-head"><b>Your first pan</b><span class="walk-count">${step + 1} of ${steps.length}</span><button type="button" class="link" data-walk="skip">Skip</button></div>` +
+      `<ol>${steps.map(([name, text], i) => `<li class="${i < step ? 'done' : i === step ? 'now' : ''}"><b>${name}</b>${i === step ? `<p>${text}</p>` : ''}</li>`).join('')}</ol>` +
+      (step >= 1 && step <= 2 ? `<p class="walk-read">Sand left: ${Math.round(sandLeft * 100)}%</p>` : '') +
+      (loss ? '<p class="walk-warn">Too far: heavies are going over the lip. Tip back.</p>' : '');
+  }
+
   /** The front page: where things stand, what you're carrying, and what needs you. */
   private tabletOverview(state: HudState, views: readonly ClaimOverview[]): string {
     const { session, region, crew, economy } = state;
@@ -1613,7 +1671,17 @@ export class Hud {
     if (counter > 0) attention.push(`${counter} piece${counter === 1 ? '' : 's'} of gold waiting at the counter in town.`);
     if (session.jarSpace <= 0.01 && session.jar.blackSand > 0) attention.push('The jar is full: pan it down, or clean it with the magnet.');
 
+    // Getting started: the early game's first steps, ticked as they happen, gone once all are done.
+    const remaining = MILESTONES.filter((m) => !session.milestones.has(m.id));
+    const next = remaining[0];
+    const started = remaining.length
+      ? `<h4>Getting started</h4><ul class="checklist">${MILESTONES.map((m) => {
+          const done = session.milestones.has(m.id);
+          return `<li class="${done ? 'done' : m === next ? 'next' : ''}"><span class="tick" aria-hidden="true">${done ? '✓' : '○'}</span><span>${m.goal}${m === next ? `<span class="small">${m.how}</span>` : ''}</span></li>`;
+        }).join('')}</ul>`
+      : '';
     return (
+      started +
       `<table class="tablet-table">` +
       `<tr><td>Where</td><td>${where}</td></tr>` +
       `<tr><td>Cash</td><td>${money(session.cash)}${state.money.state === 'healthy' ? '' : ` <span class="warn">(${state.money.state})</span>`}</td></tr>` +
