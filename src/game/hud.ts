@@ -840,6 +840,7 @@ export class Hud {
       // Zoom works by wheel and pinch too; these are for keys and for anyone without either.
       return [
         [`Back to ${state.creek.profile.name} (Esc)`, () => this.on.walkCreek()],
+        ['Walk to town (T)', () => this.on.walkToTown()],
         ['Zoom in (+)', () => this.on.zoomMap(1.3)],
         ['Zoom out (−)', () => this.on.zoomMap(1 / 1.3)],
         ['Fit the map (0)', () => this.on.zoomMap(0)],
@@ -1207,6 +1208,7 @@ export class Hud {
       else if (key === 'm' || key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.walkCreek();
+      else if (key === 't') this.on.walkToTown();
       else if (key === '+' || key === '=') this.on.zoomMap(1.3);
       else if (key === '-' || key === '_') this.on.zoomMap(1 / 1.3);
       else if (key === '0') this.on.zoomMap(0);
