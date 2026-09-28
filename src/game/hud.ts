@@ -62,6 +62,8 @@ export interface HudActions {
   reveal(): void;
   collect(saveBlackSand: boolean): void;
   backToHole(): void;
+  /** Snuff at the next point along the tail (keyboard and button). */
+  snuff(): void;
   panConcentrate(): void;
   setTilt(tilt: number): void;
   setShake(held: boolean): void;
@@ -184,6 +186,8 @@ export interface HudState {
   readonly fetchingWater: boolean;
   /** Panning at the wash trough in town rather than at a creek. */
   readonly panInTown: boolean;
+  /** The pan is revealed and the snuffer bottle can be used here. */
+  readonly canSnuff: boolean;
   /** There is water here to pan in (not at a dry wash). */
   readonly canPan: boolean;
   readonly economy: Economy;
@@ -533,6 +537,10 @@ export class Hud {
         ? usingTouch()
           ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
           : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (T). Click the classifier for a close look.'
+        : mode === 'pan' && state.canSnuff
+        ? usingTouch()
+          ? 'Tap along the black-sand tail to snuff up fine gold: the head holds the heavy pieces, fines string out behind. Draw too much and the bottle clouds.'
+          : 'Click along the black-sand tail, or press F to work along it, to snuff up fine gold. Draw too much and the bottle clouds.'
         : mode === 'bank' && state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the sluice in the creek, the pan, or the spoil pile. Tap the sluice for a close look.'
@@ -639,12 +647,14 @@ export class Hud {
     if (mode === 'pan') {
       const phase = session.pan?.phase;
       if (phase === 'working') return [['Stop & reveal (R)', () => this.on.reveal()]];
+      const snuff: [string, () => void][] = state.canSnuff ? [['Snuff the tail (F)', () => this.on.snuff()]] : [];
       if (phase === 'revealed' && session.pan?.residueSpent) {
-        return [['Collect (C)', () => this.on.collect(false)]];
+        return [...snuff, ['Collect (C)', () => this.on.collect(false)]];
       }
       if (phase === 'revealed') {
         const save = session.canSaveBlackSand ? 'Collect, save black sand (C)' : 'Collect, save black sand (jar full)';
         return [
+          ...snuff,
           [save, () => this.on.collect(true)],
           ['Collect, dump black sand (D)', () => this.on.collect(false)],
         ];
@@ -1139,6 +1149,7 @@ export class Hud {
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
+      else if (key === 'f' && phase === 'revealed') this.on.snuff();
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
       else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
       else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();

@@ -130,6 +130,30 @@ export const PAN_TUNING = {
   grainSafe: 0.6,
   fineWash: 1.3,
   grainWash: 0.6,
+  /**
+   * The finishing pan, for concentrate: small and deep-riffled. Its safe tip is a little shallower
+   * than the steel pan's, but its riffles hold the fines even when it's tipped too far, and it
+   * works the black sand down to a thinner tail that hides less at the reveal. Being small, it
+   * washes slower: it costs time, not gold.
+   */
+  finishingSafeScale: 0.9,
+  finishingMobility: { fine: 0.3, flake: 0.45, picker: 1 } as Record<GoldSize, number>,
+  finishingBaseLoss: 0.5,
+  finishingHide: 0.55,
+  finishingWashScale: 0.75,
+  /**
+   * The snuffer bottle, at the reveal: squeeze, touch the nozzle to the black-sand tail, and it
+   * draws up specks, and sand with them. Where along the tail (0 head .. 1 tip) and how thin the
+   * tail was worked decide what comes up.
+   */
+  snuffReach: 0.14,
+  snuffBase: 0.3,
+  snuffThin: 0.6,
+  /** Sand drawn per squeeze: a little from a thin tail, more from a thick one. */
+  snuffSand: 0.012,
+  snuffThickSand: 0.035,
+  /** Past this much sand the bottle is cloudy: its specks can't be picked clean and go back to the jar. */
+  bottleClear: 0.05,
 } as const;
 
 let nextId = 1;
@@ -159,6 +183,14 @@ export interface PanSnapshot {
   readonly waterMurk?: number;
   /** The sand's grain; absent means medium. */
   readonly grain?: number;
+  /** Worked in the finishing pan. Absent means the steel pan. */
+  readonly finishing?: boolean;
+  /** Where each hidden piece lies along the revealed tail (0 head .. 1 tip), in `hidden`'s order. */
+  readonly tailPos?: readonly number[];
+  /** What the snuffer bottle has drawn up from this pan. */
+  readonly bottle?: { readonly sand: number; readonly gold: readonly GoldPiece[] };
+  /** How thin the tail was worked when it was revealed. */
+  readonly tailThin?: number;
 }
 
 export class Pan {
@@ -182,6 +214,14 @@ export class Pan {
    * every pan. Muddy water settles the pan slower, shows fewer glints, and hides colour at the reveal.
    */
   waterMurk = 0;
+  /** Worked in the finishing pan (concentrate only). */
+  finishing = false;
+  /** Where each hidden piece lies along the revealed tail, 0 head .. 1 tip, in `hidden`'s order. */
+  tailPos: number[] = [];
+  /** The snuffer bottle's draw from this pan: sand, and the specks in it. */
+  bottle: { sand: number; gold: GoldPiece[] } = { sand: 0, gold: [] };
+  /** How thin the tail was worked at the reveal, 0 thick .. 1 a thin line. Fixed from then on. */
+  tailThinness = 0;
 
   readonly initialLightSand: number;
   readonly kind: PanKind;
@@ -239,6 +279,10 @@ export class Pan {
       hidden: this.hidden,
       ...(this.waterMurk > 0 ? { waterMurk: this.waterMurk } : {}),
       ...(this.grain !== 0.5 ? { grain: this.grain } : {}),
+      ...(this.finishing ? { finishing: true } : {}),
+      ...(this.tailPos.length ? { tailPos: [...this.tailPos] } : {}),
+      ...(this.bottle.sand > 0 || this.bottle.gold.length ? { bottle: { sand: this.bottle.sand, gold: [...this.bottle.gold] } } : {}),
+      ...(this.tailThinness > 0 ? { tailThin: this.tailThinness } : {}),
     };
   }
 
@@ -283,6 +327,11 @@ export class Pan {
     pan.visible = [...snap.visible];
     pan.hidden = [...snap.hidden];
     pan.waterMurk = snap.waterMurk ?? 0;
+    pan.finishing = snap.finishing ?? false;
+    pan.tailPos = [...(snap.tailPos ?? [])];
+    while (pan.tailPos.length < pan.hidden.length) pan.tailPos.push(rng.next());
+    pan.bottle = { sand: snap.bottle?.sand ?? 0, gold: [...(snap.bottle?.gold ?? [])] };
+    pan.tailThinness = snap.tailThin ?? 0;
     return pan;
   }
 
@@ -307,7 +356,8 @@ export class Pan {
   get safeLimit(): number {
     const T = PAN_TUNING;
     const limit = T.safeLimitBase + T.safeLimitPerStrat * this.stratification;
-    return this.kind === 'concentrate' ? limit * T.concentrateSafeScale : limit * (T.fineSafe + T.grainSafe * this.grain);
+    if (this.kind === 'concentrate') return limit * T.concentrateSafeScale * (this.finishing ? T.finishingSafeScale : 1);
+    return limit * (T.fineSafe + T.grainSafe * this.grain);
   }
 
   effectiveWash(controls: PanControls): number {
@@ -349,7 +399,8 @@ export class Pan {
     this.turbidity = Math.max(0, this.turbidity - this.turbidity * (T.turbidityDecay + wash) * dt);
     const murk = 1 - Math.min(0.5, this.turbidity * 0.5);
 
-    const washRate = T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale : T.fineWash - T.grainWash * this.grain);
+    const washRate =
+      T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale * (this.finishing ? T.finishingWashScale : 1) : T.fineWash - T.grainWash * this.grain);
     const lightSpilled = Math.min(this.lightSand, wash * washRate * murk * dt);
     this.lightSand -= lightSpilled;
 
@@ -359,12 +410,13 @@ export class Pan {
     const protection = this.lightSand / (this.initialLightSand * T.overworkBelowFraction);
     const exposed = 1 + T.overworkLoss * (1 - Math.min(1, protection));
     const nearLimit = Math.min(1, wash / this.safeLimit) ** 3;
-    const heavyLossRate = (nearLimit * (1 - this.stratification) * T.baseHeavyLoss + excess * T.excessHeavyLoss) * exposed;
+    const baseLoss = T.baseHeavyLoss * (this.finishing ? T.finishingBaseLoss : 1);
+    const heavyLossRate = (nearLimit * (1 - this.stratification) * baseLoss + excess * T.excessHeavyLoss) * exposed;
 
     const darkSpilled = this.blackSand * Math.min(1, heavyLossRate * dt);
     this.blackSand -= darkSpilled;
     this.lostBlackSand += darkSpilled;
-    const goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * dt);
+    const goldLost = this.loseGold((size) => heavyLossRate * T.mobility[size] * (this.finishing ? T.finishingMobility[size] : 1) * dt);
 
     // Glints hint at gold as the light layer thins; they never say how much.
     const visibility = 1 - Math.min(1, this.lightSand / 0.35);
@@ -388,13 +440,56 @@ export class Pan {
   reveal(): GoldPiece[] {
     if (this.phase !== 'working') return this.visible;
     this.phase = 'revealed';
-    const cover = this.lightSand * 6 + this.waterMurk * 0.3;
+    this.tailThinness = 1 - Math.min(1, this.lightSand / (this.initialLightSand * 0.3));
+    const cover = (this.lightSand * 6 + this.waterMurk * 0.3) * (this.finishing ? PAN_TUNING.finishingHide : 1);
     for (const piece of this.gold) {
       if (this.rng.next() < cover * PAN_TUNING.hideFactor[piece.size]) this.hidden.push(piece);
       else this.visible.push(piece);
     }
+    // Heavy pieces lie at the head of the tail; fines are strung out along it.
+    for (const piece of this.hidden) this.tailPos.push(this.rng.next() ** (piece.size === 'fine' ? 0.9 : piece.size === 'flake' ? 2 : 3));
     this.gold = [];
     return this.visible;
+  }
+
+  get bottleCloudy(): boolean {
+    return this.bottle.sand > PAN_TUNING.bottleClear;
+  }
+
+  /**
+   * Squeeze the snuffer bottle and draw at `at` along the revealed tail (0 head .. 1 tip). Hidden
+   * specks near the nozzle come up with a chance that rises the thinner the tail was worked, and
+   * sand always comes with them. Returns how many specks came up.
+   */
+  snuff(at: number): number {
+    if (this.phase !== 'revealed') return 0;
+    const T = PAN_TUNING;
+    const chance = T.snuffBase + T.snuffThin * this.tailThinness;
+    let drawn = 0;
+    const keepHidden: GoldPiece[] = [];
+    const keepPos: number[] = [];
+    this.hidden.forEach((piece, i) => {
+      const pos = this.tailPos[i] ?? 0.5;
+      if (Math.abs(pos - at) <= T.snuffReach && this.rng.next() < chance) {
+        this.bottle.gold.push(piece);
+        drawn += 1;
+      } else {
+        keepHidden.push(piece);
+        keepPos.push(pos);
+      }
+    });
+    this.hidden = keepHidden;
+    this.tailPos = keepPos;
+    // Sand comes up too, the heaviest first: the thicker the tail, the more. It never draws the
+    // pan down past worked down, which would make its black sand spent residue.
+    const want = T.snuffSand + T.snuffThickSand * (1 - this.tailThinness);
+    const fromBlack = Math.min(this.blackSand, want);
+    this.blackSand -= fromBlack;
+    const floor = this.initialLightSand * T.workedDownFraction * 1.01;
+    const fromLight = Math.min(Math.max(0, this.lightSand - floor), want - fromBlack);
+    this.lightSand -= fromLight;
+    this.bottle.sand += fromBlack + fromLight;
+    return drawn;
   }
 
   /**
@@ -404,11 +499,42 @@ export class Pan {
   collect(saveBlackSand: boolean): { collected: GoldPiece[]; toJar: GoldPiece[]; blackSand: number } {
     if (this.phase !== 'revealed') return { collected: [], toJar: [], blackSand: 0 };
     this.phase = 'emptied';
-    const collected = this.visible;
-    if (saveBlackSand && !this.residueSpent) return { collected, toJar: this.hidden, blackSand: this.blackSand };
-    this.lost.push(...this.hidden);
-    this.lostBlackSand += this.blackSand;
-    return { collected, toJar: [], blackSand: 0 };
+    const collected = [...this.visible];
+    const toJar: GoldPiece[] = [];
+    let blackSand = 0;
+    if (saveBlackSand && !this.residueSpent) {
+      toJar.push(...this.hidden);
+      blackSand += this.blackSand;
+    } else {
+      this.lost.push(...this.hidden);
+      this.lostBlackSand += this.blackSand;
+    }
+    // The snuffer bottle: clear, its specks tip into the vial and its sand goes with the pan's.
+    // Cloudy, it's concentrate again and goes back to the jar (unless the player dumps it all).
+    const bottle = this.bottle;
+    this.bottle = { sand: 0, gold: [] };
+    if (bottle.sand > PAN_TUNING.bottleClear) {
+      if (saveBlackSand || this.residueSpent) {
+        toJar.push(...bottle.gold);
+        blackSand += bottle.sand;
+      } else {
+        this.lost.push(...bottle.gold);
+        this.lostBlackSand += bottle.sand;
+      }
+    } else {
+      collected.push(...bottle.gold);
+      if (saveBlackSand && !this.residueSpent) blackSand += bottle.sand;
+      else this.lostBlackSand += bottle.sand;
+    }
+    return { collected, toJar, blackSand };
+  }
+
+  /** Black sand that collecting would put in the jar. */
+  sandToSave(saveBlackSand: boolean): number {
+    const cloudy = this.bottleCloudy;
+    const pan = saveBlackSand && !this.residueSpent ? this.blackSand : 0;
+    const bottle = cloudy ? (saveBlackSand || this.residueSpent ? this.bottle.sand : 0) : saveBlackSand && !this.residueSpent ? this.bottle.sand : 0;
+    return pan + bottle;
   }
 
   /** Wash pieces out of the pan at random; returns how many went. */

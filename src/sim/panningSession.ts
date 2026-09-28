@@ -452,7 +452,7 @@ export class PanningSession {
    * Pour black sand from the jar into the pan to re-pan it. The gold saved in the jar comes with
    * it in proportion to how much of the jar is poured.
    */
-  startConcentratePan(waterMurk = 0): Pan {
+  startConcentratePan(waterMurk = 0, finishing = false): Pan {
     if (!this.canPanConcentrate) throw new Error('Nothing to pour, or the pan is in use');
     const amount = Math.min(this.jar.blackSand, CONCENTRATE_POUR);
     const share = amount / this.jar.blackSand;
@@ -465,7 +465,14 @@ export class PanningSession {
     this.jar.blackSand -= amount;
     this.pan = new Pan(this.rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: amount, gold: poured });
     this.pan.waterMurk = waterMurk;
+    this.pan.finishing = finishing && this.owns('finishingPan');
     return this.pan;
+  }
+
+  /** Snuff at a point along the revealed tail, if the snuffer bottle is to hand. */
+  snuff(at: number): number {
+    if (!this.owns('snuffer') || this.pan?.phase !== 'revealed') return 0;
+    return this.pan.snuff(at);
   }
 
   rakeRock(rockId: number): GoldPiece | null {
@@ -480,7 +487,8 @@ export class PanningSession {
    */
   collect(saveBlackSand: boolean): GoldPiece[] | null {
     if (!this.pan) return [];
-    if (saveBlackSand && !this.pan.residueSpent && !this.fitsInJar(this.pan.blackSand)) return null;
+    const toSave = this.pan.sandToSave(saveBlackSand);
+    if (toSave > 0 && !this.fitsInJar(toSave)) return null;
     const { collected, toJar, blackSand } = this.pan.collect(saveBlackSand);
     this.vial.push(...collected);
     // Black sand from gravel is fresh; a jar pour going back keeps whatever share it came out with.

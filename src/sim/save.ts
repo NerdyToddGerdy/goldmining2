@@ -16,7 +16,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher'] as const;
 
@@ -97,6 +97,8 @@ export interface LoadedGame {
  * v16 → v17: leads read the ground (kind, and any thin-water bench) instead of an optional hint.
  *   Older leads say nothing about it.
  * v17 → v18: crew policies. Every crewed stretch works steady.
+ * v18 → v19: the finishing pan and snuffer bottle. A pan in progress is the steel pan, with an
+ *   empty bottle; its hidden pieces get places along the tail when it's restored.
  */
 function migrate(data: unknown): unknown {
   if (!isObject(data)) return data;
@@ -252,6 +254,10 @@ function migrate(data: unknown): unknown {
     const crew = save.crew;
     const sites = Array.isArray(crew.sites) ? crew.sites.map((s) => (isObject(s) ? { ...s, policy: 'steady' } : s)) : crew.sites;
     save = { ...save, version: 18, crew: { ...crew, sites } };
+  }
+  if (save.version === 18) {
+    // Nothing to change: the new pan fields are optional and default to the steel pan.
+    save = { ...save, version: 19 };
   }
   return save;
 }

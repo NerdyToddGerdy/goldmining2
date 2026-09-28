@@ -122,3 +122,104 @@ describe('PanningSession concentrate jar', () => {
     expect(busy.canPanConcentrate).toBe(false);
   });
 });
+
+describe('finishing pan and snuffer bottle', () => {
+  /** Work a jar pan with a fixed tip until `done`, then reveal it. */
+  function work(seed: number, opts: { finishing?: boolean; tilt: number; done: (pan: Pan) => boolean }): { pan: Pan; poured: number; time: number } {
+    const gold = jarGold(seed);
+    const pan = new Pan(createRng(seed), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.25, gold });
+    pan.finishing = opts.finishing ?? false;
+    let time = 0;
+    for (; time < 300 && !opts.done(pan); time += DT) pan.step(DT, pan.stratification < 0.6 ? { tilt: 0, shake: 1 } : { tilt: opts.tilt, shake: 1 });
+    pan.reveal();
+    return { pan, poured: totalMg(gold), time };
+  }
+
+  it('the finishing pan keeps more fines when tipped too far, and takes longer about it', () => {
+    let steelLost = 0;
+    let finishLost = 0;
+    let steelTime = 0;
+    let finishTime = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const steel = work(seed, { tilt: 0.3, done: (p) => p.siftedOut });
+      const finishing = work(seed, { finishing: true, tilt: 0.3, done: (p) => p.siftedOut });
+      steelLost += totalMg(steel.pan.lost) / steel.poured;
+      finishLost += totalMg(finishing.pan.lost) / finishing.poured;
+      steelTime += steel.time;
+      finishTime += finishing.time;
+    }
+    expect(finishLost).toBeLessThan(steelLost * 0.5);
+    expect(finishTime).toBeGreaterThan(steelTime * 1.2);
+  });
+
+  it('the finishing pan works down to a thinner tail that hides less at the reveal', () => {
+    let steelHidden = 0;
+    let finishHidden = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      steelHidden += work(seed, { tilt: 0.15, done: (p) => p.workedDown }).pan.hidden.length;
+      finishHidden += work(seed, { finishing: true, tilt: 0.15, done: (p) => p.workedDown }).pan.hidden.length;
+    }
+    expect(finishHidden).toBeLessThan(steelHidden * 0.75);
+  });
+
+  /** A pan revealed with sand left in it, so there's a tail with gold hidden along it. */
+  function early(seed: number, sandLeft: number): Pan {
+    return work(seed, { tilt: 0.15, done: (p) => p.lightSand <= p.initialLightSand * sandLeft }).pan;
+  }
+
+  it('the snuffer draws more from a thin tail than a thick one', () => {
+    // The same tail, worked thin or left thick: plant the same hidden specks and snuff it once along.
+    const drawn = (sandLeft: number): number => {
+      let got = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const pan = early(seed, sandLeft);
+        pan.hidden = jarGold(seed + 100);
+        pan.tailPos = pan.hidden.map((_, i) => (i + 0.5) / pan.hidden.length);
+        for (let at = 0.1; at <= 1; at += 0.2) pan.snuff(at);
+        got += pan.bottle.gold.length;
+      }
+      return got;
+    };
+    expect(drawn(0.05)).toBeGreaterThan(drawn(0.6) * 1.5);
+  });
+
+  it('greedy snuffing clouds the bottle; a clear bottle tips into the vial, a cloudy one goes back to the jar', () => {
+    const clear = early(3, 0.08);
+    clear.snuff(0.1);
+    expect(clear.bottleCloudy).toBe(false);
+    const clearGold = [...clear.bottle.gold];
+    const clearOut = clear.collect(true);
+    for (const piece of clearGold) expect(clearOut.collected).toContain(piece);
+
+    const greedy = early(4, 0.5);
+    const total = totalMg([...greedy.visible, ...greedy.hidden]);
+    for (let i = 0; i < 6; i++) greedy.snuff(0.2);
+    expect(greedy.bottleCloudy).toBe(true);
+    const bottled = [...greedy.bottle.gold];
+    const out = greedy.collect(true);
+    for (const piece of bottled) expect(out.toJar).toContain(piece);
+    // Nothing is made or destroyed by the bottle: every piece is in the vial, the jar or lost.
+    expect(totalMg([...out.collected, ...out.toJar, ...greedy.lost.filter((p) => bottled.includes(p))])).toBeCloseTo(total);
+  });
+
+  it('never tells how much is left in the tail, and keeps the bottle through a save', () => {
+    const pan = early(5, 0.3);
+    pan.snuff(0.3);
+    const restored = Pan.restore(createRng(9), JSON.parse(JSON.stringify(pan.snapshot())));
+    expect(restored.bottle.sand).toBeCloseTo(pan.bottle.sand);
+    expect(restored.bottle.gold).toEqual(pan.bottle.gold);
+    expect(restored.tailPos).toEqual(pan.tailPos);
+    expect(restored.finishing).toBe(pan.finishing);
+  });
+
+  it('needs the gear: no snuffing without the bottle, no finishing pan without owning one', () => {
+    const session = new PanningSession(createRng(6));
+    session.jar.blackSand = 0.2;
+    session.jar.gold.push(...jarGold(6));
+    const pan = session.startConcentratePan(0, true);
+    expect(pan.finishing).toBe(false);
+    pan.reveal();
+    expect(session.snuff(0.2)).toBe(0);
+    expect(pan.bottle.sand).toBe(0);
+  });
+});

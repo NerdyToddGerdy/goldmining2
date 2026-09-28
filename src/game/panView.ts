@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { PAN_VOLUME, type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
+import { PAN_TUNING, PAN_VOLUME, type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
 
 /**
  * Draws the pan and everything in it. The pan's condition is communicated physically:
@@ -59,6 +59,10 @@ interface Glint {
   life: number;
 }
 
+/** The revealed tail's arc: from this angle (in half-turns) at the head, round this far to the tip. */
+const TAIL_FROM = 0.65;
+const TAIL_SPAN = 0.7;
+
 interface RevealedPiece {
   piece: GoldPiece;
   x: number;
@@ -103,6 +107,8 @@ export class PanView extends Container {
   private pendingSpill: { color: number; size: number }[] = [];
   /** Grain count for this pan's washable layer; a jar pour is a small pile. */
   private lightCount = LIGHT_GRAINS;
+  /** Snuffer draws: a nozzle touching the tail, briefly. */
+  private snuffs: { t: number; life: number }[] = [];
 
   constructor() {
     super();
@@ -147,6 +153,39 @@ export class PanView extends Container {
     this.rockGrains = new Map(pan.rocks.map((rock) => [rock.id, grain(0.7, 11, 17, pick(COLORS.rock))]));
   }
 
+  /**
+   * Where a screen point falls along the revealed tail, 0 head .. 1 tip, or null if it's off the
+   * tail. Generous, so a finger finds it.
+   */
+  tailAt(screenX: number, screenY: number): number | null {
+    if (this.pan?.phase !== 'revealed') return null;
+    const local = this.body.toLocal({ x: screenX, y: screenY });
+    const nx = local.x / this.rx;
+    const ny = local.y / this.ry;
+    const r = Math.hypot(nx, ny);
+    if (r < 0.35 || r > 1.1) return null;
+    let a = Math.atan2(ny, nx);
+    if (a < 0) a += Math.PI * 2;
+    const t = (a / Math.PI - TAIL_FROM) / TAIL_SPAN;
+    if (t < -0.1 || t > 1.1) return null;
+    return Math.min(1, Math.max(0, t));
+  }
+
+  /** The snuffer drew at `t` along the tail: sand goes up the nozzle there. */
+  snuffed(t: number): void {
+    this.snuffs.push({ t, life: 0.45 });
+    const near = (g: Grain): boolean => Math.abs((g.a / Math.PI - TAIL_FROM) / TAIL_SPAN - t) < 0.08;
+    for (const list of [this.light, this.dark]) {
+      let take = 3;
+      for (let i = list.length - 1; i >= 0 && take > 0; i--) {
+        if (near(list[i]!)) {
+          list.splice(i, 1);
+          take -= 1;
+        }
+      }
+    }
+  }
+
   /** Rock under a screen point, if any, so it can be raked out. */
   rockAt(screenX: number, screenY: number): number | null {
     const local = this.body.toLocal({ x: screenX, y: screenY });
@@ -187,6 +226,7 @@ export class PanView extends Container {
     this.releaseSpill(pan.phase !== 'working');
 
     this.updateParticles(dt);
+    this.snuffs = this.snuffs.filter((sn) => (sn.life -= dt) > 0);
     this.draw(pan, controls);
     this.drawVial(session, bucket);
   }
@@ -240,9 +280,12 @@ export class PanView extends Container {
 
   /** On reveal, the concentrate fans out into a crescent tail and the visible gold sits in it. */
   private fanOut(pan: Pan): void {
-    for (const g of this.dark) {
-      g.a = Math.PI * (0.65 + Math.random() * 0.7);
-      g.r = 0.55 + Math.random() * 0.3;
+    // A comet: thick at the head, thinning toward the tip. A jar pan's black sand is all tail.
+    const tail = pan.kind === 'concentrate' ? [...this.dark, ...this.light] : this.dark;
+    for (const g of tail) {
+      const t = Math.random() ** 1.4;
+      g.a = Math.PI * (TAIL_FROM + TAIL_SPAN * t);
+      g.r = 0.7 + (Math.random() - 0.5) * 0.3 * (1 - t * 0.7);
     }
     this.revealed = pan.visible.map((piece) => {
       const a = Math.PI * (0.7 + Math.random() * 0.45);
@@ -294,6 +337,16 @@ export class PanView extends Container {
     g.ellipse(controls.tilt * this.rx * 0.3 + this.surge * this.rx * 0.15, 0, this.rx * (1 - controls.tilt * 0.3), this.ry * 0.95)
       .fill({ color: waterColor, alpha: 0.18 + murk * 0.55 });
 
+    // The snuffer's nozzle, touched to the tail where it drew.
+    for (const sn of this.snuffs) {
+      const a = Math.PI * (TAIL_FROM + TAIL_SPAN * sn.t);
+      const x = Math.cos(a) * 0.7 * this.rx;
+      const y = Math.sin(a) * 0.7 * this.ry;
+      const k = sn.life / 0.45;
+      g.moveTo(x, y).lineTo(x - 10 * s, y - 34 * s).stroke({ width: 3 * s, color: 0xd8d4c8, alpha: k });
+      g.circle(x, y, 6 * s * (1.4 - k)).stroke({ width: 1.5, color: 0xd8d4c8, alpha: k * 0.7 });
+    }
+
     for (const glint of this.glints) {
       const a = glint.life / 0.35;
       const k = 7 * s * a;
@@ -319,6 +372,21 @@ export class PanView extends Container {
 
     this.vialLabel.text = `${mg.toFixed(1)} mg`;
     this.jarLabel.text = `${Math.round(jarFill * 100)}%`;
+
+    // The snuffer bottle, while it's in use: sand drawn up, specks in it, cloudy when overdrawn.
+    const pan = session.pan;
+    if (pan && session.owns('snuffer') && (pan.phase === 'revealed' || pan.bottle.sand > 0)) {
+      const bx = -170;
+      const sandFill = Math.min(1, pan.bottle.sand / (PAN_TUNING.bottleClear * 1.6));
+      const cloudy = pan.bottleCloudy;
+      v.roundRect(bx, 64, 30, 46, 9).fill({ color: cloudy ? 0x6b5a3a : 0xdfe8e6, alpha: cloudy ? 0.45 : 0.12 }).stroke({ width: 2, color: 0xdfe8e6, alpha: 0.45 });
+      v.moveTo(bx + 15, 64).lineTo(bx + 15, 44).stroke({ width: 3, color: 0xdfe8e6, alpha: 0.45 });
+      if (sandFill > 0) v.roundRect(bx + 3, 107 - 40 * sandFill, 24, 40 * sandFill, 6).fill(COLORS.dark[1]);
+      // Specks show through a clear bottle; a cloudy one hides them.
+      if (!cloudy) {
+        pan.bottle.gold.slice(0, 14).forEach((_, i) => v.circle(bx + 7 + ((i * 7) % 17), 104 - Math.floor(i / 3) * 5, 1.6).fill(COLORS.goldBright));
+      }
+    }
 
     // The classifier's bucket, filling with screened dirt: what's left to pan from it.
     this.bucketLabel.visible = bucket !== null;

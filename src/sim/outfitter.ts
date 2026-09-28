@@ -6,7 +6,20 @@ import type { PanningSession } from './panningSession';
  * feed one. Money buys the tool; the land decides the operation.
  */
 
-export type GearId = 'sluice' | 'bigJar' | 'classifier' | 'riffleMat' | 'legs' | 'pump' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher' | 'washTub';
+export type GearId =
+  | 'sluice'
+  | 'bigJar'
+  | 'classifier'
+  | 'riffleMat'
+  | 'legs'
+  | 'pump'
+  | 'magnet'
+  | 'rocker'
+  | 'highbanker'
+  | 'drywasher'
+  | 'washTub'
+  | 'finishingPan'
+  | 'snuffer';
 
 export interface GearItem {
   readonly id: GearId;
@@ -47,6 +60,18 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Magnet in a sleeve',
     price: 6,
     description: 'Pass it over your jar of black sand and the magnetite leaps up onto it, so the jar holds more and pans down faster. Held close it drags fine gold up too: shake the clump back before you strip it off. For use in town or on the stretches you find.',
+  },
+  {
+    id: 'finishingPan',
+    name: 'Finishing pan',
+    price: 8,
+    description: 'A small, deep-riffled pan for panning down your jar. Tip it a little less than the steel pan and it keeps far more of the fine gold, working the black sand to a thin tail that hides less. Used in town and on the stretches you find, not at the Home Creek.',
+  },
+  {
+    id: 'snuffer',
+    name: 'Snuffer bottle',
+    price: 4,
+    description: 'A squeeze bottle with a fine nozzle. At the reveal, touch it to the black-sand tail and draw the fine gold straight up. Work the tail thin first, or it misses specks; draw too greedily and the bottle clouds with sand and goes back to the jar. In town and on found stretches.',
   },
   {
     id: 'washTub',

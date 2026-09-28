@@ -103,6 +103,8 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   legs: 'Adjustable legs, fitted to your sluice. Set its slope with the Slope slider while it runs.',
   rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
   highbanker: 'A highbanker. Set it up on the bank at a creek bend, gravel bar or ravine: prime the pump, start the engine, and shovel into the hopper. Buy fuel here by the can.',
+  finishingPan: 'A finishing pan. When you pan your jar in town or on a found stretch, it’s the one you reach for: tip it a little less, and it keeps the fines.',
+  snuffer: 'A snuffer bottle. At the reveal, tap along the black-sand tail (F) to draw up fine gold. Work the tail thin first, and don’t get greedy.',
   washTub: 'A wash tub. On a dry wash, fill it and you can pan there. Change the water when it gets muddy: muddy water hides colour.',
   drywasher: 'A drywasher. On a dry wash, shovel onto its screen and hold Pump to work the bellows. Set the Air so the light sand drifts off and the heavies stay.',
   magnet: 'A magnet in a plastic sleeve. Clean your jar with it here in town or out on a stretch: close is quick, but drags fine gold up with the sand.',
@@ -249,6 +251,19 @@ async function start(): Promise<void> {
   let toldAboutRocker = false;
   /** Where the magnet was picked up from, to go back to when done. */
   let magnetReturn: 'town' | 'bank' = 'town';
+  /** Finishing gear (the finishing pan, the snuffer) is for town and found stretches, never the Home Creek. */
+  const finishingHere = (): boolean => inTown() || region.allows(creek, 'magnet');
+  /** Where along the tail F snuffs next: it works down the tail and starts over. */
+  let snuffNext = 0.05;
+  const snuffAt = (at: number): void => {
+    const pan = session.pan;
+    if (!pan || pan.phase !== 'revealed' || !session.owns('snuffer')) return;
+    if (!finishingHere()) return hud.toast('The Home Creek is shovel and pan only: the snuffer bottle is for town and the stretches you find.');
+    const wasCloudy = pan.bottleCloudy;
+    session.snuff(at);
+    panView.snuffed(at);
+    if (pan.bottleCloudy && !wasCloudy) hud.toast('The bottle has gone cloudy with sand: its specks will go back in the jar to pan again. Work the tail thinner before you snuff.');
+  };
   /** Where the pan came out: the jar can be panned at the assay office's wash trough in town. */
   let panReturn: 'town' | 'bank' = 'bank';
   let toldAboutMagnet = false;
@@ -717,6 +732,10 @@ async function start(): Promise<void> {
     },
     collect,
     backToHole: () => setMode(mode === 'pan' && panReturn === 'town' ? 'town' : 'bank'),
+    snuff: () => {
+      snuffAt(snuffNext);
+      snuffNext = snuffNext >= 0.85 ? 0.05 : snuffNext + 0.2;
+    },
     openSluice,
     rakeSluice,
     openClassifier,
@@ -1172,7 +1191,7 @@ async function start(): Promise<void> {
       if (mode === 'town' && session.pan && !session.panIsFree) return startPanning();
       if (!session.canPanConcentrate) return;
       if (!canPanHere()) return hud.toast(noPanWater());
-      session.startConcentratePan(panWater(0));
+      session.startConcentratePan(panWater(0), finishingHere());
       startPanning();
       hud.toast('Black sand is heavy and holds fine gold. Settle it, then sift with only a slight tip: a light touch keeps the gold in the pan.');
     },
@@ -1194,6 +1213,10 @@ async function start(): Promise<void> {
   const input = new PanInput(
     app.canvas,
     (x, y) => {
+      if (session.pan?.phase === 'revealed' && session.owns('snuffer')) {
+        const at = panView.tailAt(x, y);
+        if (at !== null) return snuffAt(at);
+      }
       const rockId = panView.rockAt(x, y);
       if (rockId === null) return;
       const picker = session.rakeRock(rockId);
@@ -1453,6 +1476,7 @@ async function start(): Promise<void> {
       cleaningOut,
       classifier: mode === 'pan' && panReturn === 'town' ? null : classifier,
       panInTown: mode === 'pan' && panReturn === 'town',
+      canSnuff: mode === 'pan' && session.pan?.phase === 'revealed' && session.owns('snuffer') && finishingHere(),
       rocker,
       fetchingWater: fetchingWater !== null,
       canPan: canPanHere(),
