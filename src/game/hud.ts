@@ -2,6 +2,8 @@ import {
   ECONOMY_TUNING,
   STAFF_TUNING,
   JOB_KINDS,
+  TOWN_JOBS,
+  TOWN_SITE,
   CREW_POLICIES,
   DIGGING_JOBS,
   type CrewPolicy,
@@ -72,6 +74,9 @@ export interface HudActions {
   /** Service the machine in the close-up with a repair kit. */
   serviceMachine(): void;
   buyRepairKit(): void;
+  /** Pour the jar into the settling tub in town, and collect gold waiting at the counter. */
+  leaveJar(): void;
+  collectCounter(): void;
   /** Snuff at the next point along the tail (keyboard and button). */
   snuff(): void;
   panConcentrate(): void;
@@ -223,6 +228,8 @@ const JOB_NAMES: Record<JobKind, string> = {
   haul: 'Haul',
   prospect: 'Prospect',
   finish: 'Finish concentrate',
+  courier: 'Run to town',
+  magnet: 'Magnet the tub',
 };
 
 const IDLE_WORDS: Record<JobIdle, string> = {
@@ -493,6 +500,8 @@ export class Hud {
       if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
       if (target.dataset.action === 'fuel') this.on.buyFuel();
       if (target.dataset.action === 'kit') this.on.buyRepairKit();
+      if (target.dataset.action === 'leavejar') this.on.leaveJar();
+      if (target.dataset.action === 'counter') this.on.collectCounter();
       if (target.dataset.action === 'hire') this.on.hireApplicant(Number(target.dataset.applicant));
       if (target.dataset.action === 'dismiss') this.on.dismissHand(Number(target.dataset.worker));
       if (target.dataset.action === 'send') this.on.sendHand(Number(target.dataset.creek), target.dataset.role as Role);
@@ -828,8 +837,11 @@ export class Hud {
       // The assay office has a wash trough out back: the jar can be panned down here too.
       const pan: [string, () => void][] =
         session.pan && !session.panIsFree ? [['Back to your pan (J)', () => this.on.panConcentrate()]] : this.jarButton(session);
+      const counter = state.crew.findSite(TOWN_SITE)?.poke.length ?? 0;
+      const collect: [string, () => void][] = counter > 0 ? [['Collect from the counter (W)', () => this.on.collectCounter()]] : [];
       return [
         ...sell,
+        ...collect,
         ...pan,
         ...this.magnetButton(state),
         ['Region map (Esc)', () => this.on.openRegion()],
@@ -994,7 +1006,9 @@ export class Hud {
     const claims = economy.allClaims.map((c) => `${c.creekId}${c.status}${c.owed.toFixed(2)}${Math.round(state.region.creek(c.creekId).groundLeft * 10)}`).join();
     const workers = crew.workers.map((w) => `${w.id}@${w.siteId}`).join();
     const sites = crew.sites.map((s) => `${s.creekId}:${s.policy}:${s.jobs.join('+')}:${JOB_KINDS.map((j) => s.idle[j] ?? '').join('')}`).join();
-    return `${claims}:${workers}:${sites}:${JSON.stringify(crew.spares)}:${crew.returned.blackSand.toFixed(3)}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
+    const town = crew.findSite(TOWN_SITE);
+    const tub = town ? `${town.bucket.blackSand.toFixed(2)}/${(town.bucket.magnetite ?? 0).toFixed(2)}/${town.poke.length}` : '';
+    return `${tub}:${state.session.jar.blackSand > 0.01}:${claims}:${workers}:${sites}:${JSON.stringify(crew.spares)}:${crew.returned.blackSand.toFixed(3)}:${crew.wagesOwed.toFixed(2)}:${economy.day}`;
   }
 
   /**
@@ -1021,6 +1035,48 @@ export class Hud {
       `<div class="ledger"><div class="ledger-head">Claims ledger<span>Day ${economy.day}</span></div>` +
       `<table><thead><tr><th>Claim</th><th>A day</th><th>Owed</th></tr></thead><tbody>${rows.join('')}${home}${payroll}${total}</tbody></table></div>`
     );
+  }
+
+  /**
+   * The crew's station in town: the settling tub (what the player leaves and couriers bring in),
+   * who's working it, the magnet and finishing jobs, and gold waiting at the counter.
+   */
+  private townStation(state: HudState): string {
+    const { crew, session } = state;
+    const site = crew.findSite(TOWN_SITE);
+    const tub = site?.bucket;
+    const sand = tub?.blackSand ?? 0;
+    const magnetite = tub && sand > 0.01 ? (tub.magnetite ?? 0) / sand : 0;
+    const counter = site?.poke.length ?? 0;
+    const here = crew.workersAt(TOWN_SITE);
+    const policy = site?.policy ?? 'steady';
+    const lines = [
+      `<b>The settling tub</b> <span class="small">at the assay office</span>`,
+      `<p class="small">Concentrate left here, or carried in by a courier from a claim, waits for the crew in town: the magnet strips out the magnetite, and finishing pans at the trough pan it down. Gold they find waits at the counter.</p>`,
+      `<p>Tub: ${sand < 0.01 ? 'empty' : `${sand < 0.3 ? 'a little' : sand < 1 ? 'some' : 'plenty of'} black sand, ${magnetite > 0.4 ? 'mostly magnetite' : magnetite > 0.15 ? 'some magnetite left' : 'cleaned of magnetite'}`}.</p>`,
+    ];
+    if (counter > 0) lines.push(`<p class="found">${counter} piece${counter === 1 ? '' : 's'} of gold at the counter. <button type="button" data-action="counter">Collect</button></p>`);
+    if (session.jar.blackSand > 0.01) lines.push(`<button type="button" data-action="leavejar">Leave the jar's black sand in the tub</button>`);
+    lines.push(
+      `<p class="small">Working it: ${here.length ? here.map(workerWords).join(', ') : 'nobody'} (room for ${STAFF_TUNING.townCrewMax}).</p>` +
+        `<button type="button" data-action="send" data-role="hand" data-creek="${TOWN_SITE}" ${here.length < STAFF_TUNING.townCrewMax && crew.idleOf('hand').length > 0 ? '' : 'disabled'}>Send a hand</button> ` +
+        `<button type="button" data-action="send" data-role="operator" data-creek="${TOWN_SITE}" ${here.length < STAFF_TUNING.townCrewMax && crew.idleOf('operator').length > 0 ? '' : 'disabled'}>Send an operator</button> ` +
+        `<button type="button" data-action="recall" data-creek="${TOWN_SITE}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
+    );
+    const staffed = crew.staffedJobs(TOWN_SITE);
+    const jobs = TOWN_JOBS.map((job) => {
+      const on = site?.jobs.includes(job) ?? false;
+      const idle = site?.idle[job];
+      const detail = !on ? '' : !staffed.includes(job) ? ': nobody free for it' : idle ? `: ${job === 'magnet' ? 'nothing left to strip' : 'tub empty'}` : ': working';
+      return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${TOWN_SITE}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
+    });
+    lines.push(`<div class="jobs">${jobs.join('')}</div>`);
+    lines.push(
+      `<p class="small">How they work:</p><div class="jobs policies">${(['steady', 'careful', 'push'] as const)
+        .map((p) => `<button type="button" class="job ${p === policy ? 'on' : ''}" data-action="policy" data-creek="${TOWN_SITE}" data-policy="${p}" aria-pressed="${p === policy}">${POLICY_WORDS[p].name}</button>`)
+        .join('')}</div><p class="small">${policy === 'careful' ? 'The magnet held high and the clump shaken back: slow, and little gold lost with the magnetite.' : policy === 'push' ? 'The magnet held right down and stripped without shaking back: quick, and fine gold goes with the magnetite.' : POLICY_WORDS[policy].note}</p>`,
+    );
+    return `<div class="lead">${lines.join('')}</div>`;
   }
 
   /** The claims office and crew: fees owed, the crew and where they are, and each claim's jobs. */
@@ -1082,6 +1138,7 @@ export class Hud {
       crewLines.push('<p class="small">Your crew brought concentrate back to town.</p><button type="button" data-action="returned">Wash it into your jar</button>');
     }
     parts.push(`<div class="lead">${crewLines.join('')}</div>`);
+    parts.push(this.townStation(state));
 
     // Each claim: its hands and jobs, fees, release. Released claims fold away at the end.
     const released = economy.allClaims.filter((c) => c.status === 'released');
@@ -1230,6 +1287,7 @@ export class Hud {
     } else if (state.mode === 'town') {
       if (key === 'x') this.on.openMagnet();
       else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'w') this.on.collectCounter();
       else if (key === 's') this.on.sell();
       else if (key === 'escape' || key === 'm') this.on.openRegion();
     } else if (state.mode === 'pan') {
@@ -1407,6 +1465,9 @@ export class Hud {
       }
       this.tabletBody.innerHTML =
         (groups.join('') || '<p class="small">Nobody is out at a claim.</p>') +
+        (crew.workersAt(TOWN_SITE).length
+          ? `<div class="tablet-group"><b>At the settling tub</b><p class="small">${crew.workersAt(TOWN_SITE).map(workerWords).join(', ')}</p><p class="small">Jobs: ${crew.findSite(TOWN_SITE)?.jobs.map((j) => JOB_NAMES[j]).join(', ') || 'none switched on'}</p></div>`
+          : '') +
         `<div class="tablet-group"><b>In town</b><p class="small">${waiting.length ? waiting.map(workerWords).join(', ') : 'Nobody waiting.'}</p>${spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : ''}</div>`;
       return;
     }
@@ -1476,6 +1537,8 @@ export class Hud {
     const idle = crew.idleWorkers.length;
     if (idle) attention.push(`${idle} of your crew ${idle === 1 ? 'is' : 'are'} waiting in town for a stretch to work.`);
     if (crew.returned.blackSand > 0.01) attention.push('Your crew left concentrate in town to wash into your jar.');
+    const counter = crew.findSite(TOWN_SITE)?.poke.length ?? 0;
+    if (counter > 0) attention.push(`${counter} piece${counter === 1 ? '' : 's'} of gold waiting at the counter in town.`);
     if (session.jarSpace <= 0.01 && session.jar.blackSand > 0) attention.push('The jar is full: pan it down, or clean it with the magnet.');
 
     return (

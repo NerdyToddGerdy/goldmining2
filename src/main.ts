@@ -10,6 +10,7 @@ import {
   buyGear,
   buyFuel,
   buyRepairKit,
+  TOWN_SITE,
   REPAIR_KIT,
   WEAR_TUNING,
   CLASSIFIER_TUNING,
@@ -754,6 +755,14 @@ async function start(): Promise<void> {
               : 'You fit fresh moss and tighten the riffles. The box will hold the fines again.',
       );
     },
+    leaveJar: () => {
+      const sand = crew.leaveJar(session);
+      if (sand > 0) hud.toast('You pour the jar into the settling tub. The crew in town will work it; gold they find waits at the counter.');
+    },
+    collectCounter: () => {
+      const n = crew.collectCounter(session);
+      if (n > 0) hud.toast(`${n} piece${n === 1 ? '' : 's'} of gold from the counter into your vial.`);
+    },
     buyRepairKit: () => {
       const result = buyRepairKit(session);
       if (result === 'bought') hud.toast(`A repair kit. You're carrying ${session.repairKits}. Use one at any worn machine, or leave them for your crew.`);
@@ -1143,6 +1152,13 @@ async function start(): Promise<void> {
       if (hand) hud.toast(`${hand.name} collects their things and heads off.${crew.wagesOwed > 0 ? ' Wages still owed stay owed.' : ''}`);
     },
     sendHand: (creekId, role) => {
+      if (creekId === TOWN_SITE) {
+        const result = crew.sendToTown(role);
+        if (result === 'sent') hud.toast(`${role === 'operator' ? 'An operator' : 'A hand'} goes to work at the settling tub by the assay office.`);
+        else if (result === 'full') hud.toast('The tub has all the hands it can use.');
+        else hud.toast(`No ${role === 'operator' ? 'operator' : 'hand'} is waiting in town.`);
+        return;
+      }
       const target = region.creek(creekId);
       const result = crew.send(target, economy, region.home.id, role);
       const name = target.profile.name;
@@ -1166,9 +1182,10 @@ async function start(): Promise<void> {
         push: 'to push hard: more ground a day, and more gold washed away',
         prepare: 'to prepare the ground: no washing, just opening up the pay gravel',
       };
-      hud.toast(`You tell the crew at ${region.creek(creekId).profile.name} ${said[policy]}.`);
+      hud.toast(`You tell the crew ${creekId === TOWN_SITE ? 'at the settling tub' : `at ${region.creek(creekId).profile.name}`} ${said[policy]}.`);
     },
     toggleJob: (creekId, job) => {
+      if (creekId === TOWN_SITE) return void crew.toggleTownJob(job);
       const result = crew.toggleJob(region.creek(creekId), job);
       if (result === 'doesntFit') hud.toast("That work doesn't fit the ground there.");
     },

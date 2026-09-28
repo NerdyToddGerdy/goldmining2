@@ -2,6 +2,7 @@ import type { Creek, DigSpot } from './creek';
 import { Drywasher, type DrywasherSnapshot } from './drywasher';
 import type { Economy } from './economy';
 import { Highbanker, type HighbankerSnapshot } from './highbanker';
+import { MAGNET_TUNING, magnetStep, shakeBack, stripOff } from './magnet';
 import { Pan, rollShovelful, type GoldPiece, type PanLoad, type PanSnapshot } from './pan';
 import type { PanningSession } from './panningSession';
 import type { Region } from './region';
@@ -22,9 +23,18 @@ import { WEAR_TUNING } from './wear';
  * a screen.
  */
 
-export type JobKind = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'pan' | 'screen' | 'haul' | 'prospect' | 'finish';
+export type JobKind = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'pan' | 'screen' | 'haul' | 'prospect' | 'finish' | 'courier' | 'magnet';
 
-export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 'drywasher', 'pan', 'screen', 'haul', 'prospect', 'finish'];
+/** Jobs at a claim. */
+export const JOB_KINDS: readonly JobKind[] = ['sluice', 'highbanker', 'rocker', 'drywasher', 'pan', 'screen', 'haul', 'prospect', 'finish', 'courier'];
+
+/**
+ * The crew's station in town, at the assay office, has a site id of its own. There the crew works
+ * the settling tub (concentrate the player leaves, and what couriers bring in): the magnet to strip
+ * out the magnetite, and finishing pans at the trough to pan it down. Gold waits at the counter.
+ */
+export const TOWN_SITE = -1;
+export const TOWN_JOBS: readonly JobKind[] = ['magnet', 'finish'];
 
 /** Machines a crew can own: extra units bought for the crew, separate from the player's own. */
 export type CrewMachine = 'sluice' | 'highbanker' | 'rocker' | 'drywasher' | 'classifier';
@@ -69,13 +79,16 @@ export interface PolicyTuning {
   readonly recoveryGuess: number;
   /** How far off a hand sets the sluice's water from what they aim for. */
   readonly flowNoise: number;
+  /** How close a hand holds the magnet to the sand, 0 high .. 1 right down, and whether they shake the clump back first. */
+  readonly magnetClose: number;
+  readonly shakeBack: boolean;
 }
 
 export const POLICY_TUNING: Record<CrewPolicy, PolicyTuning> = {
-  steady: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 1, flowNoise: 0.08 },
-  careful: { pace: 1.35, targetPower: 0.38, throttle: 0.5, air: 0.5, cleanEvery: 0.6, fixDelay: 0.4, panTilt: 0.34, panRest: 1.3, rockerBeat: 1.3, recoveryGuess: 1.15, flowNoise: 0.08 },
-  push: { pace: 0.7, targetPower: 0.5, throttle: 0.75, air: 0.62, cleanEvery: 1.15, fixDelay: 1.2, panTilt: 0.48, panRest: 0.5, rockerBeat: 0.8, recoveryGuess: 0.9, flowNoise: 0.08 },
-  prepare: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 0, flowNoise: 0.08 },
+  steady: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 1, flowNoise: 0.08, magnetClose: 0.5, shakeBack: true },
+  careful: { pace: 1.35, targetPower: 0.38, throttle: 0.5, air: 0.5, cleanEvery: 0.6, fixDelay: 0.4, panTilt: 0.34, panRest: 1.3, rockerBeat: 1.3, recoveryGuess: 1.15, flowNoise: 0.08, magnetClose: 0.3, shakeBack: true },
+  push: { pace: 0.7, targetPower: 0.5, throttle: 0.75, air: 0.62, cleanEvery: 1.15, fixDelay: 1.2, panTilt: 0.48, panRest: 0.5, rockerBeat: 0.8, recoveryGuess: 0.9, flowNoise: 0.08, magnetClose: 0.85, shakeBack: false },
+  prepare: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 0, flowNoise: 0.08, magnetClose: 0.5, shakeBack: true },
 };
 
 export const CREW_TUNING = {
@@ -111,6 +124,11 @@ export const CREW_TUNING = {
   finishTilt: 0.3,
   finishPour: 0.25,
   panGiveUp: 150,
+  /** Courier: loads the bucket and poke once there's this much, and takes the town trip each way. */
+  courierLoad: 0.5,
+  courierLeg: 60,
+  /** Magnet: how close a hand holds it (by policy, see PolicyTuning), and how full the sleeve gets before stripping. */
+  clumpFull: 0.9,
   /** Prospecting: a gully test pan, and how often wandering turns up something. */
   testPan: 60,
   leadEvery: 400,
@@ -140,6 +158,10 @@ export interface JobState {
   rest: number;
   wander: number;
   target: number | null;
+  /** The magnet's clump, while a hand is working the tub. */
+  clump?: { sand: number; gold: GoldPiece[] };
+  /** A courier's load on the road to town. */
+  carrying?: { blackSand: number; gold: GoldPiece[]; poke: GoldPiece[] } | null;
 }
 
 function freshState(): JobState {
@@ -150,7 +172,8 @@ export interface SiteCrewSnapshot {
   readonly creekId: number;
   readonly jobs: readonly JobKind[];
   readonly policy: CrewPolicy;
-  readonly bucket: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
+  /** At a claim, the crew bucket; in town, the settling tub (which also tracks its magnetite). */
+  readonly bucket: { readonly blackSand: number; readonly gold: readonly GoldPiece[]; readonly magnetite?: number };
   readonly poke: readonly GoldPiece[];
   readonly report: SiteReport;
   readonly prospected: readonly number[];
@@ -174,7 +197,7 @@ export class SiteCrew {
   readonly creekId: number;
   jobs: JobKind[] = [];
   policy: CrewPolicy = 'steady';
-  readonly bucket: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
+  readonly bucket: { blackSand: number; gold: GoldPiece[]; magnetite?: number } = { blackSand: 0, gold: [] };
   poke: GoldPiece[] = [];
   report: SiteReport = emptyReport();
   prospected: number[] = [];
@@ -200,6 +223,7 @@ export class SiteCrew {
     this.policy = CREW_POLICIES.includes(copy.policy) ? copy.policy : 'steady';
     this.bucket.blackSand = copy.bucket.blackSand;
     this.bucket.gold.push(...copy.bucket.gold);
+    if (copy.bucket.magnetite !== undefined) this.bucket.magnetite = copy.bucket.magnetite;
     this.poke = [...copy.poke];
     this.report = { ...copy.report, leads: [...copy.report.leads] };
     this.prospected = [...copy.prospected];
@@ -293,6 +317,10 @@ export interface JobContext {
   readonly preparing: boolean;
   /** A foreman on site digs where the player's field notes say the gold is. */
   readonly byNotes: boolean;
+  /** The crew's town station, where couriers deliver. */
+  readonly town?: SiteCrew;
+  /** This is the town station itself: water at the trough, no ground to dig. */
+  readonly inTown?: boolean;
 }
 
 /** The crew machine a job needs, if the player's own isn't set up here. */
@@ -300,6 +328,11 @@ export function machineFor(job: JobKind): CrewMachine | null {
   if (job === 'sluice' || job === 'highbanker' || job === 'rocker' || job === 'drywasher') return job;
   if (job === 'screen') return 'classifier';
   return null;
+}
+
+/** Game seconds for a courier's round trip to town from a stretch. */
+export function courierTrip(creek: Creek): number {
+  return (CREW_TUNING.courierLeg + traitsOf(creek.profile.site).access) * 2;
 }
 
 /** Whether the ground can host a job at all. */
@@ -321,7 +354,10 @@ export function jobFits(job: JobKind, creek: Creek): boolean {
       return siteAllows(site, 'pan');
     case 'haul':
     case 'prospect':
+    case 'courier':
       return true;
+    case 'magnet':
+      return false; // A town job, not a claim's.
   }
 }
 
@@ -572,6 +608,10 @@ export function runJob(job: JobKind, dt: number, ctx: JobContext): JobIdle | nul
       return runFinish(dt, ctx);
     case 'prospect':
       return runProspect(dt, ctx);
+    case 'courier':
+      return runCourier(dt, ctx);
+    case 'magnet':
+      return runMagnet(dt, ctx);
     case 'screen':
       return ctx.site.classifier ? null : 'noMachine';
     case 'haul':
@@ -881,9 +921,67 @@ function runPan(dt: number, ctx: JobContext): JobIdle | null {
   return null;
 }
 
+/**
+ * A courier: once the crew bucket or poke has enough in it, load it all and walk it to town, pour
+ * the concentrate into the settling tub there and hand the poke in at the counter, then walk back.
+ */
+function runCourier(dt: number, ctx: JobContext): JobIdle | null {
+  const T = CREW_TUNING;
+  const st = ctx.site.state('courier');
+  const leg = courierTrip(ctx.creek) / 2;
+  if (st.timer > 0) {
+    st.timer -= dt;
+    if (st.timer > 0) return null;
+    if (st.carrying && ctx.town) {
+      // Arrived in town: tip the load into the tub, the poke onto the counter, and head back.
+      const load = st.carrying;
+      const tub = ctx.town.bucket;
+      tub.blackSand += load.blackSand;
+      tub.magnetite = (tub.magnetite ?? 0) + load.blackSand * MAGNET_TUNING.share;
+      tub.gold.push(...load.gold);
+      ctx.town.poke.push(...load.poke);
+      st.carrying = null;
+      st.timer = leg * ctx.policy.pace;
+    }
+    return null;
+  }
+  const site = ctx.site;
+  if (!ctx.town) return 'nothingToFinish';
+  if (site.bucket.blackSand < T.courierLoad && site.poke.length === 0) return 'nothingToFinish';
+  st.carrying = { blackSand: site.bucket.blackSand, gold: site.bucket.gold.splice(0), poke: site.poke.splice(0) };
+  site.bucket.blackSand = 0;
+  st.timer = leg * ctx.policy.pace;
+  return null;
+}
+
+/**
+ * The magnet over the settling tub: sweep at the policy's closeness until the sleeve is nearly full,
+ * shake the clump back (unless pushing hard), strip it off, and go again while there's magnetite.
+ */
+function runMagnet(dt: number, ctx: JobContext): JobIdle | null {
+  const T = CREW_TUNING;
+  const tub = ctx.site.bucket;
+  const st = ctx.site.state('magnet');
+  const clump = (st.clump ??= { sand: 0, gold: [] });
+  const magnetite = tub.magnetite ?? 0;
+  const jar = { blackSand: tub.blackSand, magnetite, gold: tub.gold };
+  const done = magnetite < Math.max(0.005, tub.blackSand * 0.05);
+  if (clump.sand >= MAGNET_TUNING.clumpMax * T.clumpFull || (done && clump.sand > 0)) {
+    if (ctx.policy.shakeBack) shakeBack(ctx.rng, jar, clump);
+    stripOff(clump);
+    st.clump = { sand: 0, gold: [] };
+  } else if (!done) {
+    magnetStep(ctx.rng, jar, clump, dt / ctx.policy.pace, ctx.policy.magnetClose);
+  }
+  tub.blackSand = Math.max(0, jar.blackSand);
+  tub.magnetite = Math.max(0, jar.magnetite);
+  tub.gold = jar.gold;
+  return done && (st.clump?.sand ?? 0) === 0 ? 'nothingToFinish' : null;
+}
+
 function runFinish(dt: number, ctx: JobContext): JobIdle | null {
   const T = CREW_TUNING;
-  if (!siteAllows(ctx.creek.profile.site, 'pan')) return 'noWater';
+  if (!ctx.inTown && !siteAllows(ctx.creek.profile.site, 'pan')) return 'noWater';
   const st = ctx.site.state('finish');
   let pan = ctx.site.panFor('finish');
   if (st.rest > 0) {
@@ -901,6 +999,8 @@ function runFinish(dt: number, ctx: JobContext): JobIdle | null {
       poured.push(piece);
       return false;
     });
+    // In the tub, the magnetite goes out with the sand in proportion.
+    if (bucket.magnetite !== undefined) bucket.magnetite = Math.max(0, bucket.magnetite * (1 - share));
     bucket.blackSand -= amount;
     if (bucket.blackSand < 1e-9) bucket.blackSand = 0;
     pan = new Pan(ctx.rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: amount, gold: poured });

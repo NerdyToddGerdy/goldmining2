@@ -2,6 +2,8 @@ import type { Creek } from './creek';
 import {
   CREW_POLICIES,
   CREW_TUNING,
+  TOWN_JOBS,
+  TOWN_SITE,
   DIGGING_JOBS,
   POLICY_TUNING,
   SiteCrew,
@@ -69,6 +71,8 @@ export const STAFF_TUNING = {
   skillLevel: { green: -1, fair: 0, seasoned: 1 } as Record<Skill, number>,
   /** Time per job by pace. */
   pace: { slow: 1.2, steady: 1, quick: 0.85 } as Record<Pace, number>,
+  /** How many can work the settling tub in town. */
+  townCrewMax: 2,
   /** Applicants in town each day, and the chance one of them is a foreman. */
   applicants: 4,
   foremanChance: 0.3,
@@ -90,7 +94,7 @@ export interface Worker {
   readonly wage: number;
   readonly skill: Skill;
   readonly pace: Pace;
-  /** The stretch they're working, or null waiting in town. */
+  /** The stretch they're working, TOWN_SITE at the crew's station in town, or null waiting in town. */
   siteId: number | null;
 }
 
@@ -189,7 +193,7 @@ export class Crew {
    * dry wash), paid in town with the wages. Near stretches need none.
    */
   dailySupplies(region: Pick<Region, 'creek'>): number {
-    return this.workers.reduce((n, w) => (w.siteId === null ? n : n + traitsOf(region.creek(w.siteId).profile.site).supplies), 0);
+    return this.workers.reduce((n, w) => (w.siteId === null || w.siteId === TOWN_SITE ? n : n + traitsOf(region.creek(w.siteId).profile.site).supplies), 0);
   }
 
   /** Supplies a day for the crew at one stretch. */
@@ -281,6 +285,62 @@ export class Crew {
       const wage = Math.round(STAFF_TUNING.wage[role] * STAFF_TUNING.skillWage[skill]);
       this.applicants.push({ id: this.nextWorkerId++, name: this.freshName(), role, skill, pace, wage });
     }
+  }
+
+  /**
+   * Station someone waiting in town (of a role, if given) at the crew's town station, to work the
+   * settling tub. Foremen and machine work have no place there.
+   */
+  sendToTown(role?: Role): 'sent' | 'noneFree' | 'full' {
+    const here = this.workersAt(TOWN_SITE).length;
+    if (here >= STAFF_TUNING.townCrewMax) return 'full';
+    const worker = role ? this.idleOf(role)[0] : this.idleWorkers.find((w) => w.role !== 'foreman');
+    if (!worker || worker.role === 'foreman') return 'noneFree';
+    worker.siteId = TOWN_SITE;
+    this.site(TOWN_SITE);
+    return 'sent';
+  }
+
+  /** Switch a town job (the magnet, finishing) on or off. */
+  toggleTownJob(job: JobKind): JobToggle {
+    if (!TOWN_JOBS.includes(job)) return 'doesntFit';
+    const site = this.site(TOWN_SITE);
+    if (site.jobs.includes(job)) {
+      site.jobs = site.jobs.filter((j) => j !== job);
+      delete site.idle[job];
+      return 'off';
+    }
+    site.jobs.push(job);
+    return 'on';
+  }
+
+  /** The settling tub in town: concentrate left by the player or brought in by couriers. */
+  get tub(): { blackSand: number; gold: GoldPiece[]; magnetite?: number } {
+    return this.site(TOWN_SITE).bucket;
+  }
+
+  /** Pour the jar into the settling tub for the town crew to work. Returns how much went in. */
+  leaveJar(session: PanningSession): number {
+    const jar = session.jar;
+    if (jar.blackSand <= 0 && jar.gold.length === 0) return 0;
+    const tub = this.tub;
+    const amount = jar.blackSand;
+    tub.blackSand += amount;
+    tub.magnetite = (tub.magnetite ?? 0) + jar.magnetite;
+    tub.gold.push(...jar.gold.splice(0));
+    jar.blackSand = 0;
+    jar.magnetite = 0;
+    return amount;
+  }
+
+  /** Gold waiting at the counter: handed in by couriers and panned out by the town crew. */
+  collectCounter(session: PanningSession): number {
+    const site = this.findSite(TOWN_SITE);
+    if (!site || site.poke.length === 0) return 0;
+    const n = site.poke.length;
+    session.vial.push(...site.poke);
+    site.poke = [];
+    return n;
   }
 
   /** Let a hand go. Wages already owed are still owed. */
@@ -431,19 +491,24 @@ export class Crew {
 
   /** Work every crewed stretch for `seconds` of game time. */
   work(seconds: number, world: CrewWorld): void {
-    for (const site of this.sites) {
+    // Couriers need somewhere to deliver: the town station is set up the first time one runs.
+    const couriers = this.sites.some((s) => s.creekId !== TOWN_SITE && this.staffedJobs(s.creekId).includes('courier'));
+    const town = couriers ? this.site(TOWN_SITE) : this.findSite(TOWN_SITE) ?? undefined;
+    for (const site of [...this.sites]) {
       const workers = this.workersAt(site.creekId);
       if (workers.length === 0) continue;
-      const creek = world.region.creeks.find((c) => c.id === site.creekId);
+      const inTown = site.creekId === TOWN_SITE;
+      // The town station has no ground of its own; the Home Creek stands in as its creek.
+      const creek = inTown ? world.region.home : world.region.creeks.find((c) => c.id === site.creekId);
       if (!creek) continue;
-      this.fitMachines(site, creek, world.session);
+      if (!inTown) this.fitMachines(site, creek, world.session);
       const assigned = this.assignments(site.creekId);
       const staffed = assigned.map((a) => a.job);
-      if (this.stopAt(site.creekId, world)) {
+      if (!inTown && this.stopAt(site.creekId, world)) {
         for (const job of staffed) site.idle[job] = null;
         continue;
       }
-      const lift = this.foremanLift(creek);
+      const lift = inTown ? 0 : this.foremanLift(creek);
       const ctx: JobContext = {
         rng: this.rng,
         creek,
@@ -456,6 +521,8 @@ export class Crew {
         policy: POLICY_TUNING[site.policy],
         preparing: site.policy === 'prepare',
         byNotes: lift > 0,
+        town,
+        inTown,
       };
       // Each job is worked by someone in particular: their skill and pace, lifted by a foreman.
       const contexts = new Map(assigned.map(({ job, worker }) => [job, { ...ctx, policy: workerTuning(site.policy, worker, lift) }]));
