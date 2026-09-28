@@ -14,6 +14,8 @@ import {
   type JobIdle,
   type JobKind,
   type Role,
+  type Skill,
+  type Pace,
   type FinancialState,
   type SiteKind,
   claimOverview,
@@ -101,7 +103,7 @@ export interface HudActions {
   buyLead(leadId: number): void;
   buyGear(id: GearId): void;
   buyFuel(): void;
-  hireHand(role: Role): void;
+  hireApplicant(applicantId: number): void;
   dismissHand(workerId: number): void;
   sendHand(creekId: number, role: Role): void;
   recallHand(creekId: number): void;
@@ -225,6 +227,23 @@ const IDLE_WORDS: Record<JobIdle, string> = {
   nothingToFinish: 'nothing to finish yet',
   groundReady: 'ground prepared: pay gravel open',
 };
+
+const ROLE_WORDS: Record<Role, string> = { hand: 'hand', operator: 'operator', foreman: 'foreman' };
+const SKILL_WORDS: Record<Skill, string> = { green: 'green', fair: 'fair hand', seasoned: 'seasoned' };
+const PACE_WORDS: Record<Pace, string> = { slow: 'slow', steady: 'steady', quick: 'quick' };
+
+/** A worker as the player reads them: name, role, and what sort of worker they are. */
+function workerWords(w: { readonly name: string; readonly role: Role; readonly skill: Skill; readonly pace: Pace }): string {
+  return `${w.name} (${ROLE_WORDS[w.role]}, ${w.skill === 'fair' ? '' : `${SKILL_WORDS[w.skill]}, `}${PACE_WORDS[w.pace]})`;
+}
+
+/** What a foreman has to work from: how much of the ground the player's notes cover. */
+function liftWords(lift: number): string {
+  if (lift <= 0) return 'No field notes here to work from: pan a few spots yourself and they can do far more.';
+  if (lift < 0.5) return 'Your notes cover some of the ground: they help the crew a little.';
+  if (lift < 0.95) return 'Your notes cover most of the ground: the crew works well under them.';
+  return 'Your notes cover all of it: the crew works as well as it can.';
+}
 
 /** Crew policies as the player reads them: a name, and what it costs. */
 const POLICY_WORDS: Record<CrewPolicy, { readonly name: string; readonly note: string }> = {
@@ -462,7 +481,7 @@ export class Hud {
       const id = Number(target.dataset.lead);
       if (target.dataset.action === 'gear') this.on.buyGear(target.dataset.gear as GearId);
       if (target.dataset.action === 'fuel') this.on.buyFuel();
-      if (target.dataset.action === 'hire') this.on.hireHand(target.dataset.role as Role);
+      if (target.dataset.action === 'hire') this.on.hireApplicant(Number(target.dataset.applicant));
       if (target.dataset.action === 'dismiss') this.on.dismissHand(Number(target.dataset.worker));
       if (target.dataset.action === 'send') this.on.sendHand(Number(target.dataset.creek), target.dataset.role as Role);
       if (target.dataset.action === 'recall') this.on.recallHand(Number(target.dataset.creek));
@@ -811,7 +830,7 @@ export class Hud {
     const { mode, region, session } = state;
     const show = mode === 'region' || mode === 'town';
     const key = show
-      ? `${mode}:${this.townTab}:${this.panelCollapsed}:${this.showOldLeads}:${this.showReleased}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
+      ? `${state.crew.applicants.map((a) => a.id).join()}:${mode}:${this.townTab}:${this.panelCollapsed}:${this.showOldLeads}:${this.showReleased}:${session.cash}:${OUTFITTER.map((g) => session.owns(g.id)).join()}:${session.fuelCans}:${JSON.stringify(session.sluicePlace)}:${state.money.state}:${state.money.daysToShutdown?.toFixed(1)}:${this.officeKey(state)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.map((o) => o.lead.id).join()}`
       : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
@@ -990,15 +1009,23 @@ export class Hud {
       '<p class="small">Your crew works your stretches while you are elsewhere: slower and less careful than you, so they buy you time, not gold. <b>Hands</b> pan, rock, haul, screen loads, prospect and finish concentrate. <b>Operators</b> also run the sluice, highbanker and drywasher. Send them to a stretch and switch on the jobs you want there; jobs are filled in the order you switched them on. What they make waits for you to collect at the stretch.</p>',
     ];
     if (crew.wagesOwed > 0) crewLines.push(`<p class="small">Wages owed: ${owing(crew.wagesOwed)}.</p>`);
-    for (const role of ['hand', 'operator'] as const) {
-      const ok = state.money.canHire && session.cash >= STAFF_TUNING.wage[role];
-      crewLines.push(`<button type="button" data-action="hire" data-role="${role}" ${ok ? '' : 'disabled'}>Hire ${role === 'hand' ? 'a hand' : 'an operator'} for $${STAFF_TUNING.wage[role]} a day</button> `);
+    // The day's applicants, each with their own skill, pace and asking wage.
+    crewLines.push('<h4 class="shelf">Looking for work today</h4>');
+    if (crew.applicants.length === 0) crewLines.push('<p class="small">Nobody else today. Others turn up tomorrow.</p>');
+    for (const a of crew.applicants) {
+      const ok = state.money.canHire && session.cash >= a.wage;
+      crewLines.push(
+        `<div class="applicant"><div><b>${a.name}</b> <span class="small">${ROLE_WORDS[a.role]}</span><p class="small">${SKILL_WORDS[a.skill]}, ${PACE_WORDS[a.pace]}</p></div>` +
+          `<button type="button" data-action="hire" data-applicant="${a.id}" ${ok ? '' : 'disabled'}>Hire, $${a.wage} a day</button></div>`,
+      );
     }
-    crewLines.push('<p class="small">The first day is paid up front.</p>');
+    crewLines.push(
+      '<p class="small">The first day is paid up front. Seasoned hands lose less gold and ask more; green ones come cheap and lose more. Quick ones get through more ground. A <b>foreman</b> takes no job: they lift the whole crew at one stretch, as far as your field notes cover the ground, and dig where your notes say the colour is.</p>',
+    );
     const idle = crew.idleWorkers;
     if (idle.length) {
       crewLines.push(
-        `<p class="small">Waiting in town: ${idle.map((w) => `${w.name} (${w.role}) <button type="button" class="link" data-action="dismiss" data-worker="${w.id}">let go</button>`).join(' · ')}</p>`,
+        `<p class="small">Waiting in town: ${idle.map((w) => `${workerWords(w)} <button type="button" class="link" data-action="dismiss" data-worker="${w.id}">let go</button>`).join(' · ')}</p>`,
       );
     }
     const spares = CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, name]) => `${crew.spares[m]} ${name.replace('Crew ', '')}`);
@@ -1032,11 +1059,18 @@ export class Hud {
       const staffed = crew.staffedJobs(claim.creekId);
       // Fee, what's owed and ground left are in the ledger above; here is the work.
       const lines = [`<b>${name}</b> <span class="small">${kind}</span>${economy.isLapsed(claim) ? `<p>${status}</p>` : ''}`];
-      const room = here.length < cap && economy.canWork(claim.creekId);
+      const diggers = crew.diggersAt(claim.creekId);
+      const foreman = crew.foremanAt(claim.creekId);
+      const room = diggers.length < cap && economy.canWork(claim.creekId);
+      const lift = crew.foremanLift(creek);
       lines.push(
-        `<p class="small">Crew here: ${here.length ? here.map((w) => `${w.name} (${w.role})`).join(', ') : 'none'} (room for ${cap}).</p>` +
+        `<p class="small">Crew here: ${diggers.length ? diggers.map(workerWords).join(', ') : 'none'} (room for ${cap}).</p>` +
+          (foreman ? `<p class="small">Foreman: ${workerWords(foreman)}. ${liftWords(lift)}</p>` : '') +
           `<button type="button" data-action="send" data-role="hand" data-creek="${claim.creekId}" ${room && crew.idleOf('hand').length > 0 ? '' : 'disabled'}>Send a hand</button> ` +
           `<button type="button" data-action="send" data-role="operator" data-creek="${claim.creekId}" ${room && crew.idleOf('operator').length > 0 ? '' : 'disabled'}>Send an operator</button> ` +
+          (crew.idleOf('foreman').length > 0 && !foreman
+            ? `<button type="button" data-action="send" data-role="foreman" data-creek="${claim.creekId}" ${economy.canWork(claim.creekId) ? '' : 'disabled'}>Send a foreman</button> `
+            : '') +
           `<button type="button" data-action="recall" data-creek="${claim.creekId}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
       );
       // Job toggles: on and staffed, on and waiting for a hand, or off.
@@ -1297,12 +1331,13 @@ export class Hud {
     if (this.tabletTab === 'crew') {
       const sites = views.filter((v) => v.crew.length > 0);
       const groups = sites.map((v) => {
-        const roles = (['operator', 'hand'] as const).map((r) => ({ r, n: v.crew.filter((c) => c.role === r).length })).filter((x) => x.n > 0);
+        const roles = (['foreman', 'operator', 'hand'] as const).map((r) => ({ r, n: v.crew.filter((c) => c.role === r).length })).filter((x) => x.n > 0);
         const flags = v.jobs.filter((j) => j.state === 'needsOperator' || j.state === 'noOne').map((j) => `${JOB_NAMES[j.job]} ${j.state === 'needsOperator' ? 'needs an operator' : 'has nobody on it'}`);
         const idle = v.jobs.filter((j) => j.state !== 'working' && j.state !== 'standingBack' && j.state !== 'noOne' && j.state !== 'needsOperator').length;
         return (
           `<div class="tablet-group"><b>${name(v.creekId)}</b> <span class="small">${roles.map((x) => `${x.n} ${x.r}${x.n === 1 ? '' : 's'}`).join(', ')} · ${money(v.wagesPerDay)} a day</span>` +
-          `<p class="small">${v.crew.map((c) => `${c.name} (${c.role})`).join(', ')}</p>` +
+          `<p class="small">${v.crew.map(workerWords).join(', ')}</p>` +
+          (v.hasForeman ? `<p class="small">${liftWords(v.foremanLift)}</p>` : '') +
           `<p class="small">Jobs: ${v.jobs.length ? v.jobs.map((j) => JOB_NAMES[j.job]).join(', ') : 'none switched on'}${idle ? ` · ${idle} idle` : ''}</p>` +
           `${flags.map((f) => `<p class="small warn">${f}.</p>`).join('')}</div>`
         );
@@ -1317,7 +1352,7 @@ export class Hud {
       }
       this.tabletBody.innerHTML =
         (groups.join('') || '<p class="small">Nobody is out at a claim.</p>') +
-        `<div class="tablet-group"><b>In town</b><p class="small">${waiting.length ? waiting.map((w) => `${w.name} (${w.role})`).join(', ') : 'Nobody waiting.'}</p>${spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : ''}</div>`;
+        `<div class="tablet-group"><b>In town</b><p class="small">${waiting.length ? waiting.map(workerWords).join(', ') : 'Nobody waiting.'}</p>${spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : ''}</div>`;
       return;
     }
 
@@ -1420,7 +1455,7 @@ export class Hud {
       `<div class="tablet-sheet"><b>${creek.profile.name}</b> <span class="small">${traitsOf(creek.profile.site).label.toLowerCase()}</span>` +
       `${v.warnings.length ? `<ul class="warnings">${v.warnings.map((w) => `<li>${w}</li>`).join('')}</ul>` : '<p class="found">Nothing needs you here.</p>'}` +
       `<table class="tablet-table">` +
-      `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map((c) => `${c.name} (${c.role})`).join(', ') : 'none'}</td></tr>` +
+      `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map(workerWords).join(', ') : 'none'}</td></tr>` +
       `<tr><td>Working</td><td>${POLICY_WORDS[v.policy].name.toLowerCase()} <span class="small">(set in town)</span></td></tr>` +
       `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
       `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +

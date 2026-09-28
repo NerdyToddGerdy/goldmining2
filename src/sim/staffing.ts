@@ -16,6 +16,7 @@ import {
   type CrewMachine,
   type CrewPolicy,
   type JobContext,
+  type PolicyTuning,
   type JobIdle,
   type JobKind,
   type SiteCrewSnapshot,
@@ -46,14 +47,31 @@ import { traitsOf } from './sites';
  * better operator. Nothing here needs a screen.
  */
 
-export type Role = 'hand' | 'operator';
+export type Role = 'hand' | 'operator' | 'foreman';
+
+/** How good they are at the work: sets how much gold they lose. */
+export type Skill = 'green' | 'fair' | 'seasoned';
+/** How fast they work. */
+export type Pace = 'slow' | 'steady' | 'quick';
+
+export const SKILLS: readonly Skill[] = ['green', 'fair', 'seasoned'];
+export const PACES: readonly Pace[] = ['slow', 'steady', 'quick'];
 
 /** Only operators run the powered and precision machines; hands do the rest. */
 export const OPERATOR_JOBS: readonly JobKind[] = ['sluice', 'highbanker', 'drywasher'];
 
 export const STAFF_TUNING = {
   /** Dollars per game day, by role. The first day is paid up front at hiring. */
-  wage: { hand: 12, operator: 25 } as Record<Role, number>,
+  wage: { hand: 12, operator: 25, foreman: 35 } as Record<Role, number>,
+  /** What skill does to the asking wage. */
+  skillWage: { green: 0.75, fair: 1, seasoned: 1.2 } as Record<Skill, number>,
+  /** Skill as a number: -1 green, 0 fair, 1 seasoned. A foreman adds up to 1 on mapped ground. */
+  skillLevel: { green: -1, fair: 0, seasoned: 1 } as Record<Skill, number>,
+  /** Time per job by pace. */
+  pace: { slow: 1.2, steady: 1, quick: 0.85 } as Record<Pace, number>,
+  /** Applicants in town each day, and the chance one of them is a foreman. */
+  applicants: 4,
+  foremanChance: 0.3,
   /** Days of the crew's total wages owed before a hand walks off. */
   quitDays: 2,
   /** What a crew unit of each machine costs at the outfitter. */
@@ -67,9 +85,11 @@ const NAMES = ['Abe', 'Clem', 'Dutch', 'Ezra', 'Hattie', 'Jonas', 'Lottie', 'Mos
 export interface Worker {
   readonly id: number;
   readonly name: string;
-  /** A general hand, or an operator who can also run the machines. */
+  /** A general hand, an operator who can also run the machines, or a foreman who runs the crew. */
   readonly role: Role;
   readonly wage: number;
+  readonly skill: Skill;
+  readonly pace: Pace;
   /** The stretch they're working, or null waiting in town. */
   siteId: number | null;
 }
@@ -83,6 +103,19 @@ export interface CrewSnapshot {
   /** Concentrate and gold brought back to town from sites a crew left. */
   readonly returned: { readonly blackSand: number; readonly gold: readonly GoldPiece[] };
   readonly nextWorkerId: number;
+  /** People in town looking for work, and the game day they turned up. */
+  readonly applicants: readonly Applicant[];
+  readonly applicantsDay: number;
+}
+
+/** Someone in town looking for work: who they are and what they ask. */
+export interface Applicant {
+  readonly id: number;
+  readonly name: string;
+  readonly role: Role;
+  readonly skill: Skill;
+  readonly pace: Pace;
+  readonly wage: number;
 }
 
 /** Why a site's crew isn't working at all. */
@@ -98,7 +131,7 @@ export interface CrewWorld {
 }
 
 export type HireResult = 'hired' | 'restricted' | 'cantAfford';
-export type SendResult = 'sent' | 'noneFree' | 'homeCreek' | 'full' | 'claimLapsed';
+export type SendResult = 'sent' | 'noneFree' | 'homeCreek' | 'full' | 'claimLapsed' | 'hasForeman';
 export type JobToggle = 'on' | 'off' | 'doesntFit';
 
 function noSpares(): Record<CrewMachine, number> {
@@ -112,6 +145,8 @@ export class Crew {
   wagesOwed = 0;
   readonly returned: { blackSand: number; gold: GoldPiece[] } = { blackSand: 0, gold: [] };
   private nextWorkerId = 1;
+  applicants: Applicant[] = [];
+  applicantsDay = -1;
 
   constructor(
     private readonly rng: Rng,
@@ -120,7 +155,9 @@ export class Crew {
     if (!saved) return;
     const copy = structuredClone(saved) as CrewSnapshot;
     // Hands hired before roles were all paid an operator's wage: they are operators.
-    this.workers = copy.workers.map((w) => ({ ...w, role: w.role ?? 'operator' }));
+    this.workers = copy.workers.map((w) => ({ ...w, role: w.role ?? 'operator', skill: w.skill ?? 'fair', pace: w.pace ?? 'steady' }));
+    this.applicants = [...(copy.applicants ?? [])];
+    this.applicantsDay = copy.applicantsDay ?? -1;
     for (const site of copy.sites) this.sites.push(new SiteCrew(rng, site.creekId, site));
     this.spares = { ...noSpares(), ...copy.spares };
     this.wagesOwed = copy.wagesOwed;
@@ -137,6 +174,8 @@ export class Crew {
       wagesOwed: this.wagesOwed,
       returned: this.returned,
       nextWorkerId: this.nextWorkerId,
+      applicants: this.applicants,
+      applicantsDay: this.applicantsDay,
     });
   }
 
@@ -152,6 +191,15 @@ export class Crew {
 
   workersAt(creekId: number): Worker[] {
     return this.workers.filter((w) => w.siteId === creekId);
+  }
+
+  /** The crew who take jobs at a stretch: everyone but the foreman. */
+  diggersAt(creekId: number): Worker[] {
+    return this.workersAt(creekId).filter((w) => w.role !== 'foreman');
+  }
+
+  foremanAt(creekId: number): Worker | null {
+    return this.workersAt(creekId).find((w) => w.role === 'foreman') ?? null;
   }
 
   get idleWorkers(): Worker[] {
@@ -176,18 +224,50 @@ export class Crew {
     return this.sites.find((s) => s.creekId === creekId) ?? null;
   }
 
-  /** Hire a hand or an operator, first day's wage up front. They wait in town until sent somewhere. */
+  /** Hire a fair, steady hand or operator (or foreman) at the going wage, first day up front. */
   hire(session: PanningSession, restricted: boolean, role: Role = 'hand'): HireResult {
+    return this.take(session, restricted, { name: this.freshName(), role, skill: 'fair', pace: 'steady', wage: STAFF_TUNING.wage[role] });
+  }
+
+  /** Hire one of the day's applicants, at what they ask. They wait in town until sent somewhere. */
+  hireApplicant(session: PanningSession, restricted: boolean, applicantId: number): HireResult | 'gone' {
+    const applicant = this.applicants.find((a) => a.id === applicantId);
+    if (!applicant) return 'gone';
+    const result = this.take(session, restricted, applicant);
+    if (result === 'hired') this.applicants = this.applicants.filter((a) => a !== applicant);
+    return result;
+  }
+
+  private take(session: PanningSession, restricted: boolean, who: Omit<Applicant, 'id'>): HireResult {
     if (restricted) return 'restricted';
-    const wage = STAFF_TUNING.wage[role];
-    if (session.cash < wage) return 'cantAfford';
-    session.cash = Math.round((session.cash - wage) * 100) / 100;
-    this.wagesOwed -= wage;
-    const taken = new Set(this.workers.map((w) => w.name));
-    const free = NAMES.filter((n) => !taken.has(n));
-    const name = free.length > 0 ? free[this.rng.int(0, free.length - 1)]! : `${NAMES[this.rng.int(0, NAMES.length - 1)]} ${this.nextWorkerId}`;
-    this.workers.push({ id: this.nextWorkerId++, name, role, wage, siteId: null });
+    if (session.cash < who.wage) return 'cantAfford';
+    session.cash = Math.round((session.cash - who.wage) * 100) / 100;
+    this.wagesOwed -= who.wage;
+    this.workers.push({ id: this.nextWorkerId++, name: who.name, role: who.role, wage: who.wage, skill: who.skill, pace: who.pace, siteId: null });
     return 'hired';
+  }
+
+  private freshName(): string {
+    const taken = new Set([...this.workers.map((w) => w.name), ...this.applicants.map((a) => a.name)]);
+    const free = NAMES.filter((n) => !taken.has(n));
+    return free.length > 0 ? free[this.rng.int(0, free.length - 1)]! : `${NAMES[this.rng.int(0, NAMES.length - 1)]} ${this.nextWorkerId}`;
+  }
+
+  /**
+   * A fresh set of people looking for work each game day: hands and operators of every sort, and
+   * now and then a foreman. Each asks a wage that goes with their skill.
+   */
+  refreshApplicants(day: number): void {
+    if (day === this.applicantsDay) return;
+    this.applicantsDay = day;
+    this.applicants = [];
+    for (let i = 0; i < STAFF_TUNING.applicants; i++) {
+      const role: Role = i === 0 && this.rng.next() < STAFF_TUNING.foremanChance ? 'foreman' : this.rng.next() < 0.55 ? 'hand' : 'operator';
+      const skill = SKILLS[this.rng.int(0, 2)]!;
+      const pace = PACES[this.rng.int(0, 2)]!;
+      const wage = Math.round(STAFF_TUNING.wage[role] * STAFF_TUNING.skillWage[skill]);
+      this.applicants.push({ id: this.nextWorkerId++, name: this.freshName(), role, skill, pace, wage });
+    }
   }
 
   /** Let a hand go. Wages already owed are still owed. */
@@ -202,9 +282,12 @@ export class Crew {
   send(creek: Creek, economy: Economy, homeCreekId: number, role?: Role): SendResult {
     if (creek.id === homeCreekId || creek.profile.site === 'homeCreek') return 'homeCreek';
     if (!economy.canWork(creek.id)) return 'claimLapsed';
-    if (this.workersAt(creek.id).length >= traitsOf(creek.profile.site).crewMax) return 'full';
-    const worker = role ? this.idleOf(role)[0] : this.idleWorkers[0];
+    const worker = role ? this.idleOf(role)[0] : this.idleWorkers.find((w) => w.role !== 'foreman');
     if (!worker) return 'noneFree';
+    // A foreman takes no digging room, but one is enough.
+    if (worker.role === 'foreman') {
+      if (this.foremanAt(creek.id)) return 'hasForeman';
+    } else if (this.diggersAt(creek.id).length >= traitsOf(creek.profile.site).crewMax) return 'full';
     worker.siteId = creek.id;
     this.site(creek.id);
     return 'sent';
@@ -271,18 +354,33 @@ export class Crew {
    * other jobs take a hand first, and a spare operator if no hand is free.
    */
   staffedJobs(creekId: number): JobKind[] {
+    return this.assignments(creekId).map((a) => a.job);
+  }
+
+  /** Who is on each staffed job at a stretch, in list order (see staffedJobs). */
+  assignments(creekId: number): { job: JobKind; worker: Worker }[] {
     const site = this.findSite(creekId);
     if (!site) return [];
-    let hands = this.workersAt(creekId).filter((w) => w.role === 'hand').length;
-    let operators = this.workersAt(creekId).length - hands;
-    const staffed: JobKind[] = [];
+    const hands = this.workersAt(creekId).filter((w) => w.role === 'hand');
+    const operators = this.workersAt(creekId).filter((w) => w.role === 'operator');
+    const out: { job: JobKind; worker: Worker }[] = [];
     for (const job of site.jobs) {
-      if (OPERATOR_JOBS.includes(job)) {
-        if (operators > 0) (operators--, staffed.push(job));
-      } else if (hands > 0) (hands--, staffed.push(job));
-      else if (operators > 0) (operators--, staffed.push(job));
+      const worker = OPERATOR_JOBS.includes(job) ? operators.shift() : (hands.shift() ?? operators.shift());
+      if (worker) out.push({ job, worker });
     }
-    return staffed;
+    return out;
+  }
+
+  /**
+   * How much a foreman lifts the crew at a stretch, 0..1: nothing without one, and with one, as
+   * much as the player's field notes cover the ground. A foreman works from good reserve data;
+   * on ground nobody has sampled he has little to go on.
+   */
+  foremanLift(creek: Creek): number {
+    if (!this.foremanAt(creek.id)) return 0;
+    const spots = creek.creekSpots.filter((s) => !creek.isWorkedOut(s));
+    if (spots.length === 0) return 0;
+    return spots.filter((s) => s.notes && s.notes.pans > 0).length / spots.length;
   }
 
   /** Buy a crew unit of a machine. It waits as a spare until a job needs it. */
@@ -325,11 +423,13 @@ export class Crew {
       const creek = world.region.creeks.find((c) => c.id === site.creekId);
       if (!creek) continue;
       this.fitMachines(site, creek, world.session);
-      const staffed = this.staffedJobs(site.creekId);
+      const assigned = this.assignments(site.creekId);
+      const staffed = assigned.map((a) => a.job);
       if (this.stopAt(site.creekId, world)) {
         for (const job of staffed) site.idle[job] = null;
         continue;
       }
+      const lift = this.foremanLift(creek);
       const ctx: JobContext = {
         rng: this.rng,
         creek,
@@ -341,14 +441,17 @@ export class Crew {
         screened: staffed.includes('screen') && site.classifier,
         policy: POLICY_TUNING[site.policy],
         preparing: site.policy === 'prepare',
+        byNotes: lift > 0,
       };
+      // Each job is worked by someone in particular: their skill and pace, lifted by a foreman.
+      const contexts = new Map(assigned.map(({ job, worker }) => [job, { ...ctx, policy: workerTuning(site.policy, worker, lift) }]));
       let left = seconds;
       while (left > 1e-9) {
         const dt = Math.min(CREW_TUNING.step, left);
         left -= dt;
         let working = false;
         for (const job of staffed) {
-          const idle = runJob(job, dt, ctx);
+          const idle = runJob(job, dt, contexts.get(job) ?? ctx);
           site.idle[job] = idle;
           if (!idle) working = true;
         }
@@ -425,6 +528,24 @@ export class Crew {
   }
 }
 
+/**
+ * A site's policy as one worker carries it out. Skill (lifted by a foreman on mapped ground) makes
+ * the tip lighter, the water truer and trouble seen sooner; pace makes everything quicker or slower.
+ */
+export function workerTuning(policy: CrewPolicy, worker: Pick<Worker, 'skill' | 'pace'>, lift = 0): PolicyTuning {
+  const base = POLICY_TUNING[policy];
+  const level = Math.min(1.5, STAFF_TUNING.skillLevel[worker.skill] + lift);
+  return {
+    ...base,
+    pace: base.pace * STAFF_TUNING.pace[worker.pace] * (1 - 0.08 * lift),
+    panTilt: Math.max(0.26, base.panTilt - 0.08 * level),
+    flowNoise: Math.max(0.02, base.flowNoise * (1 - 0.5 * level)),
+    fixDelay: Math.max(0.25, base.fixDelay * (1 - 0.4 * level)),
+    cleanEvery: base.cleanEvery * (1 - 0.3 * level),
+    targetPower: base.targetPower - 0.08 * level,
+  };
+}
+
 /** Just enough context to ask whether a job has its machine. */
 function machineContext(creek: Creek, site: SiteCrew, session: PanningSession): JobContext {
   return { creek, site, session } as JobContext;
@@ -464,7 +585,9 @@ export function crewFromV14(old: {
   sluiceCreekId: number | null;
 }): CrewSnapshot {
   const atSite = old.hand !== null && old.sluiceCreekId !== null;
-  const workers: Worker[] = old.hand ? [{ id: 1, name: old.hand.name, role: 'operator', wage: old.hand.wage, siteId: atSite ? old.sluiceCreekId : null }] : [];
+  const workers: Worker[] = old.hand
+    ? [{ id: 1, name: old.hand.name, role: 'operator', wage: old.hand.wage, skill: 'fair', pace: 'steady', siteId: atSite ? old.sluiceCreekId : null }]
+    : [];
   const sites: SiteCrewSnapshot[] = atSite
     ? [
         {
@@ -488,6 +611,8 @@ export function crewFromV14(old: {
     wagesOwed: old.wagesOwed,
     returned: atSite ? { blackSand: 0, gold: [] } : old.bucket,
     nextWorkerId: 2,
+    applicants: [],
+    applicantsDay: -1,
   };
 }
 

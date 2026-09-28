@@ -66,13 +66,15 @@ export interface PolicyTuning {
   readonly rockerBeat: number;
   /** A rough guess at recovery against steady, for estimates only. */
   readonly recoveryGuess: number;
+  /** How far off a hand sets the sluice's water from what they aim for. */
+  readonly flowNoise: number;
 }
 
 export const POLICY_TUNING: Record<CrewPolicy, PolicyTuning> = {
-  steady: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 1 },
-  careful: { pace: 1.35, targetPower: 0.38, throttle: 0.5, air: 0.5, cleanEvery: 0.6, fixDelay: 0.4, panTilt: 0.34, panRest: 1.3, rockerBeat: 1.3, recoveryGuess: 1.15 },
-  push: { pace: 0.7, targetPower: 0.5, throttle: 0.75, air: 0.62, cleanEvery: 1.15, fixDelay: 1.2, panTilt: 0.48, panRest: 0.5, rockerBeat: 0.8, recoveryGuess: 0.9 },
-  prepare: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 0 },
+  steady: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 1, flowNoise: 0.08 },
+  careful: { pace: 1.35, targetPower: 0.38, throttle: 0.5, air: 0.5, cleanEvery: 0.6, fixDelay: 0.4, panTilt: 0.34, panRest: 1.3, rockerBeat: 1.3, recoveryGuess: 1.15, flowNoise: 0.08 },
+  push: { pace: 0.7, targetPower: 0.5, throttle: 0.75, air: 0.62, cleanEvery: 1.15, fixDelay: 1.2, panTilt: 0.48, panRest: 0.5, rockerBeat: 0.8, recoveryGuess: 0.9, flowNoise: 0.08 },
+  prepare: { pace: 1, targetPower: 0.45, throttle: 0.6, air: 0.55, cleanEvery: 1, fixDelay: 1, panTilt: 0.42, panRest: 1, rockerBeat: 1, recoveryGuess: 0, flowNoise: 0.08 },
 };
 
 export const CREW_TUNING = {
@@ -288,6 +290,8 @@ export interface JobContext {
   readonly policy: PolicyTuning;
   /** Prepare the ground instead of washing it. */
   readonly preparing: boolean;
+  /** A foreman on site digs where the player's field notes say the gold is. */
+  readonly byNotes: boolean;
 }
 
 /** The crew machine a job needs, if the player's own isn't set up here. */
@@ -457,9 +461,10 @@ type Dug = { readonly load: PanLoad | null; readonly time: number };
 function dig(ctx: JobContext, near: number): Dug | null {
   const T = CREW_TUNING;
   const { creek } = ctx;
-  const spot = creek.creekSpots
-    .filter((s) => !creek.isWorkedOut(s))
-    .sort((a, b) => Math.abs(a.position - near) - Math.abs(b.position - near))[0];
+  const open = creek.creekSpots.filter((s) => !creek.isWorkedOut(s));
+  // A foreman sends them where the player's notes say the colour is (unnoted ground counts as
+  // average); without one they dig whatever's nearest.
+  const spot = ctx.byNotes ? byNotes(open, near) : open.sort((a, b) => Math.abs(a.position - near) - Math.abs(b.position - near))[0];
   if (!spot) return null;
   const blocked = creek.blockedBy(spot);
   const pace = ctx.boost * ctx.policy.pace;
@@ -481,6 +486,15 @@ function dig(ctx: JobContext, near: number): Dug | null {
   if (result.clue) clue(ctx);
   ctx.site.report.shovelfuls += 1;
   return { load: result.load, time: (T.feedTime + T.haulPerLength * Math.abs(spot.position - near)) * pace };
+}
+
+/** The spot with the best colour per pan in the player's notes, nearest first among equals. */
+function byNotes(spots: DigSpot[], near: number): DigSpot | undefined {
+  const noted = spots.filter((s) => s.notes && s.notes.pans > 0);
+  if (noted.length === 0) return spots.sort((a, b) => Math.abs(a.position - near) - Math.abs(b.position - near))[0];
+  const average = noted.reduce((n, s) => n + s.notes!.mg / s.notes!.pans, 0) / noted.length;
+  const score = (s: DigSpot): number => (s.notes && s.notes.pans > 0 ? s.notes.mg / s.notes.pans : average) - Math.abs(s.position - near) * 0.01;
+  return spots.sort((a, b) => score(b) - score(a))[0];
 }
 
 /** Slumped bank or topsoil in the way: tossed aside, not washed (old tailings, though, are washed). */
@@ -580,7 +594,7 @@ function runSluice(dt: number, ctx: JobContext): JobIdle | null {
   }
   if (st.timer <= 0 && st.rinsing === null) {
     const full = sluice.power({ flow: 1 });
-    if (full > 0) st.flow = Math.min(1, Math.max(0.1, ctx.policy.targetPower / full + (ctx.rng.next() * 2 - 1) * T.flowNoise));
+    if (full > 0) st.flow = Math.min(1, Math.max(0.1, ctx.policy.targetPower / full + (ctx.rng.next() * 2 - 1) * ctx.policy.flowNoise));
   }
   sluice.step(dt, { flow: st.flow });
   st.clogTime = sluice.clog > 0.5 ? st.clogTime + dt : 0;

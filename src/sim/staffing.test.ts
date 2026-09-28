@@ -9,7 +9,7 @@ import { Region } from './region';
 import { createRng } from './rng';
 import { createSave, loadSave } from './save';
 import type { SiteKind } from './sites';
-import { Crew, STAFF_TUNING, crewFromV14, crewGroundLeft, estimateHandTake, type CrewWorld } from './staffing';
+import { Crew, STAFF_TUNING, crewFromV14, crewGroundLeft, estimateHandTake, type CrewWorld, type Skill } from './staffing';
 
 const DAY = ECONOMY_TUNING.daySeconds;
 
@@ -474,6 +474,96 @@ describe('crew policies', () => {
     expect(loadSave(save, createRng(1))!.crew.policyAt(s.creek.id)).toBe('careful');
     for (const site of save.crew.sites) delete site.policy;
     expect(loadSave({ ...save, version: 17 }, createRng(1))!.crew.policyAt(s.creek.id)).toBe('steady');
+  });
+});
+
+describe('worker traits and foremen', () => {
+  /** Two operators of a skill on the player's sluice and a pan at a bend for half a day; notes on every spot if mapped. */
+  function shift(seed: number, skill: Skill, opts: { foreman?: boolean; mapped?: boolean } = {}): number {
+    const s = setup(seed);
+    buyGear(s.session, 'sluice');
+    const spot = s.creek.sluiceSpots[0]!;
+    s.session.setUpSluice(s.creek.id, spot);
+    for (let i = 0; i < 2; i++) {
+      s.crew.hire(s.session, false, 'operator');
+      s.crew.workers[i] = { ...s.crew.workers[i]!, skill };
+      s.crew.send(s.creek, s.economy, s.region.home.id);
+    }
+    s.crew.hire(s.session, false, 'foreman');
+    if (opts.foreman) expect(s.crew.send(s.creek, s.economy, s.region.home.id, 'foreman')).toBe('sent');
+    if (opts.mapped) for (const sp of s.creek.creekSpots) s.creek.recordPan(sp.id, sp.layers.find((l) => l.kind === 'payStreak')!.richness, 'payStreak');
+    s.crew.toggleJob(s.creek, 'sluice');
+    s.crew.toggleJob(s.creek, 'pan');
+    runFor(s, DAY / 2);
+    const site = s.crew.findSite(s.creek.id)!;
+    return totalMg(site.poke) + totalMg(site.bucket.gold) + totalMg(s.session.sluiceAt(s.creek.id, spot.id)!.liftMat().gold);
+  }
+  const over = (skill: Skill, opts: { foreman?: boolean; mapped?: boolean } = {}): number => {
+    let gold = 0;
+    for (let seed = 1; seed <= 10; seed++) gold += shift(seed, skill, opts);
+    return gold;
+  };
+
+  it('seasoned hands keep more of the gold than green ones, and ask more for it', () => {
+    const green = over('green');
+    const fair = over('fair');
+    const seasoned = over('seasoned');
+    expect(green).toBeLessThan(fair * 0.96);
+    expect(seasoned).toBeGreaterThan(fair * 1.03);
+    expect(Math.round(STAFF_TUNING.wage.operator * STAFF_TUNING.skillWage.seasoned)).toBeGreaterThan(STAFF_TUNING.wage.operator);
+    expect(Math.round(STAFF_TUNING.wage.hand * STAFF_TUNING.skillWage.green)).toBeLessThan(STAFF_TUNING.wage.hand);
+  });
+
+  it('a foreman lifts the crew on ground the player has mapped, and does little on ground nobody has', () => {
+    const fair = over('fair');
+    expect(over('fair', { foreman: true })).toBeCloseTo(fair, 0);
+    expect(over('fair', { foreman: true, mapped: true })).toBeGreaterThan(fair * 1.1);
+  });
+
+  it('a foreman takes no job and no digging room, and one is enough', () => {
+    const s = setup(30, 'creekBend');
+    for (const role of ['hand', 'hand', 'foreman', 'foreman'] as const) s.crew.hire(s.session, false, role);
+    expect(s.crew.send(s.creek, s.economy, s.region.home.id, 'hand')).toBe('sent');
+    expect(s.crew.send(s.creek, s.economy, s.region.home.id, 'hand')).toBe('sent');
+    expect(s.crew.send(s.creek, s.economy, s.region.home.id, 'foreman')).toBe('sent');
+    expect(s.crew.send(s.creek, s.economy, s.region.home.id, 'foreman')).toBe('hasForeman');
+    for (const job of ['pan', 'haul', 'prospect'] as const) s.crew.toggleJob(s.creek, job);
+    expect(s.crew.staffedJobs(s.creek.id)).toEqual(['pan', 'haul']);
+    expect(s.crew.assignments(s.creek.id).every((a) => a.worker.role !== 'foreman')).toBe(true);
+  });
+
+  it('turns up a fresh set of applicants each day, hired at what they ask', () => {
+    const s = setup(31);
+    s.crew.refreshApplicants(1);
+    expect(s.crew.applicants).toHaveLength(STAFF_TUNING.applicants);
+    const first = s.crew.applicants.map((a) => a.id);
+    s.crew.refreshApplicants(1);
+    expect(s.crew.applicants.map((a) => a.id)).toEqual(first);
+    for (const a of s.crew.applicants) expect(a.wage).toBe(Math.round(STAFF_TUNING.wage[a.role] * STAFF_TUNING.skillWage[a.skill]));
+    const pick = s.crew.applicants[1]!;
+    const cash = s.session.cash;
+    expect(s.crew.hireApplicant(s.session, false, pick.id)).toBe('hired');
+    expect(s.session.cash).toBeCloseTo(cash - pick.wage);
+    const hired = s.crew.workers.at(-1)!;
+    expect([hired.name, hired.role, hired.skill, hired.pace, hired.wage]).toEqual([pick.name, pick.role, pick.skill, pick.pace, pick.wage]);
+    expect(s.crew.applicants.some((a) => a.id === pick.id)).toBe(false);
+    expect(s.crew.hireApplicant(s.session, false, pick.id)).toBe('gone');
+    s.crew.refreshApplicants(2);
+    expect(s.crew.applicants.map((a) => a.id)).not.toEqual(first);
+  });
+
+  it('keeps traits and applicants through a save, and a version 19 crew is fair and steady', () => {
+    const s = setup(32);
+    s.crew.refreshApplicants(3);
+    s.crew.hireApplicant(s.session, false, s.crew.applicants[0]!.id);
+    const save = JSON.parse(JSON.stringify(createSave(s.region, s.session, { screen: 'town', creekId: s.creek.id, spotId: null }, 0, s)));
+    const loaded = loadSave(save, createRng(1))!;
+    expect(loaded.crew.workers).toEqual(s.crew.workers);
+    expect(loaded.crew.applicants).toEqual(s.crew.applicants);
+    for (const w of save.crew.workers) (delete w.skill, delete w.pace);
+    const old = loadSave({ ...save, version: 19 }, createRng(1))!;
+    expect(old.crew.workers.every((w) => w.skill === 'fair' && w.pace === 'steady')).toBe(true);
+    expect(old.crew.applicants).toHaveLength(0);
   });
 });
 

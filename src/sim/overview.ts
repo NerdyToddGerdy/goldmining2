@@ -3,7 +3,7 @@ import { DIGGING_JOBS, type CrewPolicy, type JobIdle, type JobKind } from './cre
 import type { Claim, Economy } from './economy';
 import type { Estimate } from './estimate';
 import { needsPump } from './sluice';
-import { OPERATOR_JOBS, crewGroundLeft, estimateHandTake, type Crew, type Role } from './staffing';
+import { OPERATOR_JOBS, crewGroundLeft, estimateHandTake, type Crew, type Pace, type Role, type Skill } from './staffing';
 import type { PanningSession } from './panningSession';
 
 /**
@@ -26,7 +26,10 @@ export interface ClaimOverview {
   readonly claim: Claim;
   /** How the crew here works. */
   readonly policy: CrewPolicy;
-  readonly crew: readonly { readonly name: string; readonly role: Role }[];
+  readonly crew: readonly { readonly name: string; readonly role: Role; readonly skill: Skill; readonly pace: Pace }[];
+  /** How much a foreman here lifts the crew (0 with none, or with no notes to go on). */
+  readonly foremanLift: number;
+  readonly hasForeman: boolean;
   readonly jobs: readonly JobLine[];
   readonly wagesPerDay: number;
   readonly feePerDay: number;
@@ -100,6 +103,9 @@ export function claimOverview(
   else if (diggers > 0 && daysLeft < 1) {
     warn.push(daysLeft < 0.5 ? `At this pace, ${name} will be worked out within half a day.` : `At this pace, ${name} will be worked out in about a day.`);
   }
+  const hasForeman = crew.foremanAt(creek.id) !== null;
+  const foremanLift = crew.foremanLift(creek);
+  if (hasForeman && foremanLift === 0) warn.push('The foreman has no field notes to work from here: pan a few spots yourself.');
   if (workers.length > 0 && diggers > 0 && !take && policy !== 'prepare') warn.push('No field notes here yet: pan it yourself to judge whether the crew pays.');
 
   const status: ClaimHealth = workers.length === 0 ? 'noCrew' : critical.length > 0 ? 'critical' : warn.length > 0 ? 'warn' : 'steady';
@@ -107,7 +113,9 @@ export function claimOverview(
     creekId: creek.id,
     claim,
     policy,
-    crew: workers.map((w) => ({ name: w.name, role: w.role })),
+    crew: workers.map((w) => ({ name: w.name, role: w.role, skill: w.skill, pace: w.pace })),
+    foremanLift,
+    hasForeman,
     jobs,
     wagesPerDay,
     feePerDay: claim.fee,

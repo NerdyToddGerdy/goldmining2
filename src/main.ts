@@ -577,6 +577,7 @@ async function start(): Promise<void> {
   const walkToTown = (): void => {
     if (mode !== 'town') passTime(ECONOMY_TUNING.travel.town);
     region.restockOffers(session.pansWorked);
+    crew.refreshApplicants(economy.day);
     setMode('town');
     settleUp();
   };
@@ -1090,16 +1091,21 @@ async function start(): Promise<void> {
       }
       setMode(magnetReturn);
     },
-    hireHand: (role) => {
+    hireApplicant: (applicantId) => {
       const no = refused('hire');
       if (no) return hud.toast(no);
-      const result = crew.hire(session, false, role);
+      const result = crew.hireApplicant(session, false, applicantId);
       checkBooks();
       const hand = crew.workers[crew.workers.length - 1];
       if (result === 'hired' && hand) {
+        const role = hand.role;
         hud.toast(
-          `${hand.name} signs on as ${role === 'operator' ? 'an operator' : 'a hand'} at $${hand.wage} a day, first day paid, and waits in town. ` +
-            (role === 'operator' ? 'Operators can run the sluice, highbanker and drywasher, or lend a hand at anything else.' : 'Hands pan, rock, haul, screen, prospect and finish; the sluice, highbanker and drywasher need an operator.'),
+          `${hand.name} signs on as ${role === 'operator' ? 'an operator' : role === 'foreman' ? 'a foreman' : 'a hand'} at $${hand.wage} a day, first day paid, and waits in town. ` +
+            (role === 'operator'
+              ? 'Operators can run the sluice, highbanker and drywasher, or lend a hand at anything else.'
+              : role === 'foreman'
+                ? 'Send them to a stretch: they take no job, and lift the whole crew there as far as your field notes cover the ground.'
+                : 'Hands pan, rock, haul, screen, prospect and finish; the sluice, highbanker and drywasher need an operator.'),
         );
       }
       else if (result === 'cantAfford') hud.toast("You can't afford the first day's wage yet.");
@@ -1112,9 +1118,11 @@ async function start(): Promise<void> {
       const target = region.creek(creekId);
       const result = crew.send(target, economy, region.home.id, role);
       const name = target.profile.name;
-      if (result === 'sent') hud.toast(`${role === 'operator' ? 'An operator' : 'A hand'} sets off for ${name}. They'll take the first job on its list that nobody has and they can do.`);
+      if (result === 'sent' && role === 'foreman') hud.toast(`Your foreman sets off for ${name}. The more of it you've sampled, the more they can do with the crew there.`);
+      else if (result === 'sent') hud.toast(`${role === 'operator' ? 'An operator' : 'A hand'} sets off for ${name}. They'll take the first job on its list that nobody has and they can do.`);
       else if (result === 'full') hud.toast(`${name} has no room or work for another hand.`);
-      else if (result === 'noneFree') hud.toast(`No ${role === 'operator' ? 'operator' : 'hand'} is waiting in town. Hire one, or call one back from another stretch.`);
+      else if (result === 'hasForeman') hud.toast(`${name} already has a foreman.`);
+      else if (result === 'noneFree') hud.toast(`No ${role === 'operator' ? 'operator' : role === 'foreman' ? 'foreman' : 'hand'} is waiting in town. Hire one, or call one back from another stretch.`);
       else if (result === 'claimLapsed') hud.toast(`Your claim on ${name} can't be worked until its fees are paid.`);
     },
     recallHand: (creekId) => {
@@ -1233,6 +1241,7 @@ async function start(): Promise<void> {
   }
   else if (screen === 'town') {
     region.restockOffers(session.pansWorked);
+    crew.refreshApplicants(economy.day);
     setMode('town');
   }
   else if (screen === 'region') setMode('region');

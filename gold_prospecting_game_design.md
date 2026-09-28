@@ -544,6 +544,10 @@ Example warning:
 ### In the game: the crew
 
 - **Hiring, by role:** the crew is hired in town (the Claims & crew tab), first day up front, as many as the player can pay. They wait in town until sent to a stretch.
+  - **Who's looking for work:** four people turn up in town each game day, each with a role, a skill and a pace, and asking a wage that goes with their skill.
+  - **Skill** (green, fair, seasoned) is how much gold they lose: a lighter tip on the pan, truer water on the sluice, trouble seen sooner, cleanouts on time. Measured on a bend with two operators, green keeps about 8% less than fair and seasoned about 7% more. Green asks three quarters of the going wage and seasoned a fifth more, so a cheap green hand can cost more than they save.
+  - **Pace** (slow, steady, quick) is how fast they get through the work: about 20% slower or 15% quicker. More ground a day, and the ground runs out sooner.
+  - **Foremen ($35 a day)** take no job and no digging room, one to a stretch. They lift the whole crew's skill as far as the player's field notes cover the ground there, and send the diggers where the notes say the colour is. On fully sampled ground a crew brings in about 18% more under one; on ground nobody has sampled, nothing (see the player-versus-staff table: a foreman needs good reserve data). The tablet warns when a foreman has no notes to work from.
   - **Hands ($12 a day):** pan, rock, haul, screen loads, prospect and finish concentrate.
   - **Operators ($25 a day):** also run the sluice, highbanker and drywasher.
   - Measured on typical ground, an operator on a sluice or highbanker brings in roughly three times their wage while the ground lasts, and a hand panning or rocking a little over theirs.
@@ -562,7 +566,6 @@ Example warning:
   - **Push hard** (extract aggressively): quicker feeding, harder water, a heavier tip, cleanouts and fixes put off. About 20% more ground a day at about a third lost: a little more gold a day while the ground lasts, and the ground goes faster.
   - **Prepare the ground** (maintain and prepare): no washing. The diggers strip topsoil and slumped bank, pry boulders and bail holes, then report the ground ready, so the player arrives to open pay gravel. The tablet says when there's nothing left to clear.
   - At abandoned diggings the crew washes the old tailings rather than tossing them as topsoil.
-  - Not yet: foremen (who raise a crew's efficiency on mapped ground) and worker traits.
 - **Machines:** crew units are bought at the outfitter (crew sluice $40, highbanker $90, rocker box $20, drywasher $45, classifier $15) and wait as spares until a switched-on job needs one. Switching a job off sends its unit back to spare, washing what it held into the crew bucket. Crew engines burn the player's fuel cans.
 - **How they work:** every job drives the same simulation the player does, slower and less attentive: digging from the nearest ground, tossing topsoil, feeding cautiously, raking and clearing late, cleaning out on a schedule, panning with a heavier tip. A hand on the sluice keeps roughly half what the player would in the same time. Crews work only while the player is at another stretch, and stand back while the player works theirs.
 - **What they make:** each stretch's crew bucket (concentrate, about five mats) and poke (gold) wait for the player. "Collect from the crew" at the stretch puts the poke in the vial and as much of the bucket as fits in the jar. On arrival the player hears who worked, for how long, and what they did.
