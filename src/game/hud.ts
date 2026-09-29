@@ -439,7 +439,7 @@ export class Hud {
     this.root = el('div', 'hud');
     this.root.innerHTML = `
       <div class="hud-top"><button type="button" class="hud-back" hidden></button><div class="hud-hint"></div></div>
-      <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span><span class="hud-idle" hidden>Clock stopped while you're idle</span></button>
+      <button type="button" class="hud-cash" title="Field tablet: claims, crew, leads and costs"><span class="hud-cash-row"><span class="hud-led"></span><span class="sr-only hud-alert-text"></span><span class="hud-cash-text"></span></span><span class="hud-day" title="How far through the working day"><span class="hud-day-fill"></span></span><span class="hud-money" hidden></span><span class="hud-idle" hidden>Clock stopped while you're idle</span></button>
       <div class="hud-result" hidden></div>
       <div class="hud-inspect"></div>
       <div class="walk" hidden></div>
@@ -623,6 +623,8 @@ export class Hud {
     const { mode, session, controls, events } = state;
     const pan = session.pan;
 
+    // Styles that depend on what's behind the HUD (the region map is light paper) key off this.
+    if (this.root.dataset.mode !== mode) this.root.dataset.mode = mode;
     const tabletTitle = forInput('Field tablet (O): claims, crew, leads and costs');
     if (this.cashButton.title !== tabletTitle) this.cashButton.title = tabletTitle;
     setLabel(this.tabletClose, forInput('Close (Esc)'));
@@ -676,7 +678,12 @@ export class Hud {
     if (idleNote.hidden === state.clockStopped) idleNote.hidden = !state.clockStopped;
     this.cashButton.classList.toggle('idle', state.clockStopped);
     // The tablet's light goes red when the books or a claim need the player.
-    this.cashButton.classList.toggle('alert', m.state !== 'healthy' || state.economy.anyLapsed || state.crew.wagesOverdue);
+    const alert = m.state !== 'healthy' || state.economy.anyLapsed || state.crew.wagesOverdue;
+    this.cashButton.classList.toggle('alert', alert);
+    // Say it in words too, for screen readers.
+    const alertText = this.cashButton.querySelector('.hud-alert-text') as HTMLElement;
+    const said = alert ? 'Something needs you. ' : '';
+    if (alertText.textContent !== said) alertText.textContent = said;
     // Tilt and Sift only matter while the pan is being worked; after the reveal they go away.
     // The classifier is sifted too, but has nothing to tilt.
     const classifying = mode === 'classifier' && state.classifier !== null;

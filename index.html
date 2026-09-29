@@ -61,6 +61,8 @@
       /* Top left: the way back, always in the same place, then the hint beside it. */
       .hud-top { position: absolute; left: var(--edge-l); top: var(--edge-t); right: 280px; display: flex; gap: 12px; align-items: flex-start; }
       .hud-hint { flex: 1; min-width: 0; opacity: 0.8; text-shadow: 0 1px 2px #000; }
+      /* Over the region map's light paper, the hint is in pencil rather than pale on shadow. */
+      .hud[data-mode='region'] .hud-hint { color: #3a3830; opacity: 0.9; text-shadow: none; }
       .hud .hud-back { flex: none; padding: 5px 10px; white-space: nowrap; }
       .hud .hud-back[hidden] { display: none; }
       /* The clock and cash, shown on a small handheld: tap it to open the field tablet. */
@@ -75,14 +77,21 @@
       .hud .hud-cash:focus:not(:focus-visible) { outline: none; }
       .hud-cash-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
       .hud-led { width: 6px; height: 6px; border-radius: 50%; background: #9fd08a; box-shadow: 0 0 4px #9fd08a; }
-      .hud-cash.alert .hud-led { background: #ff8a6a; box-shadow: 0 0 5px #ff8a6a; }
+      /* Alert is a shape as well as a colour: the light becomes a small "!" tag. */
+      .hud-cash.alert .hud-led {
+        width: auto; height: 14px; padding: 0 4px; border-radius: 3px; background: #ff8a6a; box-shadow: 0 0 5px #ff8a6a;
+        font: 800 11px/14px system-ui, sans-serif; color: #1e2a22;
+      }
+      .hud-cash.alert .hud-led::before { content: '!'; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       .hud-day { display: block; height: 3px; margin-top: 3px; background: rgba(239, 230, 207, 0.2); border-radius: 2px; overflow: hidden; }
       .hud-day-fill { height: 100%; width: 0; background: #f3d77a; }
       .hud-money { display: block; margin-top: 3px; font: 12px system-ui, sans-serif; color: #e8a36a; text-align: right; }
       .hud-money[hidden] { display: none; }
       .hud-idle { display: block; margin-top: 2px; font: 11px system-ui, sans-serif; color: rgba(239, 230, 207, 0.7); text-align: right; }
       .hud-idle[hidden] { display: none; }
-      .hud-cash.idle .hud-led { background: #6d7a70; box-shadow: none; }
+      /* Idle: a hollow ring rather than a lit dot. */
+      .hud-cash.idle:not(.alert) .hud-led { background: none; box-shadow: none; border: 1.5px solid #8a978d; width: 5px; height: 5px; }
       .hud-money.danger { color: #ff8a6a; font-weight: 600; }
       .hud-result {
         position: absolute; left: 50%; top: 18%; transform: translateX(-50%);
@@ -209,7 +218,10 @@
       .hud-panel.notebook h3 { margin: 0; line-height: calc(var(--line) * 2); color: var(--graphite); font: 700 17px/calc(var(--line) * 2) Georgia, serif; }
       .hud-panel.notebook h3 .count { font: 400 15px Kalam, cursive; opacity: 0.8; }
       .hud-panel.notebook p { margin: 0; }
-      .hud-panel.notebook .small { font-size: 12px; opacity: 0.72; }
+      .hud-panel.notebook .small { font-size: 12px; opacity: 0.85; }
+      /* Ink that reads on paper: the dark screens' pale orange and green would wash out here. */
+      .hud-panel.notebook .warn { color: #9a3d1f; }
+      .hud-panel.notebook .found { color: #3f6b2a; }
       .hud-panel.notebook .lead { border-top: none; padding: 0; margin-top: var(--line); }
       .hud-panel.notebook .lead:first-of-type { margin-top: 0; }
       .hud-panel.notebook .lead-name { display: inline-block; font: 700 20px/var(--line) Kalam, cursive; }
@@ -256,12 +268,18 @@
       .tablet-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
       .tablet-card { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; min-height: 0; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(239, 230, 207, 0.2); border-left-width: 4px; }
       .tablet-card.is-steady { border-left-color: #9fd08a; }
-      .tablet-card.is-warn { border-left-color: #e8c36a; }
-      .tablet-card.is-critical { border-left-color: #ff8a6a; }
+      .tablet-card.is-warn { border-left-color: #e8c36a; border-left-style: dashed; }
+      .tablet-card.is-critical { border-left-color: #ff8a6a; border-left-width: 7px; }
       .tablet-card.is-home { border-left-color: #7fb2d0; }
       .tablet-card.is-noCrew { border-left-color: rgba(239, 230, 207, 0.3); }
       .tablet-card.selected { background: rgba(243, 215, 122, 0.12); border-color: #f3d77a; }
       .tablet-card .chip { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; }
+      /* Each status has a mark and a style of its own, not just a colour. */
+      .tablet-card .chip.steady::before { content: '✓ '; }
+      .tablet-card .chip.warn::before { content: '! '; font-weight: 800; }
+      .tablet-card .chip.critical { align-self: flex-start; padding: 0 5px; border-radius: 3px; background: #ff8a6a; color: #1e2a22; opacity: 1; font-weight: 700; }
+      .tablet-card .chip.critical::before { content: '!! '; }
+      .tablet-card .chip.noCrew::before { content: '– '; }
       .tablet-sheet { margin-top: 10px; padding: 10px 12px; background: rgba(0, 0, 0, 0.3); border-radius: 6px; }
       .tablet-sheet ul { margin: 6px 0; padding-left: 18px; }
       .tablet-sheet .warnings li { color: #e8a36a; }
@@ -285,8 +303,8 @@
       .walk-head b { font: 700 17px Kalam, cursive; }
       .hud .walk button.link { background: none; border: none; padding: 0; min-height: 0; color: #3a3830; text-decoration: underline; font-size: 12px; }
       .walk ol { margin: 0; padding-left: 20px; }
-      .walk li { color: rgba(58, 56, 48, 0.45); padding: 1px 0; }
-      .walk li.done { color: rgba(58, 56, 48, 0.55); text-decoration: line-through; }
+      .walk li { color: rgba(58, 56, 48, 0.68); padding: 1px 0; }
+      .walk li.done { color: rgba(58, 56, 48, 0.62); text-decoration: line-through; }
       .walk li.now { color: #3a3830; }
       .walk li p { margin: 2px 0 4px; }
       .walk-read { margin: 6px 0 0; font: 700 15px Kalam, cursive; }
