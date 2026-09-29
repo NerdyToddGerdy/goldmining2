@@ -392,7 +392,7 @@ Visible signs that tell the player where gold is likely to have settled:
 | Stage | Description |
 |---|---|
 | Setup | Choose a dig spot based on ground signs |
-| Operation | Dig down through the bank. The cut face visibly shows the layers: overburden, gravel, the darker pay streak, bedrock |
+| Operation | Dig down through the bank. The cut face visibly shows the layers: overburden, gravel, the darker pay streak, bedrock. Ground not yet dug shows only faint bands with wandering edges (topsoil, gravel, bedrock), so the player can guess roughly how deep gravel and bedrock lie; the pay streak looks like any gravel until it's dug |
 | Interruption | Boulders that must be levered out, water seeping into the hole, or a small bank slump that buries the hole |
 | Harvest | Reach bedrock and scrape its cracks: the richest material in the creek, and the shovel's reward moment |
 

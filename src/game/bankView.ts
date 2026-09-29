@@ -3,7 +3,8 @@ import { CLASSIFIER_TUNING, DRYWASHER_TUNING, HIGHBANKER_TUNING, ROCKER_TUNING, 
 
 /**
  * Side-on cross-section of the creek bank at one dig spot. The hole's cut face shows the
- * layers as they are exposed; ground below the hole floor stays unknown until dug.
+ * layers as they are exposed; the ground not yet dug shows only faint, rough bands (topsoil,
+ * gravel, bedrock), never the pay streak or its gold.
  *
  * Shovel gesture: press in the hole, drag the shovelful to the pan (right) to pan it, to the
  * sluice in the creek (far right) when one is set up here, or to the spoil pile (left) to toss
@@ -329,6 +330,7 @@ export class BankView extends Container {
     // Far bank and sky strip, then the ground in cross-section.
     g.rect(0, 0, W, sy).fill(SKY_BANK);
     g.rect(0, sy, W, H - sy).fill(UNKNOWN_GROUND);
+    this.drawStrata(g, spot, W * 0.8);
     // Creek on the right: a dry wash has only a sandy bed, and a ravine's far wall is bare rock.
     const site = this.creek.profile.site;
     const creekX = W * 0.8;
@@ -372,6 +374,41 @@ export class BankView extends Container {
 
     const fx = this.fx.clear();
     for (const c of this.clods) fx.circle(c.x, c.y, 4).fill({ color: c.color, alpha: Math.min(1, c.life * 3) });
+  }
+
+  /**
+   * Faint bands in the ground not yet dug: topsoil, then gravel, then bedrock, the way a cut bank
+   * nearby would show them. Their edges wander, so they tell roughly how deep each lies, not
+   * exactly; and gravel and the pay streak look alike until they're dug, so they never show gold.
+   */
+  private drawStrata(g: Graphics, spot: DigSpot, right: number): void {
+    const sy = this.surfaceY;
+    const unit = this.unit;
+    const bands: { kind: 'overburden' | 'gravel' | 'bedrock'; top: number }[] = [];
+    let depth = 0;
+    for (const layer of spot.layers) {
+      const kind = layer.kind === 'payStreak' ? 'gravel' : layer.kind;
+      if (bands[bands.length - 1]?.kind !== kind) bands.push({ kind, top: sy + depth * unit });
+      depth += layer.initialLoads;
+    }
+    const seed = spot.id * 1.7;
+    const edge = (x: number, i: number): number => 7 * Math.sin(x / 83 + seed + i * 2.3) + 4 * Math.sin(x / 29 + seed * 1.3 + i);
+    bands.forEach((band, i) => {
+      if (i === 0) return; // The topsoil is the ground's own colour.
+      const top: number[] = [];
+      for (let x = 0; x <= right; x += 16) top.push(Math.min(x, right), band.top + edge(x, i));
+      const color = lerp(UNKNOWN_GROUND, LAYER_COLORS[band.kind], band.kind === 'bedrock' ? 0.35 : 0.22);
+      g.poly([...top, right, this.height_, 0, this.height_]).fill(color);
+      g.poly(top, false).stroke({ width: 1, color: 0x000000, alpha: 0.12 });
+      // A little texture: pebbles in the gravel, cracks in the bedrock, faint as the bands.
+      const next = bands[i + 1]?.top ?? this.height_;
+      for (let k = 0; k < Math.floor(right / 45); k++) {
+        const x = (k * 45 + ((k * 29 + spot.id * 7) % 31)) % right;
+        const y = band.top + 10 + ((k * 37 + spot.id * 11) % Math.max(8, next - band.top - 16));
+        if (band.kind === 'gravel') g.ellipse(x, y, 3 + (k % 3), 2 + (k % 2)).fill({ color: LAYER_COLORS.gravel, alpha: 0.28 });
+        else g.moveTo(x, y).lineTo(x + 5, y + 9).lineTo(x + 2, y + 16).stroke({ width: 1, color: 0x1a1d22, alpha: 0.3 });
+      }
+    });
   }
 
   private drawHole(g: Graphics, spot: DigSpot): void {
