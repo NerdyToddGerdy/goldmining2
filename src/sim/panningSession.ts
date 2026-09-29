@@ -60,6 +60,8 @@ export interface SessionSnapshot {
   readonly repairKits?: number;
   /** First steps of the early game already taken (see milestones.ts). Absent means none. */
   readonly milestones?: readonly string[];
+  /** The most gold from one pan of gravel, in mg. Absent means none yet. */
+  readonly bestPanMg?: number;
   /** Null (or absent) until a trommel is bought. */
   readonly trommel?: { readonly placedAt: SluicePlace | null; readonly state: TrommelSnapshot | null; readonly packedFuel: number } | null;
 }
@@ -90,6 +92,8 @@ export class PanningSession {
   /** Lifetime dollars from gold sales, and milligrams sold. */
   earned = 0;
   soldMg = 0;
+  /** The most gold picked from one pan of gravel, in mg: for the record on the tablet. */
+  bestPanMg = 0;
   /** The sluice, once owned: packed (placedAt null) or set up and running at a sluice site. */
   private sluiceGear: { placedAt: SluicePlace | null; sluice: Sluice | null } | null = null;
   /** The drywasher and wash tub travel with the player, like the rocker. */
@@ -132,6 +136,7 @@ export class PanningSession {
     this.cash = saved.cash;
     this.earned = saved.earned;
     this.soldMg = saved.soldMg;
+    this.bestPanMg = saved.bestPanMg ?? 0;
     this.pan = saved.pan ? Pan.restore(rng, saved.pan) : null;
     for (const id of saved.gear) this.gear.add(id);
     this.fitKit();
@@ -169,6 +174,7 @@ export class PanningSession {
       cash: this.cash,
       earned: this.earned,
       soldMg: this.soldMg,
+      bestPanMg: this.bestPanMg,
       gear: [...this.gear],
       classifier: this.classifier?.snapshot() ?? null,
       rocker: this.rocker?.snapshot() ?? null,
@@ -599,7 +605,10 @@ export class PanningSession {
     this.vial.push(...collected);
     // Black sand from gravel is fresh; a jar pour going back keeps whatever share it came out with.
     this.addToJar(blackSand, this.pan.kind === 'gravel' ? MAGNET_TUNING.share : this.pourMagnetiteShare, toJar);
-    if (this.pan.kind === 'gravel') this.pansWorked += 1;
+    if (this.pan.kind === 'gravel') {
+      this.pansWorked += 1;
+      this.bestPanMg = Math.max(this.bestPanMg, totalMg(collected));
+    }
     return collected;
   }
 

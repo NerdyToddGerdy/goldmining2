@@ -16,7 +16,7 @@ import type { Rng } from './rng';
  * Bump SAVE_VERSION whenever the shape changes, and add a migration rather than discarding
  * old saves: losing a player's vial is worse than a little migration code.
  */
-export const SAVE_VERSION = 24;
+export const SAVE_VERSION = 25;
 
 const SCREENS = ['creek', 'bank', 'pan', 'town', 'region', 'sluice', 'classifier', 'rocker', 'highbanker', 'drywasher', 'trommel'] as const;
 
@@ -284,6 +284,10 @@ function migrate(data: unknown): unknown {
   }
   if (save.version === 23 && isObject(save.session)) {
     save = { ...save, version: 24, session: { ...save.session, milestones: [] } };
+  }
+  if (save.version === 24 && isObject(save.session)) {
+    // No record of the best pan was kept before: start it at none.
+    save = { ...save, version: 25, session: { ...save.session, bestPanMg: 0 } };
   }
   return save;
 }

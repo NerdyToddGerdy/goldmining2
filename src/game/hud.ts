@@ -1814,6 +1814,17 @@ export class Hud {
           return `<li class="${done ? 'done' : m === next ? 'next' : ''}"><span class="tick" aria-hidden="true">${done ? '✓' : '○'}</span><span>${m.goal}${m === next ? `<span class="small">${m.how}</span>` : ''}</span></li>`;
         }).join('')}</ul>`
       : '';
+    // The record: what the long game has added up to so far.
+    const found = region.creeks.filter((c) => c !== region.home);
+    const workedOut = region.creeks.filter((c) => c.groundLeft <= 0).length;
+    const record =
+      `<h4>Your record</h4><table class="tablet-table">` +
+      `<tr><td>Gold sold</td><td>${session.soldMg ? `${session.soldMg.toFixed(1)} mg for ${money(session.earned)}` : 'none yet'}</td></tr>` +
+      `<tr><td>Pans worked</td><td>${session.pansWorked}${session.bestPanMg > 0 ? `; the best gave ${session.bestPanMg.toFixed(1)} mg` : ''}</td></tr>` +
+      `<tr><td>Stretches</td><td>${found.length ? `${found.length} found` : 'none found beyond the Home Creek'}${workedOut ? `, ${workedOut} worked out` : ''}</td></tr>` +
+      `<tr><td>Gear bought</td><td>${owned.length ? `${owned.length} of ${OUTFITTER.length} pieces from the outfitter` : 'nothing yet: a shovel and a pan'}</td></tr>` +
+      `<tr><td>Days out</td><td>${economy.day}</td></tr>` +
+      `</table>`;
     return (
       started +
       `<table class="tablet-table">` +
@@ -1825,10 +1836,10 @@ export class Hud {
       `<tr><td>Claims</td><td>${held ? `${held} held, ${money(fees)} a day in fees` : 'none held'} · the Home Creek is free</td></tr>` +
       `<tr><td>Crew</td><td>${crew.workers.length ? `${crew.workers.length} hired, ${money(wages)} a day` : 'none hired'}</td></tr>` +
       `<tr><td>Leads</td><td>${openLeads ? `${openLeads} to follow` : 'none open'}${region.offers.length ? `, ${region.offers.length} for sale in town` : ''}</td></tr>` +
-      `<tr><td>Pans worked</td><td>${session.pansWorked}, ${money(session.earned)} earned all told</td></tr>` +
       `</table>` +
       `<h4>Needs you</h4>` +
       (attention.length ? `<ul class="warnings">${attention.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="found">Nothing pressing.</p>') +
+      record +
       (this.messages.length
         ? `<h4>Recent</h4><ul class="messages">${this.messages.map((m) => `<li><span class="small">${m.when}</span>${escapeHtml(forInput(m.text))}</li>`).join('')}</ul>`
         : '')

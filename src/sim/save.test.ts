@@ -48,6 +48,15 @@ describe('save and load', () => {
     expect(loaded!.session.vialMg).toBeCloseTo(session.vialMg);
   });
 
+  it('keeps the best pan on record, and starts older saves with none', () => {
+    const { region, session, creekId, spotId } = playedGame();
+    expect(session.bestPanMg).toBeGreaterThan(0);
+    const save = throughJson(createSave(region, session, place('pan', creekId, spotId), 0)) as Record<string, unknown>;
+    expect(loadSave(save, createRng(3))!.session.bestPanMg).toBe(session.bestPanMg);
+    const { bestPanMg: _b, ...v24Session } = save.session as Record<string, unknown>;
+    expect(loadSave({ ...save, version: 24, session: v24Session }, createRng(3))!.session.bestPanMg).toBe(0);
+  });
+
   it('lets play continue after loading', () => {
     const { region, session, creekId, spotId } = playedGame();
     const loaded = loadSave(throughJson(createSave(region, session, place('pan', creekId, spotId), 0)), createRng(5))!;
