@@ -31,7 +31,16 @@ const COLORS = {
   gold: 0xe6b940,
   goldBright: 0xfff0a8,
   spray: 0xe8f2f0,
+  rimLight: 0x8a8781,
+  wall: 0x323130,
+  sleeve: 0x7a3b2e,
+  sleeveDark: 0x5a2a21,
+  skin: 0xc4956e,
+  skinShade: 0xa27552,
 } as const;
+
+/** Where the hands grip the rim (radians; 0 is the lip, y down is toward the player). */
+const GRIPS = [Math.PI * 0.62, Math.PI * 0.93];
 
 interface Grain {
   a: number;
@@ -73,6 +82,8 @@ interface RevealedPiece {
 export class PanView extends Container {
   private readonly body = new Container();
   private readonly contents = new Graphics();
+  /** The player's hands on the rim and forearms reaching in from below: they tip and shake with the pan. */
+  private readonly hands = new Graphics();
   private readonly spray = new Graphics();
   private readonly vialGraphics = new Graphics();
   private readonly vialLabel = new Text({ text: '', style: { fill: 0xefe6cf, fontSize: 14, fontFamily: 'Georgia, serif' } });
@@ -103,6 +114,8 @@ export class PanView extends Container {
   private darkSpillCarry = 0;
   /** How far each shake throws the water: -1 away from the lip, +1 toward it. */
   private surge = 0;
+  /** Water sheeting over the lip after a stroke toward it: rises with the stroke, drains away after. */
+  private sheet = 0;
   /** Material the sim has washed out, held back until a stroke toward the lip carries it over. */
   private pendingSpill: { color: number; size: number }[] = [];
   /** Grain count for this pan's washable layer; a jar pour is a small pile. */
@@ -112,7 +125,7 @@ export class PanView extends Container {
 
   constructor() {
     super();
-    this.body.addChild(this.contents);
+    this.body.addChild(this.contents, this.hands);
     this.bucketLabel.anchor.set(0.5, 0);
     this.jarLabel.anchor.set(0.5, 0);
     this.addChild(this.body, this.spray, this.vialGraphics, this.vialLabel, this.jarLabel, this.bucketLabel);
@@ -223,6 +236,8 @@ export class PanView extends Container {
     this.body.pivot.x = -this.shakeOffset;
 
     this.surge = shaking ? Math.max(-1, Math.min(1, Math.sin(this.shakePhase) * (0.4 + controls.tilt))) : this.surge * 0.8;
+    const pour = pan.phase === 'working' ? Math.max(0, this.surge) * Math.min(1, controls.tilt * 1.6) : 0;
+    this.sheet = Math.max(pour, this.sheet - dt * 2.5);
     if (pan.phase === 'working') this.animateWorking(dt, pan, controls, events);
     else if (pan.phase === 'revealed' && this.revealed.length === 0) this.fanOut(pan);
     this.releaseSpill(pan.phase !== 'working');
@@ -302,7 +317,10 @@ export class PanView extends Container {
     const s = this.scaleFactor;
     const R = this.radius;
 
+    // The pan: rolled rim catching the light on its far side, the sloped wall, then the floor.
     g.ellipse(0, 0, R, R * 0.62).fill(COLORS.panBody).stroke({ width: R * 0.06, color: COLORS.panRim });
+    g.poly(ellipseArc(0, 0, R, R * 0.62, Math.PI * 1.05, Math.PI * 1.75), false).stroke({ width: R * 0.025, color: COLORS.rimLight, alpha: 0.7 });
+    g.ellipse(0, R * 0.03, (R + this.rx) / 2, (R * 0.62 + this.ry) / 2).fill(COLORS.wall);
     g.ellipse(0, 0, this.rx, this.ry).fill(COLORS.panFloor);
 
     // Tilt pools material toward the lip; each shake surges the loose light sand most,
@@ -339,6 +357,26 @@ export class PanView extends Container {
     g.ellipse(controls.tilt * this.rx * 0.3 + this.surge * this.rx * 0.15, 0, this.rx * (1 - controls.tilt * 0.3), this.ry * 0.95)
       .fill({ color: waterColor, alpha: 0.18 + murk * 0.55 });
 
+    // On a wash stroke the water sheets over the lip, thicker the harder the stroke and the tip.
+    const sheet = this.sheet;
+    if (sheet > 0.05) {
+      // A thin film over the rim, and strands falling off it into the creek.
+      const out = R * (0.02 + 0.05 * sheet);
+      const film = lerpColor(waterColor, COLORS.spray, 0.35);
+      const inner = ellipseArc(0, 0, R * 0.97, R * 0.6, -0.42, 0.42);
+      const outer = ellipseArc(out, 0, R + out, R * 0.62 + out * 0.3, 0.38, -0.38);
+      g.poly([...inner, ...outer]).fill({ color: film, alpha: 0.2 + 0.35 * sheet });
+      for (let i = 0; i < 7; i++) {
+        const a = -0.34 + (i / 6) * 0.68;
+        const x = out + Math.cos(a) * (R + out);
+        const y = Math.sin(a) * (R * 0.62 + out * 0.3);
+        const fall = R * (0.06 + 0.12 * sheet) * (0.7 + 0.3 * Math.sin(this.time * 9 + i * 2.1));
+        g.moveTo(x, y).quadraticCurveTo(x + fall * 0.5, y, x + fall * 0.6, y + fall).stroke({ width: (1.2 + sheet) * s, color: COLORS.spray, alpha: 0.35 * sheet });
+      }
+    }
+
+    this.drawHands();
+
     // The snuffer's nozzle, touched to the tail where it drew.
     for (const sn of this.snuffs) {
       const a = Math.PI * (TAIL_FROM + TAIL_SPAN * sn.t);
@@ -358,6 +396,40 @@ export class PanView extends Container {
 
     const spray = this.spray.clear();
     for (const p of this.particles) spray.circle(p.x, p.y, p.size).fill({ color: p.color, alpha: Math.min(1, p.life / p.maxLife + 0.2) });
+  }
+
+  /** Two hands gripping the near rim, forearms in rolled flannel sleeves reaching in from below. */
+  private drawHands(): void {
+    const h = this.hands.clear();
+    const R = this.radius;
+    for (const a of GRIPS) {
+      const gx = Math.cos(a) * R;
+      const gy = Math.sin(a) * R * 0.62;
+      // The forearm runs out and down from the grip, toward the player.
+      const dx = Math.cos(a) * 0.55;
+      const dy = 1;
+      // Long enough to run off the bottom of the screen: the arms come from the player, not the water.
+      const len = R * 2.4;
+      const ex = gx + dx * len;
+      const ey = gy + dy * len;
+      h.moveTo(gx + dx * R * 0.2, gy + dy * R * 0.2).lineTo(gx + dx * R * 0.5, gy + dy * R * 0.5).stroke({ width: R * 0.17, color: COLORS.skin });
+      h.moveTo(gx + dx * R * 0.45, gy + dy * R * 0.45).lineTo(ex, ey).stroke({ width: R * 0.22, color: COLORS.sleeve });
+      h.moveTo(gx + dx * R * 0.45, gy + dy * R * 0.45).lineTo(gx + dx * R * 0.5, gy + dy * R * 0.5).stroke({ width: R * 0.23, color: COLORS.sleeveDark });
+      // The hand: its back outside the rim along the forearm, fingers wrapped over into the pan.
+      const along = Math.atan2(dy, dx);
+      h.poly(blob(gx + dx * R * 0.1, gy + R * 0.1, R * 0.12, R * 0.085, along)).fill(COLORS.skin).stroke({ width: 1, color: COLORS.skinShade });
+      const tangent = a + Math.PI / 2;
+      const fx = Math.cos(a) * R * 0.93;
+      const fy = Math.sin(a) * R * 0.62 * 0.93;
+      h.poly(blob(fx, fy, R * 0.1, R * 0.04, Math.atan2(Math.sin(tangent) * 0.62, Math.cos(tangent)))).fill(COLORS.skin).stroke({ width: 1, color: COLORS.skinShade });
+      for (let f = -1; f <= 1; f++) {
+        const t = f * 0.055;
+        const px = Math.cos(a + t) * R * 0.93;
+        const py = Math.sin(a + t) * R * 0.62 * 0.93;
+        h.moveTo(px + Math.cos(a) * R * 0.03, py + Math.sin(a) * R * 0.02).lineTo(px - Math.cos(a) * R * 0.03, py - Math.sin(a) * R * 0.02);
+      }
+      h.stroke({ width: 1, color: COLORS.skinShade });
+    }
   }
 
   private drawVial(session: PanningSession, bucket: { volume: number; capacity: number } | null): void {
@@ -495,6 +567,29 @@ function nuggetShape(x: number, y: number, size: number, rot: number): number[] 
     const a = rot + (i / 7) * Math.PI * 2;
     const r = size * (0.7 + 0.3 * Math.sin(i * 2.7 + rot * 3));
     points.push(x + Math.cos(a) * r, y + Math.sin(a) * r * 0.75);
+  }
+  return points;
+}
+
+/** A rotated ellipse, as polygon points. */
+function blob(cx: number, cy: number, rx: number, ry: number, rot: number): number[] {
+  const points: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const x = Math.cos(a) * rx;
+    const y = Math.sin(a) * ry;
+    points.push(cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot));
+  }
+  return points;
+}
+
+/** Points along an ellipse from angle `from` to `to` (radians), for rim highlights and the lip sheet. */
+function ellipseArc(cx: number, cy: number, rx: number, ry: number, from: number, to: number): number[] {
+  const points: number[] = [];
+  const steps = 14;
+  for (let i = 0; i <= steps; i++) {
+    const a = from + ((to - from) * i) / steps;
+    points.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
   }
   return points;
 }
