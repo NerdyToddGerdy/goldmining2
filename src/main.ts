@@ -114,6 +114,7 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   rocker: 'A rocker box. Set it up on any stretch you find: shovel gravel onto its screen, ladle water over it, and rock it on a steady beat.',
   highbanker: 'A highbanker. Set it up on the bank at a creek bend, gravel bar or ravine: prime the pump, start the engine, and shovel into the hopper. Buy fuel here by the can.',
   trommel: 'A trommel. Set it up on a gravel bar beside a spot, start the engine, set the Drum so the load tumbles and the Spray to run the deck, and shovel into the hopper. It burns fuel cans.',
+  riffledPan: 'A riffled pan: it replaces your steel one everywhere. Start with the riffles toward the lip and wash harder; flip it (F) to the smooth side to finish.',
   finishingPan: 'A finishing pan. When you pan your jar in town or on a found stretch, it’s the one you reach for: tip it a little less, and it keeps the fines.',
   snuffer: 'A snuffer bottle. At the reveal, tap along the black-sand tail (F) to draw up fine gold. Work the tail thin first, and don’t get greedy.',
   washTub: 'A wash tub. On a dry wash, fill it and you can pan there. Change the water when it gets muddy: muddy water hides colour.',
@@ -796,7 +797,12 @@ async function start(): Promise<void> {
   const hud = new Hud({
     reveal: () => {
       const pan = session.pan;
-      if (pan && coach.allowReveal(pan)) pan.reveal();
+      if (!pan || !coach.allowReveal(pan)) return;
+      coach.revealing(pan);
+      pan.reveal();
+    },
+    flipPan: () => {
+      session.pan?.flip();
     },
     collect,
     backToHole: () => setMode(mode === 'pan' && panReturn === 'town' ? 'town' : 'bank'),

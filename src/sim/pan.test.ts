@@ -218,3 +218,82 @@ describe('sand grain (each pan reads a little differently)', () => {
     expect(new Pan(createRng(5), { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: 0.2, gold: [] }).grain).toBe(0.5);
   });
 });
+
+describe('Riffled pan', () => {
+  /** Riffles toward the lip, washed at `tilt`; flipped to the smooth side when the riffles hold everything back (unless `flip` is false). */
+  function workRiffled(seed: number, tilt: number, flip = true): { pan: Pan; collected: number; initial: number } {
+    const pan = new Pan(createRng(seed), SPOT);
+    pan.riffled = true;
+    const initial = totalMg(pan.gold) + totalMg(pan.rocks.flatMap((r) => (r.stuckPicker ? [r.stuckPicker] : [])));
+    let collected = 0;
+    for (const rock of [...pan.rocks]) collected += pan.rakeRock(rock.id)?.mg ?? 0;
+    for (let t = 0; t < 600 && !pan.workedDown; t += DT) {
+      if (pan.rifflesToLip && pan.lightSand <= pan.riffleFloor * 1.02) {
+        if (!flip) break;
+        pan.flip();
+      }
+      pan.step(DT, pan.clay > 0 || pan.stratification < 0.5 ? SETTLE : { tilt: pan.rifflesToLip ? tilt : 0.4, shake: 1 });
+    }
+    pan.reveal();
+    collected += totalMg(pan.collect(false).collected);
+    return { pan, collected, initial };
+  }
+
+  function riffledRate(tilt: number, flip = true): { recovery: number; seconds: number } {
+    let collected = 0;
+    let initial = 0;
+    let seconds = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const result = workRiffled(seed, tilt, flip);
+      collected += result.collected;
+      initial += result.initial;
+      seconds += result.pan.elapsed;
+    }
+    return { recovery: collected / initial, seconds: seconds / 60 };
+  }
+
+  it('takes a steeper tip with the riffles toward the lip', () => {
+    const pan = new Pan(createRng(5), SPOT);
+    const steel = pan.safeLimit;
+    pan.riffled = true;
+    expect(pan.safeLimit).toBeCloseTo(steel * PAN_T.riffleSafeScale);
+    pan.flip();
+    expect(pan.side).toBe('smooth');
+    // Smooth side out it's the steel pan again (flipping stirs the layers a little, so compare like with like).
+    const smooth = pan.safeLimit;
+    pan.riffled = false;
+    expect(pan.safeLimit).toBeCloseTo(smooth);
+  });
+
+  it('holds sand back riffles-first: it only works down once flipped', () => {
+    const held = workRiffled(4, 0.55, false).pan;
+    expect(held.workedDown).toBe(false);
+    expect(held.lightSand).toBeGreaterThanOrEqual(held.initialLightSand * PAN_T.riffleHold * 0.999);
+    expect(workRiffled(4, 0.55).pan.workedDown).toBe(true);
+  });
+
+  it('is faster than the steel pan for a skilled hand, without out-earning it', () => {
+    const steel = recoveryRate(skilled);
+    const riffled = riffledRate(0.55);
+    expect(riffled.seconds).toBeLessThan(steel.seconds * 0.9);
+    expect(riffled.recovery).toBeGreaterThan(steel.recovery - 0.05);
+    expect(riffled.recovery).toBeLessThan(steel.recovery + 0.05);
+  });
+
+  it('hides more of the fines when revealed riffles-first', () => {
+    const flipped = riffledRate(0.55);
+    const unflipped = riffledRate(0.55, false);
+    expect(unflipped.recovery).toBeLessThan(flipped.recovery - 0.05);
+  });
+
+  it('keeps its side through a save; the steel pan has none', () => {
+    const pan = new Pan(createRng(2), SPOT);
+    expect(pan.snapshot().riffled).toBeUndefined();
+    expect(pan.flip()).toBe(false);
+    pan.riffled = true;
+    pan.flip();
+    const back = Pan.restore(createRng(2), JSON.parse(JSON.stringify(pan.snapshot())));
+    expect(back.riffled).toBe(true);
+    expect(back.side).toBe('smooth');
+  });
+});

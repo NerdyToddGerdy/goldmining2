@@ -34,6 +34,8 @@ export interface PanControls {
 }
 
 export type PanState = 'timid' | 'balanced' | 'aggressive';
+/** Which side of a riffled pan faces the lip. The steel pan is smooth all round. */
+export type PanSide = 'riffles' | 'smooth';
 /** A shovelful of creek gravel, or black sand poured back from the concentrate jar. */
 export type PanKind = 'gravel' | 'concentrate';
 export type PanPhase = 'working' | 'revealed' | 'emptied';
@@ -154,6 +156,17 @@ export const PAN_TUNING = {
   snuffThickSand: 0.035,
   /** Past this much sand the bottle is cloudy: its specks can't be picked clean and go back to the jar. */
   bottleClear: 0.05,
+  /**
+   * The riffled pan, riffles toward the lip: the grooves catch heavies as they head for the lip,
+   * so it takes a steeper tip before gold goes. But they also hold sand back: riffles-first it
+   * can't be worked below this share of its sand, and revealed that way, the black sand packed
+   * in the grooves hides more of the fines. Flip to the smooth side to finish.
+   */
+  riffleSafeScale: 1.4,
+  riffleHold: 0.1,
+  riffleCover: 1.8,
+  /** Turning the pan round in the hands stirs the settled layers a little. */
+  flipMix: 0.85,
 } as const;
 
 let nextId = 1;
@@ -185,6 +198,8 @@ export interface PanSnapshot {
   readonly grain?: number;
   /** Worked in the finishing pan. Absent means the steel pan. */
   readonly finishing?: boolean;
+  /** Worked in the riffled pan, and which side faces the lip. Absent means the steel pan. */
+  readonly riffled?: PanSide;
   /** Where each hidden piece lies along the revealed tail (0 head .. 1 tip), in `hidden`'s order. */
   readonly tailPos?: readonly number[];
   /** What the snuffer bottle has drawn up from this pan. */
@@ -216,6 +231,10 @@ export class Pan {
   waterMurk = 0;
   /** Worked in the finishing pan (concentrate only). */
   finishing = false;
+  /** Worked in the riffled pan (creek gravel only). */
+  riffled = false;
+  /** Which side of the riffled pan faces the lip. */
+  side: PanSide = 'riffles';
   /** Where each hidden piece lies along the revealed tail, 0 head .. 1 tip, in `hidden`'s order. */
   tailPos: number[] = [];
   /** The snuffer bottle's draw from this pan: sand, and the specks in it. */
@@ -280,6 +299,7 @@ export class Pan {
       ...(this.waterMurk > 0 ? { waterMurk: this.waterMurk } : {}),
       ...(this.grain !== 0.5 ? { grain: this.grain } : {}),
       ...(this.finishing ? { finishing: true } : {}),
+      ...(this.riffled ? { riffled: this.side } : {}),
       ...(this.tailPos.length ? { tailPos: [...this.tailPos] } : {}),
       ...(this.bottle.sand > 0 || this.bottle.gold.length ? { bottle: { sand: this.bottle.sand, gold: [...this.bottle.gold] } } : {}),
       ...(this.tailThinness > 0 ? { tailThin: this.tailThinness } : {}),
@@ -328,6 +348,8 @@ export class Pan {
     pan.hidden = [...snap.hidden];
     pan.waterMurk = snap.waterMurk ?? 0;
     pan.finishing = snap.finishing ?? false;
+    pan.riffled = snap.riffled !== undefined;
+    pan.side = snap.riffled ?? 'riffles';
     pan.tailPos = [...(snap.tailPos ?? [])];
     while (pan.tailPos.length < pan.hidden.length) pan.tailPos.push(rng.next());
     pan.bottle = { sand: snap.bottle?.sand ?? 0, gold: [...(snap.bottle?.gold ?? [])] };
@@ -352,12 +374,30 @@ export class Pan {
     return this.lightSand <= this.initialLightSand * PAN_TUNING.workedDownFraction;
   }
 
+  /** Riffles toward the lip: catching heavies, and holding sand back. */
+  get rifflesToLip(): boolean {
+    return this.riffled && this.side === 'riffles';
+  }
+
+  /** Turn a riffled pan round, riffles to the lip or the smooth side. Returns false if there's nothing to flip. */
+  flip(): boolean {
+    if (!this.riffled || this.phase !== 'working') return false;
+    this.side = this.side === 'riffles' ? 'smooth' : 'riffles';
+    this.stratification *= PAN_TUNING.flipMix;
+    return true;
+  }
+
+  /** Riffles-first, the pan holds this much sand back however long it's washed. */
+  get riffleFloor(): number {
+    return this.rifflesToLip ? this.initialLightSand * PAN_TUNING.riffleHold : 0;
+  }
+
   /** Wash beyond which black sand and gold start going over the lip. */
   get safeLimit(): number {
     const T = PAN_TUNING;
     const limit = T.safeLimitBase + T.safeLimitPerStrat * this.stratification;
     if (this.kind === 'concentrate') return limit * T.concentrateSafeScale * (this.finishing ? T.finishingSafeScale : 1);
-    return limit * (T.fineSafe + T.grainSafe * this.grain);
+    return limit * (T.fineSafe + T.grainSafe * this.grain) * (this.rifflesToLip ? T.riffleSafeScale : 1);
   }
 
   effectiveWash(controls: PanControls): number {
@@ -401,7 +441,7 @@ export class Pan {
 
     const washRate =
       T.lightWashRate * (this.kind === 'concentrate' ? T.concentrateWashScale * (this.finishing ? T.finishingWashScale : 1) : T.fineWash - T.grainWash * this.grain);
-    const lightSpilled = Math.min(this.lightSand, wash * washRate * murk * dt);
+    const lightSpilled = Math.min(Math.max(0, this.lightSand - this.riffleFloor), wash * washRate * murk * dt);
     this.lightSand -= lightSpilled;
 
     // Heavy loss: small baseline from an unsorted pan, large once over the safe limit,
@@ -441,7 +481,8 @@ export class Pan {
     if (this.phase !== 'working') return this.visible;
     this.phase = 'revealed';
     this.tailThinness = 1 - Math.min(1, this.lightSand / (this.initialLightSand * 0.3));
-    const cover = (this.lightSand * 6 + this.waterMurk * 0.3) * (this.finishing ? PAN_TUNING.finishingHide : 1);
+    const cover =
+      (this.lightSand * 6 + this.waterMurk * 0.3) * (this.finishing ? PAN_TUNING.finishingHide : 1) * (this.rifflesToLip ? PAN_TUNING.riffleCover : 1);
     for (const piece of this.gold) {
       if (this.rng.next() < cover * PAN_TUNING.hideFactor[piece.size]) this.hidden.push(piece);
       else this.visible.push(piece);

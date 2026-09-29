@@ -20,6 +20,7 @@ export type GearId =
   | 'drywasher'
   | 'washTub'
   | 'finishingPan'
+  | 'riffledPan'
   | 'snuffer'
   | 'trommel';
 
@@ -62,6 +63,12 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Magnet in a sleeve',
     price: 6,
     description: 'Pass it over your jar of black sand and the magnetite leaps up onto it, so the jar holds more and pans down faster. Held close it drags fine gold up too: shake the clump back before you strip it off. For use in town or on the stretches you find.',
+  },
+  {
+    id: 'riffledPan',
+    name: 'Riffled pan',
+    price: 8,
+    description: 'A plastic pan with riffles moulded into one side of the wall. Riffles toward the lip, you can tip it harder and wash faster: the grooves catch the heavies. But they hold sand back too, so flip it to the smooth side to finish, or the black sand packed in the grooves hides the fines. It is still just a pan: it works anywhere, the Home Creek included.',
   },
   {
     id: 'finishingPan',

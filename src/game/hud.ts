@@ -72,6 +72,8 @@ export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'cl
 export interface HudActions {
   // Pan
   reveal(): void;
+  /** Turn the riffled pan round: riffles to the lip, or the smooth side. */
+  flipPan(): void;
   collect(saveBlackSand: boolean): void;
   backToHole(): void;
   /** Zoom the region map in (>1) or out (<1); 0 fits it all back in view. */
@@ -804,7 +806,11 @@ export class Hud {
     const { mode, session, creek, spot } = state;
     if (mode === 'pan') {
       const phase = session.pan?.phase;
-      if (phase === 'working') return [['Stop & reveal (R)', () => this.on.reveal()]];
+      if (phase === 'working') {
+        const pan = session.pan;
+        const flip: [string, () => void][] = pan?.riffled ? [[pan.side === 'riffles' ? 'Flip to the smooth side (F)' : 'Flip to the riffles (F)', () => this.on.flipPan()]] : [];
+        return [...flip, ['Stop & reveal (R)', () => this.on.reveal()]];
+      }
       const snuff: [string, () => void][] = state.canSnuff ? [['Snuff the tail (F)', () => this.on.snuff()]] : [];
       if (phase === 'revealed' && session.pan?.residueSpent) {
         return [...snuff, ['Collect (C)', () => this.on.collect(false)]];
@@ -1427,6 +1433,7 @@ export class Hud {
       else if (key === 'escape' || key === 'm') this.on.openRegion();
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
+      else if (key === 'f' && phase === 'working') this.on.flipPan();
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
       else if (key === 'f' && phase === 'revealed') this.on.snuff();
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
@@ -1902,6 +1909,7 @@ export class Hud {
         ['Water', water],
         ['Loss over lip', loss],
         ['Sand left', `${Math.round((pan.lightSand / pan.initialLightSand) * 100)}%`],
+        ...(pan.riffled ? [['To the lip', pan.side === 'riffles' ? 'riffles' : 'smooth side'] as [string, string]] : []),
         ...(pan.kind === 'gravel' ? [['Sand', pan.grain < 0.35 ? 'fine silt' : pan.grain > 0.65 ? 'coarse grit' : 'medium'] as [string, string]] : []),
       ];
     } else if (mode === 'drywasher' && state.drywasher) {

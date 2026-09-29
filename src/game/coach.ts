@@ -17,6 +17,10 @@ export class PanCoach {
   private hasWashed = false;
   private hasShaken = false;
   private toldAboutClay = false;
+  /** Seconds spent washing a riffled pan whose riffles are holding back all that's left. */
+  private riffleHeld = 0;
+  private hasFlipped = false;
+  private toldRiffleReveal = false;
   private cooldown = 0;
   private revealWarnedAt = -Infinity;
   private time = 0;
@@ -41,6 +45,8 @@ export class PanCoach {
     this.tippedStill = tipped && !shaking && !clay ? this.tippedStill + dt : 0;
     this.tippedWithClay = tipped && shaking && clay ? this.tippedWithClay + dt : 0;
     this.overworking = pan.workedDown && shaking && controls.tilt > 0.05 ? this.overworking + dt : 0;
+    this.riffleHeld = pan.rifflesToLip && pan.lightSand <= pan.riffleFloor * 1.02 && shaking && tipped ? this.riffleHeld + dt : 0;
+    if (pan.riffled && pan.side === 'smooth') this.hasFlipped = true;
 
     if (this.cooldown > 0) return;
     const tip = usingTouch() ? 'the Tilt slider' : 'W, the mouse wheel, or the Tilt slider';
@@ -57,6 +63,8 @@ export class PanCoach {
             ? 'Gold is going over the lip. This sand is fine and silty: it washes quick but won’t take much tip. Tip less, or sift level to settle it.'
             : 'Gold is going over the lip. Tip the pan less, or sift it level for a moment to settle it.',
       );
+    } else if (!this.hasFlipped && this.riffleHeld > 2) {
+      this.nudge(`The riffles are holding the rest of the sand back. ${usingTouch() ? 'Flip the pan' : 'Flip the pan (F)'} to the smooth side to finish.`);
     } else if (this.guided) {
       // The walkthrough card is teaching this pan.
     } else if (!this.toldAboutClay && this.tippedWithClay > 2) {
@@ -79,6 +87,13 @@ export class PanCoach {
     this.revealWarnedAt = this.time;
     this.say(`About ${Math.round(sandLeft * 100)}% of the sand is still in the pan and will hide the gold. Keep washing, or ${usingTouch() ? 'tap Stop & reveal' : 'press R'} again to reveal anyway.`);
     return false;
+  }
+
+  /** The first reveal riffles-first with sand still packed in the grooves: say what it costs. */
+  revealing(pan: Pan): void {
+    if (this.toldRiffleReveal || !pan.rifflesToLip || pan.workedDown) return;
+    this.toldRiffleReveal = true;
+    this.say('Revealed riffles-first: black sand packed in the grooves hides the fine gold. Flip to the smooth side to finish next time.');
   }
 
   private nudge(message: string): void {

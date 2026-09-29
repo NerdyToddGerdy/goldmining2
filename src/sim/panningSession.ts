@@ -497,6 +497,7 @@ export class PanningSession {
     if (!this.panIsFree) throw new Error('The pan is still in use');
     this.pan = new Pan(this.rng, load);
     this.pan.waterMurk = waterMurk;
+    this.pan.riffled = this.owns('riffledPan');
     return this.pan;
   }
 
@@ -507,6 +508,7 @@ export class PanningSession {
     if (!material) return null;
     this.pan = Pan.fromScreened(this.rng, material);
     this.pan.waterMurk = waterMurk;
+    this.pan.riffled = this.owns('riffledPan');
     return this.pan;
   }
 

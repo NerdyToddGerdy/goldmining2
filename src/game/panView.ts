@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { PAN_TUNING, PAN_VOLUME, type GoldPiece, type Pan, type PanControls, type PanStepEvents, type PanningSession } from '../sim';
+import { PAN_TUNING, PAN_VOLUME, type GoldPiece, type Pan, type PanControls, type PanSide, type PanStepEvents, type PanningSession } from '../sim';
 
 /**
  * Draws the pan and everything in it. The pan's condition is communicated physically:
@@ -32,6 +32,11 @@ const COLORS = {
   goldBright: 0xfff0a8,
   spray: 0xe8f2f0,
   rimLight: 0x8a8781,
+  plasticBody: 0x1f3a26,
+  plasticRim: 0x2d4f35,
+  plasticWall: 0x24422c,
+  plasticFloor: 0x2a4a32,
+  riffle: 0x3d6a48,
   wall: 0x323130,
   sleeve: 0x7a3b2e,
   sleeveDark: 0x5a2a21,
@@ -116,6 +121,9 @@ export class PanView extends Container {
   private surge = 0;
   /** Water sheeting over the lip after a stroke toward it: rises with the stroke, drains away after. */
   private sheet = 0;
+  /** Seconds left of the riffled pan's turn when flipped, and the side it last showed. */
+  private flipTime = 0;
+  private lastSide: PanSide | null = null;
   /** Material the sim has washed out, held back until a stroke toward the lip carries it over. */
   private pendingSpill: { color: number; size: number }[] = [];
   /** Grain count for this pan's washable layer; a jar pour is a small pile. */
@@ -148,6 +156,7 @@ export class PanView extends Container {
 
   setPan(pan: Pan): void {
     this.pan = pan;
+    this.lastSide = pan.side;
     this.initialBlackSand = Math.max(pan.blackSand, 1e-6);
     this.initialClay = Math.max(pan.clay, 1e-6);
     this.revealed = [];
@@ -234,6 +243,13 @@ export class PanView extends Container {
     this.shakeOffset = shaking ? Math.sin(this.shakePhase) * 7 : this.shakeOffset * 0.8;
     this.body.rotation = controls.tilt * 0.22;
     this.body.pivot.x = -this.shakeOffset;
+    // Flipping a riffled pan: it turns round in the hands, narrowing and widening again.
+    if (pan.side !== this.lastSide) {
+      this.flipTime = 0.35;
+      this.lastSide = pan.side;
+    }
+    this.flipTime = Math.max(0, this.flipTime - dt);
+    this.body.scale.x = 1 - 0.75 * Math.sin((this.flipTime / 0.35) * Math.PI);
 
     this.surge = shaking ? Math.max(-1, Math.min(1, Math.sin(this.shakePhase) * (0.4 + controls.tilt))) : this.surge * 0.8;
     const pour = pan.phase === 'working' ? Math.max(0, this.surge) * Math.min(1, controls.tilt * 1.6) : 0;
@@ -318,10 +334,13 @@ export class PanView extends Container {
     const R = this.radius;
 
     // The pan: rolled rim catching the light on its far side, the sloped wall, then the floor.
-    g.ellipse(0, 0, R, R * 0.62).fill(COLORS.panBody).stroke({ width: R * 0.06, color: COLORS.panRim });
+    // The riffled pan is green plastic, not steel.
+    const plastic = pan.riffled;
+    g.ellipse(0, 0, R, R * 0.62).fill(plastic ? COLORS.plasticBody : COLORS.panBody).stroke({ width: R * 0.06, color: plastic ? COLORS.plasticRim : COLORS.panRim });
     g.poly(ellipseArc(0, 0, R, R * 0.62, Math.PI * 1.05, Math.PI * 1.75), false).stroke({ width: R * 0.025, color: COLORS.rimLight, alpha: 0.7 });
-    g.ellipse(0, R * 0.03, (R + this.rx) / 2, (R * 0.62 + this.ry) / 2).fill(COLORS.wall);
-    g.ellipse(0, 0, this.rx, this.ry).fill(COLORS.panFloor);
+    g.ellipse(0, R * 0.03, (R + this.rx) / 2, (R * 0.62 + this.ry) / 2).fill(plastic ? COLORS.plasticWall : COLORS.wall);
+    if (plastic) this.drawRiffles(g, pan);
+    g.ellipse(0, 0, this.rx, this.ry).fill(plastic ? COLORS.plasticFloor : COLORS.panFloor);
 
     // Tilt pools material toward the lip; each shake surges the loose light sand most,
     // settled heavies less, and rocks and clay hardly at all.
@@ -396,6 +415,26 @@ export class PanView extends Container {
 
     const spray = this.spray.clear();
     for (const p of this.particles) spray.circle(p.x, p.y, p.size).fill({ color: p.color, alpha: Math.min(1, p.life / p.maxLife + 0.2) });
+  }
+
+  /**
+   * The riffles moulded into one side of the wall: toward the lip (right) riffles-first, the far
+   * side once flipped. Toward the lip, black sand caught in the grooves shows as dark bands.
+   */
+  private drawRiffles(g: Graphics, pan: Pan): void {
+    const R = this.radius;
+    const toLip = pan.side === 'riffles';
+    const centre = toLip ? 0 : Math.PI;
+    // Heavies settle into the grooves as the pan is worked.
+    const caught = toLip && pan.phase !== 'emptied' ? Math.min(1, pan.blackSand / this.initialBlackSand) * Math.min(1, pan.stratification * 1.3) : 0;
+    for (let i = 0; i < 4; i++) {
+      const k = 0.2 + i * 0.2;
+      const rx = this.rx + (R - this.rx) * k;
+      const ry = this.ry + (R * 0.62 - this.ry) * k;
+      const arc = ellipseArc(0, R * 0.02, rx, ry, centre - 0.75, centre + 0.75);
+      g.poly(arc, false).stroke({ width: R * 0.025, color: COLORS.riffle });
+      if (caught > 0.02) g.poly(ellipseArc(0, R * 0.02 + 2, rx, ry, centre - 0.6, centre + 0.6), false).stroke({ width: R * 0.018, color: COLORS.dark[0], alpha: 0.35 + 0.5 * caught });
+    }
   }
 
   /** Two hands gripping the near rim, forearms in rolled flannel sleeves reaching in from below. */
