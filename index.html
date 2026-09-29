@@ -388,7 +388,14 @@
         background: rgba(20, 26, 18, 0.85); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.45);
         border-radius: 4px; font: 13px system-ui, sans-serif; cursor: pointer;
       }
-      @media (hover: hover) { #fullscreen:hover { background: rgba(60, 70, 50, 0.9); } }
+      @media (hover: hover) { #fullscreen:hover, #sound:hover { background: rgba(60, 70, 50, 0.9); } }
+      /* Sound on/off sits just above Fullscreen (or in its place where there's no fullscreen). */
+      #sound {
+        position: fixed; right: var(--edge-r); bottom: calc(var(--edge-b) + 38px); padding: 6px 10px;
+        background: rgba(20, 26, 18, 0.85); color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.45);
+        border-radius: 4px; font: 13px system-ui, sans-serif; cursor: pointer;
+      }
+      #sound.alone { bottom: var(--edge-b); }
       /* Touch: a slider and buttons big enough for a thumb. */
       @media (pointer: coarse) {
         .hud-tilt input { width: 170px; height: 32px; }
@@ -409,7 +416,9 @@
         .hud-result.hud-result-town { top: 46%; font-size: 14px; padding: 6px 12px; }
         .hud-toast { top: 44px; font-size: 13px; max-width: calc(100vw - 270px); }
         .hud-inspect { top: calc(var(--edge-t) + 36px); font-size: 12px; padding: 3px 8px 4px; }
-        #fullscreen { padding: 4px 8px; font-size: 12px; }
+        #fullscreen, #sound { padding: 4px 8px; font-size: 12px; }
+        #sound { bottom: calc(var(--edge-b) + 32px); }
+        #sound.alone { bottom: var(--edge-b); }
       }
       /* Phones held upright: the game is laid out landscape, so ask for a turn. */
       #rotate {
@@ -431,6 +440,7 @@
       <p class="start-line">A creek, a shovel and a pan. Read the ground, work the gravel, and follow the colour.</p>
       <div class="start-prompt">Click to start at the creek</div>
     </div>
+    <button id="sound" type="button">Sound on</button>
     <button id="fullscreen" type="button">Fullscreen</button>
     <div id="rotate" role="alert">
       <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="4" width="20" height="40" rx="4" fill="none" stroke="#e6b940" stroke-width="3" /><circle cx="24" cy="38" r="2" fill="#e6b940" /></svg>

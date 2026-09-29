@@ -716,6 +716,10 @@ Panning the jar is delicate. Black sand is nearly as heavy as fine gold, so the 
 
 A new player's first pan or two come with a small walkthrough card beside the pan, one step at a time, each shown once the last is done: settle it level until the water clears, tip and wash, keep washing (tip back if heavies go over), reveal, collect and save the black sand. It shows Sand left while washing and flags when heavies are going over the lip. It can be skipped, and it stops after the second pan. While it's up, the pan coach keeps only its warnings (gold over the lip, overworking); the card does the teaching. On a short screen it shows just the step at hand.
 
+### In the game: sound
+
+Sound backs up what's already visible; it never tells the player something they can't see. All of it is made in the browser (Web Audio), with no files: the shovel crunches in gravel and rings off bedrock, a pried boulder scrapes and thuds, the pan sloshes as it's sifted (more when tipped) and drips when heavies go over the lip, a picker rings at the reveal while specks give only a faint chink, a raked sluice header scrapes, a lifted mat lands with a wet thump, and coins clink when buying or selling. The sluice is heard while it's in view: a steady rush when balanced, whitewater churning when overpowered. A Sound on/off button sits above Fullscreen, and the choice is remembered.
+
 ### In the game: repeated work takes one input
 
 The most repeated actions don't make the player repeat themselves:

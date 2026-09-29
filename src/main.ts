@@ -63,6 +63,7 @@ import { DrywasherCoach, HighbankerCoach, PanCoach, RockerCoach, SluiceCoach } f
 import { Hud, type Mode } from './game/hud';
 import { PanInput } from './game/panInput';
 import { PanView } from './game/panView';
+import { Sound } from './game/audio';
 import { RegionMapView } from './game/regionMapView';
 import { ClassifierView } from './game/classifierView';
 import { SluiceView } from './game/sluiceView';
@@ -161,10 +162,19 @@ async function start(): Promise<void> {
     const verb = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
     prompt.textContent = readSave() ? `${verb} to carry on` : `${verb} to start at the creek`;
   }
-  overlay?.addEventListener('click', () => overlay.remove(), { once: true });
+  const sound = new Sound();
+  overlay?.addEventListener('click', () => {
+    sound.unlock();
+    overlay.remove();
+  }, { once: true });
   overlay?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') overlay.remove();
+    if (e.key === 'Enter' || e.key === ' ') {
+      sound.unlock();
+      overlay.remove();
+    }
   });
+  // A browser may suspend audio (a backgrounded tab on a phone): any later touch wakes it.
+  document.addEventListener('pointerdown', () => sound.unlock());
 
   const app = new Application();
   // Render at the screen's real pixel density so phones and tablets are sharp; cap at 2x for speed.
@@ -418,6 +428,7 @@ async function start(): Promise<void> {
       return;
     }
     dug += 1;
+    sound.play(result.from === 'bedrock' ? 'bedrock' : 'crunch');
     bankView.landed(into, result.from);
     if (result.event) hud.toast(EVENT_MESSAGES[result.event]);
     if (creek.highWaterEvents > highWaterBefore) hud.toast('High water has come through and left fresh gravel along the creek.');
@@ -630,6 +641,7 @@ async function start(): Promise<void> {
   const pry = (): void => {
     if (!spot?.boulder || mode !== 'bank') return;
     bankView.pried();
+    sound.play('pry');
     if (creek.pry(spot.id)) hud.toast('The boulder rolls free.');
   };
   const bail = (): void => {
@@ -700,6 +712,7 @@ async function start(): Promise<void> {
   const rakeSluice = (): void => {
     const sluice = sluiceHere();
     if (!sluice || sluice.clog <= 0) return;
+    sound.play('rake');
     if (sluice.rake()) hud.toast('The jam breaks loose and the water runs again.');
   };
   const openClassifier = (): void => {
@@ -799,7 +812,10 @@ async function start(): Promise<void> {
       const pan = session.pan;
       if (!pan || !coach.allowReveal(pan)) return;
       coach.revealing(pan);
-      pan.reveal();
+      const seen = pan.reveal();
+      // A picker rings; specks give the faintest chink; an empty pan, nothing.
+      if (seen.some((p) => p.size === 'picker')) sound.play('ring');
+      else if (seen.length) sound.play('chink');
     },
     flipPan: () => {
       session.pan?.flip();
@@ -981,6 +997,7 @@ async function start(): Promise<void> {
       if (!t?.rinsing) return;
       if (!session.fitsInJar(t.deck.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
       session.addConcentrate(t.deck.liftMat());
+      sound.play('thump');
       t.rinsing = false;
       trommelView.reset();
       hud.toast('The deck’s mat comes up heavy with black sand. You wash it into your jar: pan it to see what the trommel caught.');
@@ -1093,6 +1110,7 @@ async function start(): Promise<void> {
       if (!hb?.rinsing) return;
       if (!session.fitsInJar(hb.sluice.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
       session.addConcentrate(hb.sluice.liftMat());
+      sound.play('thump');
       hb.rinsing = false;
       highbankerView.reset();
       hud.toast('The mat comes up dark and heavy. You wash it into your jar: pan the concentrate to see what the highbanker caught.');
@@ -1167,6 +1185,7 @@ async function start(): Promise<void> {
         return;
       }
       session.addConcentrate(sluice.liftMat());
+      sound.play('thump');
       cleaningOut = false;
       sluiceView.reset();
       hud.toast('The mat comes up dark and heavy. You wash it into your jar: pan the concentrate to see what the sluice caught.');
@@ -1220,7 +1239,10 @@ async function start(): Promise<void> {
       if (no) return hud.toast(no);
       const result = buyGear(session, id);
       checkBooks();
-      if (result === 'bought') hud.toast(BOUGHT_MESSAGES[id]);
+      if (result === 'bought') {
+        sound.play('clink');
+        hud.toast(BOUGHT_MESSAGES[id]);
+      }
       else if (result === 'cantAfford') hud.toast("You can't afford that yet.");
       else if (result === 'needsBase') hud.toast('That fits the hand sluice. Buy the sluice first.');
     },
@@ -1233,6 +1255,7 @@ async function start(): Promise<void> {
     sell: () => {
       if (mode !== 'town' || session.vial.length === 0) return;
       const sale = session.sellVial();
+      sound.play('clink');
       hud.toast(`Sold for $${sale.total.toFixed(2)}. You have $${session.cash.toFixed(2)}.`);
       settleUp();
     },
@@ -1430,6 +1453,7 @@ async function start(): Promise<void> {
       const rockId = panView.rockAt(x, y);
       if (rockId === null) return;
       const picker = session.rakeRock(rockId);
+      if (picker) sound.play('ring');
       if (picker) hud.toast(`A picker was wedged in that rock! ${picker.mg.toFixed(1)} mg into the vial.`);
     },
   );
@@ -1602,6 +1626,14 @@ async function start(): Promise<void> {
     bankView.setRocker(rocker);
     if (mode === 'rocker' && !rocker) setMode('bank');
 
+    // The sluice in the creek is heard wherever it's in view: a steady rush, or whitewater churning.
+    const sluiceHeard = sluice && sluiceEvents && (mode === 'bank' || mode === 'sluice' || mode === 'pan');
+    const churning = sluiceHeard && sluiceEvents!.state === 'overpowered';
+    const near = mode === 'sluice' ? 1 : 0.5;
+    sound.bed('creek', sluiceHeard ? near * (churning ? 0.6 : 1) : 0);
+    sound.bed('churn', churning ? near : 0);
+    if (mode !== 'pan') sound.bed('slosh', 0);
+
     let events: PanStepEvents | null = null;
     const pan = session.pan;
     if (mode === 'pan' && pan) {
@@ -1619,6 +1651,10 @@ async function start(): Promise<void> {
         goldLost += e.goldLost;
         events = { ...e, darkSpilled, lightSpilled, glints, goldLost };
       }
+      // The pan sloshes as it's sifted, more when tipped; a trickle of drips when heavies go over.
+      const working = pan.phase === 'working';
+      sound.bed('slosh', working ? controls.shake * (0.45 + 0.55 * Math.min(1, controls.tilt * 1.5)) : 0);
+      if (events && (events.goldLost > 0 || events.darkSpilled > 0.0005)) sound.play('drip');
       coach.guided = hud.walkthroughActive(mode, session);
       coach.update(dt, pan, controls, events);
       scene.setMurk(pan.waterMurk);
@@ -1743,9 +1779,24 @@ async function start(): Promise<void> {
   });
 
 
+  const soundButton = document.getElementById('sound');
+  if (soundButton) {
+    const show = (): void => {
+      soundButton.textContent = sound.muted ? 'Sound off' : 'Sound on';
+      soundButton.setAttribute('aria-pressed', String(!sound.muted));
+    };
+    show();
+    soundButton.addEventListener('click', () => {
+      sound.muted = !sound.muted;
+      show();
+    });
+  }
   const fullscreen = document.getElementById('fullscreen');
   if (fullscreen) {
-    if (!document.fullscreenEnabled) fullscreen.remove();
+    if (!document.fullscreenEnabled) {
+      fullscreen.remove();
+      soundButton?.classList.add('alone');
+    }
     fullscreen.addEventListener('click', () => {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen();
