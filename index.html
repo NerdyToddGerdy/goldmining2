@@ -243,9 +243,9 @@
       .hud-panel .lead.dud { opacity: 0.5; }
       .hud-panel .found { color: #9fd08a; }
       .hud-panel .warn { color: #e8a36a; }
-      .hud-panel .jobs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
-      .hud-panel .jobs .job { font-size: 12px; padding: 3px 7px; min-height: 0; opacity: 0.75; }
-      .hud-panel .jobs .job.on { opacity: 1; border-color: #f3d77a; color: #f3d77a; }
+      .hud-panel .jobs, .tablet-sheet .jobs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+      .hud-panel .jobs .job, .tablet-sheet .jobs .job { font-size: 12px; padding: 3px 7px; min-height: 0; opacity: 0.75; }
+      .hud-panel .jobs .job.on, .tablet-sheet .jobs .job.on { opacity: 1; border-color: #f3d77a; color: #f3d77a; }
       .hud-panel button.link { background: none; border: none; padding: 0; min-height: 0; font-size: 12px; text-decoration: underline; color: inherit; cursor: pointer; }
       .hud-panel button[disabled] { opacity: 0.4; cursor: default; }
       /* The field tablet: an in-fiction handheld, over whatever screen the player is on. */
@@ -294,7 +294,7 @@
       .sheet tfoot td { background: #eaede5; font-weight: 600; border-top: 2px solid #9aa391; }
       .sheet td.warn { color: #9a3d1f; white-space: normal; }
       .sheet select.where { font: inherit; color: #22271f; background: #fff; border: 1px solid #b4bcab; border-radius: 3px; padding: 1px 2px; max-width: 12em; }
-      .crew-moves { margin: 0; padding: 0; list-style: none; }
+      .tablet-sheet .crew-moves { margin: 0; padding: 0; list-style: none; }
       .crew-moves li { padding: 2px 0; }
       .crew-moves label { margin-left: 6px; font-size: 12px; opacity: 0.9; }
       .crew-moves select { font: inherit; font-size: 12px; background: #26352b; color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.4); border-radius: 3px; margin-left: 4px; }

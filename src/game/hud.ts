@@ -530,6 +530,12 @@ export class Hud {
       this.tabletKey = '';
     });
     this.tablet.addEventListener('click', (e) => {
+      const job = (e.target as HTMLElement).closest<HTMLElement>('[data-action="job"]');
+      if (job) {
+        this.on.toggleJob(Number(job.dataset.creek), job.dataset.job as JobKind);
+        this.tabletKey = '';
+        return;
+      }
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-t], [data-ttab], [data-claim], [data-go]');
       if (!target) return;
       if (target.dataset.t === 'close') return this.closeTablet();
@@ -1347,7 +1353,6 @@ export class Hud {
       const cap = traitsOf(creek.profile.site).crewMax;
       const here = crew.workersAt(claim.creekId);
       const site = crew.findSite(claim.creekId);
-      const staffed = crew.staffedJobs(claim.creekId);
       // Fee, what's owed and ground left are in the ledger above; here is the work.
       const lines = [`<b>${name}</b> <span class="small">${kind}</span>${economy.isLapsed(claim) ? `<p>${status}</p>` : ''}`];
       const diggers = crew.diggersAt(claim.creekId);
@@ -1364,26 +1369,7 @@ export class Hud {
             : '') +
           `<button type="button" data-action="recall" data-creek="${claim.creekId}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
       );
-      // Job toggles: on and staffed, on and waiting for a hand, or off.
-      const jobs = JOB_KINDS.filter((job) => jobFits(job, creek)).map((job) => {
-        const on = site?.jobs.includes(job) ?? false;
-        const idleWhy = site?.idle[job];
-        const detail = !on
-          ? ''
-          : !staffed.includes(job)
-            ? OPERATOR_JOBS.includes(job)
-              ? ': needs an operator'
-              : ': nobody free for it'
-            : idleWhy
-              ? `: ${IDLE_WORDS[idleWhy]}`
-              : !crew.jobReady(creek, job, session)
-                ? `: ${IDLE_WORDS.noMachine}`
-                : site?.policy === 'prepare' && DIGGING_JOBS.includes(job)
-                  ? ': clearing ground'
-                  : ': working';
-        return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${claim.creekId}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
-      });
-      lines.push(`<div class="jobs">${jobs.join('')}</div>`);
+      lines.push(this.jobToggles(claim.creekId, state));
       // One setting for how the whole crew here works.
       const policy = site?.policy ?? 'steady';
       lines.push(
@@ -1930,6 +1916,40 @@ export class Hud {
   }
 
   /**
+   * The crew's jobs at a stretch as toggles: on and working (or why not: waiting for a hand or an
+   * operator, a machine, the ground), or off. Shared by the town panel and the tablet's claim sheet.
+   */
+  private jobToggles(creekId: number, state: HudState, states?: ClaimOverview['jobs']): string {
+    const { crew, region, session } = state;
+    const creek = region.creek(creekId);
+    const site = crew.findSite(creekId);
+    const staffed = crew.staffedJobs(creekId);
+    const jobs = JOB_KINDS.filter((job) => jobFits(job, creek)).map((job) => {
+      const on = site?.jobs.includes(job) ?? false;
+      const idleWhy = site?.idle[job];
+      // The claim overview knows more (the crew standing back while you're there): use it when given.
+      const known = states?.find((j) => j.job === job)?.state;
+      const detail = !on
+        ? ''
+        : known
+          ? `: ${JOB_STATE_WORDS[known] ?? known}`
+        : !staffed.includes(job)
+          ? OPERATOR_JOBS.includes(job)
+            ? ': needs an operator'
+            : ': nobody free for it'
+          : idleWhy
+            ? `: ${IDLE_WORDS[idleWhy]}`
+            : !crew.jobReady(creek, job, session)
+              ? `: ${IDLE_WORDS.noMachine}`
+              : site?.policy === 'prepare' && DIGGING_JOBS.includes(job)
+                ? ': clearing ground'
+                : ': working';
+      return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${creekId}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
+    });
+    return `<div class="jobs">${jobs.join('')}</div>`;
+  }
+
+  /**
    * Where a worker is, as a dropdown to move them: each held claim (greyed when it has no room for
    * them), the settling tub in town, or waiting in town. The Home Creek never takes crew.
    */
@@ -1960,9 +1980,6 @@ export class Hud {
   private claimSheet(v: ClaimOverview, state: HudState): string {
     const creek = state.region.creek(v.creekId);
     const money = (n: number): string => `$${n.toFixed(2)}`;
-    const jobs = v.jobs.length
-      ? v.jobs.map((j) => `<li>${JOB_NAMES[j.job]}: ${JOB_STATE_WORDS[j.state] ?? j.state}</li>`).join('')
-      : '<li>No jobs switched on.</li>';
     const days = !Number.isFinite(v.daysLeft) ? 'nobody digging' : v.daysLeft < 0.5 ? 'under half a day at their pace' : `about ${Math.round(v.daysLeft * 2) / 2} days at their pace`;
     const take = v.take
       ? `very roughly ${money(Math.max(0, v.take.low))} to ${money(v.take.high)} a day for each hand digging, from your field notes`
@@ -1983,7 +2000,7 @@ export class Hud {
       `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +
       `<tr><td>Take</td><td>${take}</td></tr>` +
       `<tr><td>Waiting to collect</td><td>crew bucket ${sand}${v.waiting.gold ? `, ${v.waiting.gold} piece${v.waiting.gold === 1 ? '' : 's'} of gold in the poke` : ''}</td></tr>` +
-      `</table><ul class="jobs-list">${jobs}</ul>` +
+      `</table><p class="small">Jobs: tap to switch on or off. The crew fills them in the order they're switched on.</p>${this.jobToggles(v.creekId, state, v.jobs)}` +
       `<button type="button" data-go="${v.creekId}">Walk there</button></div>`
     );
   }
