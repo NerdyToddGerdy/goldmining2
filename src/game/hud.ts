@@ -921,6 +921,9 @@ export class Hud {
       if (c.hasLoad) list.push([c.screened ? 'Tip off the oversize (T)' : 'Tip it all off (T)', () => this.on.tipOff()]);
       if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (D)', () => this.on.panBucket()]);
       if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (E)', () => this.on.pourIntoSluice()]);
+      // Straight over to the machine the classifier stands beside, without going back to the hole.
+      const main = machineAtHole(state);
+      if (main) list.push([`Watch the ${main} (V)`, () => this.watch(main)]);
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
@@ -1521,6 +1524,7 @@ export class Hud {
       else if (key === 'f' && !state.classifier.hasLoad) this.on.shovel('classifier');
       else if (key === 'd') this.on.panBucket();
       else if (key === 'e' && state.sluice) this.on.pourIntoSluice();
+      else if (key === 'v' && machineAtHole(state)) this.watch(machineAtHole(state)!);
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'drywasher') {
       if (key === 'd') this.on.shakeOutDust();
