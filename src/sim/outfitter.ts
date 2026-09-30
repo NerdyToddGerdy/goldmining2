@@ -22,7 +22,8 @@ export type GearId =
   | 'finishingPan'
   | 'riffledPan'
   | 'snuffer'
-  | 'trommel';
+  | 'trommel'
+  | 'spiralWheel';
 
 export interface GearItem {
   readonly id: GearId;
@@ -105,6 +106,12 @@ export const OUTFITTER: readonly GearItem[] = [
     name: 'Trommel',
     price: 180,
     description: 'A rotating screen drum on a frame, with a spray bar through it and a riffled deck underneath, run by a small engine. It eats rocky, clayey gravel a highbanker would choke on, and a lot of it: tumbling breaks the clay, fines drop to the deck, rocks roll out the end. Set the drum speed and the spray. Too slow and clay balls carry gold out whole; too fast and it flings fines out with the rocks. It needs a wide, level bar: gravel bars only.',
+  },
+  {
+    id: 'spiralWheel',
+    name: 'Spiral wheel',
+    price: 70,
+    description: 'A tilted wheel with spiral grooves and a spray bar, for finishing your jar. Black sand climbs the spiral and spills off the rim; gold rides the grooves to a cup in the centre. Set the tilt, the spray and the feed: too hard and fines go over the rim, too gentle or fed too fast and the centre crowds and the cup comes up dirty. It needs water and room to stand: in town, or on a stretch you found with a creek, never the Home Creek.',
   },
   {
     id: 'riffleMat',

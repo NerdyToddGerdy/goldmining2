@@ -33,6 +33,9 @@ import {
   type Economy,
   FUEL_CAN,
   MAGNET_TUNING,
+  SPIRAL_TUNING,
+  type SpiralWheel,
+  type SpiralStepEvents,
   MIN_CONCENTRATE,
   OUTFITTER,
   ROCKER_TUNING,
@@ -67,7 +70,7 @@ import {
 } from '../sim';
 import { forInput, usingTouch } from './inputMode';
 
-export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel';
+export type Mode = 'creek' | 'bank' | 'pan' | 'town' | 'region' | 'sluice' | 'classifier' | 'magnet' | 'rocker' | 'highbanker' | 'drywasher' | 'trommel' | 'spiral';
 
 export interface HudActions {
   // Pan
@@ -181,6 +184,14 @@ export interface HudActions {
   pourIntoRocker(): void;
   // Magnet
   openMagnet(): void;
+  // Spiral wheel
+  openSpiral(): void;
+  closeSpiral(): void;
+  levelSpiral(): void;
+  scoopSpiral(): void;
+  liftSpiralCup(): void;
+  rerunTailings(): void;
+  dumpTailings(): void;
   shakeClump(): void;
   stripClump(): void;
   closeMagnet(): void;
@@ -210,6 +221,11 @@ export interface HudState {
   readonly trommelEvents: TrommelStepEvents | null;
   readonly drumSpeed: number;
   readonly spray: number;
+  /** The spiral wheel, while it's out, its last step, and its tilt and spray (the feed is the pan's Tilt slider). */
+  readonly spiral: SpiralWheel | null;
+  readonly spiralEvents: SpiralStepEvents | null;
+  readonly spiralTilt: number;
+  readonly spiralSpray: number;
   readonly throttle: number;
   readonly priming: boolean;
   /** Dry gear, when the player has it and the ground is dry. */
@@ -341,6 +357,7 @@ const HINTS: Record<Mode, string> = {
   highbanker: 'Prime the pump (P) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
   trommel: 'Start the engine (E) · set the Drum to tumble and the Spray · shovel into the hopper (F) · clear a jammed drum (R) · clean out the deck (C)',
   drywasher: 'Hold Space or Pump to work the bellows · W/S or the wheel sets the Air · shake out the dust (D) · knock the screen (K) · pull the drawer (C)',
+  spiral: 'Level the wheel (L) · scoop from the jar (F) · set the Tilt and Spray, and the Feed with W/S · lift the cup (C) · run the tailings again (T) or dump them (D)',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -357,6 +374,7 @@ const TOUCH_HINTS: Record<Mode, string> = {
   highbanker: 'Prime the pump · start the engine · set the Throttle · shovel into the hopper · tap the hopper to clear a jam',
   trommel: 'Start the engine · set the Drum to tumble and the Spray · shovel into the hopper · tap the drum to clear a jam',
   drywasher: 'Hold Pump to work the bellows · the slider sets the Air · shake out the dust · knock the screen · pull the drawer',
+  spiral: 'Level the wheel · scoop from the jar · set the Tilt, Spray and Feed · lift the cup · run the tailings again or dump them',
 };
 
 const SOURCE_NAMES: Record<LeadSource, string> = {
@@ -691,28 +709,31 @@ export class Hud {
     const classifying = mode === 'classifier' && state.classifier !== null;
     const magnet = mode === 'magnet';
     const drywashing = mode === 'drywasher' && state.drywasher !== null;
-    this.panControls.hidden = !classifying && !magnet && !drywashing && (mode !== 'pan' || pan?.phase !== 'working');
+    const spiraling = mode === 'spiral' && state.spiral !== null;
+    this.panControls.hidden = !classifying && !magnet && !drywashing && !spiraling && (mode !== 'pan' || pan?.phase !== 'working');
+    // The spiral wheel's Feed is the pan's tilt slider (W/S and the wheel too); it has nothing to sift.
+    this.sift.hidden = spiraling;
     this.tiltLabel.hidden = classifying;
     // The magnet reuses the pan's controls: Pass instead of Sift, and closeness instead of tilt.
     const siftText = magnet ? 'Pass' : drywashing ? 'Pump' : 'Sift';
     if (this.sift.textContent !== siftText) this.sift.textContent = siftText;
-    const tiltText = magnet ? 'Closeness ' : drywashing ? 'Air ' : 'Tilt ';
+    const tiltText = magnet ? 'Closeness ' : drywashing ? 'Air ' : spiraling ? 'Feed ' : 'Tilt ';
     if (this.tiltLabel.firstChild && this.tiltLabel.firstChild.textContent !== tiltText) this.tiltLabel.firstChild.textContent = tiltText;
     // The same slider is the sluice's Water, the highbanker's Throttle, or the trommel's Spray;
     // the second is the sluice's Slope (with legs) or the trommel's Drum speed.
     const onTrommel = state.trommel !== null && (mode === 'bank' || mode === 'trommel');
     const onHighbanker = !onTrommel && state.highbanker !== null && (mode === 'bank' || mode === 'highbanker');
-    this.water.hidden = !(onTrommel || onHighbanker || (state.sluice && (mode === 'bank' || mode === 'sluice')));
-    const waterText = onTrommel ? 'Spray ' : onHighbanker ? 'Throttle ' : 'Water ';
+    this.water.hidden = !(spiraling || onTrommel || onHighbanker || (state.sluice && (mode === 'bank' || mode === 'sluice')));
+    const waterText = onTrommel || spiraling ? 'Spray ' : onHighbanker ? 'Throttle ' : 'Water ';
     if (this.water.firstChild && this.water.firstChild.textContent !== waterText) this.water.firstChild.textContent = waterText;
-    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(onTrommel ? state.spray : onHighbanker ? state.throttle : state.sluiceFlow);
-    const slopeText = onTrommel ? 'Drum ' : 'Slope ';
+    if (!this.water.hidden && document.activeElement !== this.waterInput) this.waterInput.value = String(spiraling ? state.spiralSpray : onTrommel ? state.spray : onHighbanker ? state.throttle : state.sluiceFlow);
+    const slopeText = onTrommel ? 'Drum ' : spiraling ? 'Tilt ' : 'Slope ';
     if (this.slope.firstChild && this.slope.firstChild.textContent !== slopeText) this.slope.firstChild.textContent = slopeText;
-    if (onTrommel) {
+    if (onTrommel || spiraling) {
       this.slope.hidden = false;
       this.slopeInput.min = '0';
       this.slopeInput.max = '1';
-      if (document.activeElement !== this.slopeInput) this.slopeInput.value = String(state.drumSpeed);
+      if (document.activeElement !== this.slopeInput) this.slopeInput.value = String(spiraling ? state.spiralTilt : state.drumSpeed);
     }
     // Adjustable legs: the slider covers only as far as the legs reach at this site.
     else this.slope.hidden = this.water.hidden || !state.sluice?.kit.legs;
@@ -722,7 +743,7 @@ export class Hud {
       this.slopeInput.max = String(max);
       this.slopeInput.value = String(state.sluice.slope);
     }
-    if ((mode === 'pan' || magnet || drywashing) && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
+    if ((mode === 'pan' || magnet || drywashing || spiraling) && document.activeElement !== this.tilt) this.tilt.value = String(controls.tilt);
     // Nothing left to sift once the sand reads 0%. A disabled button gets no pointerup, so let go of it here.
     const siftedOut = drywashing
       ? false
@@ -876,7 +897,7 @@ export class Hud {
       } else if (!state.sluice && !state.trommel && !spot.gully && session.owns('highbanker') && siteAllows(state.creek.profile.site, 'highbanker')) {
         list.push([session.highbankerPlace ? 'Move the highbanker here' : 'Set up the highbanker here', () => this.on.setUpHighbanker()]);
       }
-      list.push(...this.crewBucketButton(state), ...this.jarButton(session), ...this.magnetButton(state));
+      list.push(...this.crewBucketButton(state), ...this.jarButton(session), ...this.magnetButton(state), ...this.spiralButton(state));
       list.push(['Walk the creek (Esc)', () => this.on.walkCreek()]);
       return list;
     }
@@ -949,6 +970,16 @@ export class Hud {
       list.push(...this.mendButton(state, r.wear), ...this.jarButton(session), ['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
+    if (mode === 'spiral' && state.spiral) {
+      const w = state.spiral;
+      const list: [string, () => void][] = [];
+      if (!w.leveled) list.push(['Level the wheel (L)', () => this.on.levelSpiral()]);
+      if (!w.trayFull && session.jar.blackSand >= MIN_CONCENTRATE) list.push(['Scoop from the jar (F)', () => this.on.scoopSpiral()]);
+      if (w.cup.sand > 1e-4 || w.cup.gold.length) list.push(['Lift the cup (C)', () => this.on.liftSpiralCup()]);
+      if (w.tailings.sand > 1e-4) list.push(['Run the tailings again (T)', () => this.on.rerunTailings()], ['Dump the tailings (D)', () => this.on.dumpTailings()]);
+      list.push(['Done (Esc)', () => this.on.closeSpiral()]);
+      return list;
+    }
     if (mode === 'magnet') {
       const list: [string, () => void][] = [];
       if (session.clump.sand > 0) list.push(['Shake the clump back (B)', () => this.on.shakeClump()], ['Strip off the clump (T)', () => this.on.stripClump()]);
@@ -985,6 +1016,7 @@ export class Hud {
         ...collect,
         ...pan,
         ...this.magnetButton(state),
+        ...this.spiralButton(state),
         ['Region map (Esc)', () => this.on.openRegion()],
         [`Back to ${state.creek.profile.name}`, () => this.on.returnToWork()],
       ];
@@ -1377,6 +1409,14 @@ export class Hud {
   }
 
   /** In town, or on a stretch the player found (never the Home Creek), with something in the jar. */
+  /** The spiral wheel, owned, with black sand in the jar, in town or where the ground has water and room. */
+  private spiralButton(state: HudState): [string, () => void][] {
+    const { session, mode } = state;
+    const place = mode === 'town' || (mode === 'bank' && state.region.allows(state.creek, 'spiralWheel'));
+    if (!place || !session.owns('spiralWheel') || session.jar.blackSand < MIN_CONCENTRATE) return [];
+    return [['Run the jar on the spiral wheel (I)', () => this.on.openSpiral()]];
+  }
+
   private magnetButton(state: HudState): [string, () => void][] {
     const { session, mode } = state;
     const place = mode === 'town' || (mode === 'bank' && state.region.allows(state.creek, 'magnet'));
@@ -1421,12 +1461,20 @@ export class Hud {
       else if (key === 'b') this.on.pourIntoRocker();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
+    } else if (state.mode === 'spiral') {
+      if (key === 'l') this.on.levelSpiral();
+      else if (key === 'f') this.on.scoopSpiral();
+      else if (key === 'c') this.on.liftSpiralCup();
+      else if (key === 't') this.on.rerunTailings();
+      else if (key === 'd') this.on.dumpTailings();
+      else if (key === 'escape') this.on.closeSpiral();
     } else if (state.mode === 'magnet') {
       if (key === 'b') this.on.shakeClump();
       else if (key === 't') this.on.stripClump();
       else if (key === 'escape') this.on.closeMagnet();
     } else if (state.mode === 'town') {
       if (key === 'x') this.on.openMagnet();
+      else if (key === 'i') this.on.openSpiral();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'w') this.on.collectCounter();
       else if (key === 's') this.on.sell();
@@ -1512,6 +1560,7 @@ export class Hud {
       else if (key === 'escape') this.on.walkCreek();
       else if (key === 'j') this.on.panConcentrate();
       else if (key === 'x') this.on.openMagnet();
+      else if (key === 'i') this.on.openSpiral();
       else if (key === 'h' && state.rocker) this.on.shovel('rocker');
       else if (key === 'o' && state.rocker) this.on.openRocker();
     }
@@ -1967,6 +2016,19 @@ export class Hud {
         ['Screen', !r.hasLoad ? 'empty' : r.screened ? 'only rocks left' : 'gravel'],
         ['Apron', apron > 0.85 ? 'full' : apron > 0.6 ? 'heavy' : apron > 0.25 ? 'loading' : 'fresh'],
         ['Canvas', wearWord(r.wear)],
+      ];
+    } else if (mode === 'spiral' && state.spiral) {
+      const w = state.spiral;
+      const fill = session.jar.blackSand / session.jarCapacity;
+      const tray = w.tray.sand / SPIRAL_TUNING.trayMax;
+      const bucket = w.tailings.sand / SPIRAL_TUNING.bucketMax;
+      const cup = w.cup.sand / SPIRAL_TUNING.cupDirty;
+      rows = [
+        ['Wheel', !w.leveled ? 'not level' : state.spiralEvents?.crowded ? 'crowded' : (state.spiralEvents?.state ?? 'still')],
+        ['Jar', fill > 0.9 ? 'full' : fill > 0.5 ? 'over half' : fill > 0.2 ? 'part full' : fill > 0.01 ? 'a little' : 'empty'],
+        ['Feed tray', tray > 0.66 ? 'full' : tray > 0.2 ? 'part full' : tray > 0.005 ? 'nearly empty' : 'empty'],
+        ['Cup', w.cup.gold.length === 0 && w.cup.sand < 1e-4 ? 'empty' : cup > 0.5 ? 'sandy' : 'clean'],
+        ['Tailings', w.bucketFull ? 'full: run or dump' : bucket > 0.5 ? 'over half' : bucket > 0.01 ? 'some' : 'empty'],
       ];
     } else if (mode === 'magnet') {
       const fill = session.jar.blackSand / session.jarCapacity;

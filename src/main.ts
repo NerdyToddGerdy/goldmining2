@@ -35,6 +35,8 @@ import {
   type GearId,
   type LayerKind,
   type MagnetStepEvents,
+  SpiralWheel,
+  type SpiralStepEvents,
   type Rocker,
   type Highbanker,
   type HighbankerStepEvents,
@@ -68,6 +70,7 @@ import { RegionMapView } from './game/regionMapView';
 import { ClassifierView } from './game/classifierView';
 import { SluiceView } from './game/sluiceView';
 import { MagnetView } from './game/magnetView';
+import { SpiralWheelView } from './game/spiralWheelView';
 import { RockerView } from './game/rockerView';
 import { HighbankerView } from './game/highbankerView';
 import { TrommelView } from './game/trommelView';
@@ -121,6 +124,7 @@ const BOUGHT_MESSAGES: Record<GearId, string> = {
   washTub: 'A wash tub. On a dry wash, fill it and you can pan there. Change the water when it gets muddy: muddy water hides colour.',
   drywasher: 'A drywasher. On a dry wash, shovel onto its screen and hold Pump to work the bellows. Set the Air so the light sand drifts off and the heavies stay.',
   magnet: 'A magnet in a plastic sleeve. Clean your jar with it here in town or out on a stretch: close is quick, but drags fine gold up with the sand.',
+  spiralWheel: 'A spiral wheel. Run your jar on it in town or on a found stretch with a creek: level it, scoop in the jar, and set the tilt, spray and feed so sand climbs away and gold rides to the cup.',
   pump: 'A recirculating pump. It lets the sluice run where the creek is too thin, if you keep it fuelled: buy fuel here by the can.',
 };
 
@@ -296,8 +300,17 @@ async function start(): Promise<void> {
   /** Where the pan came out: the jar can be panned at the assay office's wash trough in town. */
   let panReturn: 'town' | 'bank' = 'bank';
   let toldAboutMagnet = false;
-  /** In town, or at the magnet table there: time is covered by the trip, and the player isn't at any stretch. */
-  const inTown = (): boolean => mode === 'town' || (mode === 'magnet' && magnetReturn === 'town') || (mode === 'pan' && panReturn === 'town');
+  /** The spiral wheel, set up in town or on the bank while the jar is run on it, and its settings. */
+  const spiral = new SpiralWheel(rng);
+  let spiralReturn: 'town' | 'bank' = 'town';
+  let spiralTilt = 0.5;
+  let spiralSpray = 0.5;
+  let spiralEvents: SpiralStepEvents | null = null;
+  let spiralAccumulator = 0;
+  let toldAboutSpiral = false;
+  /** In town, or at the magnet table or spiral wheel there: time is covered by the trip, and the player isn't at any stretch. */
+  const inTown = (): boolean =>
+    mode === 'town' || (mode === 'magnet' && magnetReturn === 'town') || (mode === 'spiral' && spiralReturn === 'town') || (mode === 'pan' && panReturn === 'town');
   /** Where the pan's current shovelful came from, for field notes and gully colour. */
   let panSpot: DigSpot | null = session.pan?.kind === 'gravel' && session.pan.phase !== 'emptied' ? spot : null;
 
@@ -319,10 +332,11 @@ async function start(): Promise<void> {
     classifierView.visible = mode === 'classifier';
     townView.visible = mode === 'town';
     magnetView.visible = mode === 'magnet';
+    spiralView.visible = mode === 'spiral';
     scene.visible = panView.visible = mode === 'pan';
     rockerView.visible = mode === 'rocker';
     if (mode !== 'rocker') fetchingWater = null; // Walking off abandons the trip for water.
-    input.enabled = mode === 'pan' || mode === 'classifier' || mode === 'magnet' || mode === 'drywasher';
+    input.enabled = mode === 'pan' || mode === 'classifier' || mode === 'magnet' || mode === 'drywasher' || mode === 'spiral';
   };
 
   /** Every new pan starts level, ready to settle, whatever the last pan was left at. */
@@ -783,10 +797,11 @@ async function start(): Promise<void> {
   const trommelView = new TrommelView({ rake: clearTrommel, clearJam: clearTrommel });
   const drywasherView = new DrywasherView();
   const magnetView = new MagnetView();
+  const spiralView = new SpiralWheelView();
   const scene = new CreekScene();
   const panView = new PanView();
   const townView = new TownView();
-  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, trommelView, drywasherView, classifierView, rockerView, townView, magnetView, scene, panView);
+  app.stage.addChild(regionMap, creekMap, bankView, sluiceView, highbankerView, trommelView, drywasherView, classifierView, rockerView, townView, magnetView, spiralView, scene, panView);
 
   const layout = (): void => {
     const { width, height } = app.screen;
@@ -801,6 +816,7 @@ async function start(): Promise<void> {
     rockerView.layout(width, height);
     townView.layout(width, height);
     magnetView.layout(width, height);
+    spiralView.layout(width, height);
     scene.resize(width, height);
     panView.layout(width, height, width / 2, scene.waterTop + (height - scene.waterTop) * 0.45);
   };
@@ -936,7 +952,8 @@ async function start(): Promise<void> {
       if (material) sluice.feedScreened(material);
     },
     setWater: (flow) => {
-      if (trommelHere()) spray = flow;
+      if (mode === 'spiral') spiralSpray = flow;
+      else if (trommelHere()) spray = flow;
       else if (highbankerHere()) throttle = flow;
       else sluiceFlow = flow;
     },
@@ -1124,7 +1141,8 @@ async function start(): Promise<void> {
       if (material) hb.feedScreened(material);
     },
     setSlope: (slope) => {
-      if (trommelHere()) drumSpeed = slope;
+      if (mode === 'spiral') spiralTilt = slope;
+      else if (trommelHere()) drumSpeed = slope;
       else sluiceHere()?.setSlope(slope);
     },
     refuelPump: () => {
@@ -1289,6 +1307,69 @@ async function start(): Promise<void> {
       if (mode !== 'magnet' || session.clump.sand <= 0) return;
       magnetView.stripped(session.clump.sand);
       session.stripClump(); // Whatever gold was in it goes with it, unannounced.
+    },
+    openSpiral: () => {
+      if (!session.owns('spiralWheel')) return;
+      if (mode !== 'town' && !(mode === 'bank' && region.allows(creek, 'spiralWheel'))) {
+        return hud.toast(creek === region.home ? 'The Home Creek is shovel and pan only: set the spiral wheel up in town or on a stretch you found.' : 'The spiral wheel needs water for its spray and room for its stand: run it in town, or on a stretch with a creek.');
+      }
+      if (session.jar.blackSand < MIN_CONCENTRATE) return hud.toast('Your jar is empty: nothing to run on the wheel.');
+      spiralReturn = mode === 'town' ? 'town' : 'bank';
+      spiral.leveled = false;
+      spiralView.reset();
+      spiralView.inTown = spiralReturn === 'town';
+      input.tilt = 0.4; // The Feed.
+      input.shakeHeld = false;
+      setMode('spiral');
+      if (!toldAboutSpiral) {
+        toldAboutSpiral = true;
+        hud.toast('Level the wheel (L), then scoop in some of the jar (F). Sand should climb off the rim while specks ride to the centre: too hard and fines go over with the sand, too gentle or fed too fast and the centre crowds.');
+      }
+    },
+    levelSpiral: () => {
+      if (mode !== 'spiral' || spiral.leveled) return;
+      spiral.leveled = true;
+      sound.play('thud');
+    },
+    scoopSpiral: () => {
+      if (mode !== 'spiral') return;
+      if (spiral.trayFull) return hud.toast('The feed tray is full. Let the wheel take some first.');
+      if (spiral.scoopFrom(session.jar) <= 0) hud.toast('The jar is empty.');
+    },
+    liftSpiralCup: () => {
+      if (mode !== 'spiral' || (spiral.cup.sand < 1e-4 && spiral.cup.gold.length === 0)) return;
+      const { gold, backToJar } = spiral.liftCup();
+      session.vial.push(...gold);
+      session.jar.blackSand += backToJar.sand;
+      session.jar.gold.push(...backToJar.gold);
+      const mg = gold.reduce((n, p) => n + p.mg, 0);
+      if (gold.some((p) => p.size === 'picker')) sound.play('ring');
+      else if (gold.length) sound.play('chink');
+      hud.toast(
+        backToJar.sand > 1e-4
+          ? `The cup comes up sandy: ${mg.toFixed(1)} mg picked out, and the sand goes back in the jar with whatever it hides.`
+          : gold.length ? `A clean cup: ${mg.toFixed(1)} mg into the vial.` : 'Nothing in the cup yet.',
+      );
+    },
+    rerunTailings: () => {
+      if (mode !== 'spiral' || spiral.tailings.sand <= 1e-4) return;
+      if (spiral.trayFull) return hud.toast('The feed tray is full. Let the wheel take some first.');
+      spiral.rerunTailings();
+    },
+    dumpTailings: () => {
+      if (mode !== 'spiral' || spiral.tailings.sand <= 1e-4) return;
+      spiral.dumpTailings(); // Whatever went over the rim goes with it, unannounced.
+      hud.toast('You dump the tailings bucket.');
+    },
+    closeSpiral: () => {
+      if (mode !== 'spiral') return;
+      const { sand, gold } = spiral.contents();
+      if (sand > 1e-4 || gold.length) {
+        spiral.emptyInto(session.jar, session.jarMagnetiteShare);
+        hud.toast('You wash the wheel, the tray, the cup and the tailings back into the jar.');
+      }
+      spiralEvents = null;
+      setMode(spiralReturn);
     },
     closeMagnet: () => {
       if (mode !== 'magnet') return;
@@ -1487,7 +1568,15 @@ async function start(): Promise<void> {
   let warnedStorage = false;
   const save = (): void => {
     if (saveBlocked) return;
-    const ok = writeSave(createSave(region, session, { screen: mode === 'magnet' ? magnetReturn : mode === 'pan' && panReturn === 'town' ? 'town' : mode, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew, finance }));
+    // Whatever is out on the spiral wheel is saved as back in the jar: the wheel isn't kept set up between visits.
+    const onWheel = mode === 'spiral' ? spiral.contents() : { sand: 0, gold: [] };
+    session.jar.blackSand += onWheel.sand;
+    session.jar.gold.push(...onWheel.gold);
+    const screen = mode === 'magnet' ? magnetReturn : mode === 'spiral' ? spiralReturn : mode === 'pan' && panReturn === 'town' ? 'town' : mode;
+    const data = createSave(region, session, { screen, creekId: creek.id, spotId: spot?.id ?? null }, Date.now(), { economy, crew, finance });
+    session.jar.blackSand -= onWheel.sand;
+    if (onWheel.gold.length) session.jar.gold.splice(session.jar.gold.length - onWheel.gold.length, onWheel.gold.length);
+    const ok = writeSave(data);
     if (!ok && !warnedStorage) {
       warnedStorage = true;
       hud.toast("This browser won't let the game save, so progress will be lost when you close it.");
@@ -1519,6 +1608,8 @@ async function start(): Promise<void> {
   }
 
   let accumulator = 0;
+  /** The pan's last shake stroke that sloshed. */
+  let lastStroke = 0;
   let sluiceAccumulator = 0;
   let classifierAccumulator = 0;
   let magnetAccumulator = 0;
@@ -1632,7 +1723,7 @@ async function start(): Promise<void> {
     const near = mode === 'sluice' ? 1 : 0.5;
     sound.bed('creek', sluiceHeard ? near * (churning ? 0.6 : 1) : 0);
     sound.bed('churn', churning ? near : 0);
-    if (mode !== 'pan') sound.bed('slosh', 0);
+    if (mode !== 'spiral') sound.bed('slosh', 0);
 
     let events: PanStepEvents | null = null;
     const pan = session.pan;
@@ -1653,7 +1744,12 @@ async function start(): Promise<void> {
       }
       // The pan sloshes as it's sifted, more when tipped; a trickle of drips when heavies go over.
       const working = pan.phase === 'working';
-      sound.bed('slosh', working ? controls.shake * (0.45 + 0.55 * Math.min(1, controls.tilt * 1.5)) : 0);
+      if (panView.stroke.n !== lastStroke) {
+        lastStroke = panView.stroke.n;
+        // One slosh per stroke toward the lip, with a gap before the next so it doesn't run together
+        // into a flowing sound; louder the more the pan is tipped.
+        if (working && panView.stroke.toLip) sound.play('slosh', 0.6 + 0.4 * Math.min(1, controls.tilt * 1.5));
+      }
       if (events && (events.goldLost > 0 || events.darkSpilled > 0.0005)) sound.play('drip');
       coach.guided = hud.walkthroughActive(mode, session);
       coach.update(dt, pan, controls, events);
@@ -1706,6 +1802,19 @@ async function start(): Promise<void> {
       }
       rockerCoach.update(dt, rocker);
       rockerView.update(dt, rocker, fetchingWater === null ? null : 1 - fetchingWater / fetchTotal);
+    } else if (mode === 'spiral') {
+      spiralAccumulator += dt;
+      let merged: SpiralStepEvents | null = null;
+      while (spiralAccumulator >= SIM_DT) {
+        spiralAccumulator -= SIM_DT;
+        const e = spiral.step(SIM_DT, { tilt: spiralTilt, spray: spiralSpray, feed: controls.tilt });
+        merged = merged
+          ? { ...e, fed: merged.fed + e.fed, spilled: merged.spilled + e.spilled, toCup: merged.toCup + e.toCup, overRim: merged.overRim + e.overRim, crowded: e.crowded || merged.crowded }
+          : e;
+      }
+      if (merged) spiralEvents = merged;
+      sound.bed('slosh', spiral.leveled ? 0.2 + spiralSpray * 0.6 : 0);
+      spiralView.update(dt, spiral, spiralEvents, spiralTilt, spiralSpray, session.jar.blackSand / session.jarCapacity);
     } else if (mode === 'magnet') {
       magnetAccumulator += dt;
       let lifted = 0;
@@ -1745,6 +1854,10 @@ async function start(): Promise<void> {
       trommelEvents,
       drumSpeed,
       spray,
+      spiral: mode === 'spiral' ? spiral : null,
+      spiralEvents,
+      spiralTilt,
+      spiralSpray,
       throttle,
       priming: primingLeft !== null,
       drywasher,

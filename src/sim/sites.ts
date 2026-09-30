@@ -261,7 +261,7 @@ export function topLayerPays(site: SiteKind | undefined): boolean {
 }
 
 /** Whether the ground has room and water for a piece of hand gear. */
-export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker' | 'drywasher' | 'washTub' | 'trommel';
+export type SiteGear = 'pan' | 'classifier' | 'rocker' | 'magnet' | 'highbanker' | 'drywasher' | 'washTub' | 'trommel' | 'spiralWheel';
 
 export function siteAllows(site: SiteKind | undefined, gear: SiteGear): boolean {
   const traits = traitsOf(site);
@@ -275,5 +275,7 @@ export function siteAllows(site: SiteKind | undefined, gear: SiteGear): boolean 
   // A trommel needs a wide, level bar to stand on and a big pile to feed it: gravel bars only.
   if (gear === 'trommel') return site === 'gravelBar';
   if (gear === 'rocker') return traits.footprint !== 'narrow';
+  // The spiral wheel's spray needs water, and its stand needs room.
+  if (gear === 'spiralWheel') return traits.water === 'creek' && traits.footprint !== 'narrow';
   return true;
 }

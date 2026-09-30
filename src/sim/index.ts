@@ -14,6 +14,7 @@ export * from './classifier';
 export * from './economy';
 export * from './staffing';
 export * from './magnet';
+export * from './spiralWheel';
 export * from './rocker';
 export * from './sites';
 export * from './highbanker';

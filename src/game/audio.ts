@@ -9,7 +9,7 @@
  * every call quietly does nothing.
  */
 
-export type OneShot = 'crunch' | 'thud' | 'bedrock' | 'pry' | 'rake' | 'chink' | 'ring' | 'clink' | 'thump' | 'drip';
+export type OneShot = 'slosh' | 'crunch' | 'thud' | 'bedrock' | 'pry' | 'rake' | 'chink' | 'ring' | 'clink' | 'thump' | 'drip';
 export type Bed = 'slosh' | 'creek' | 'churn';
 
 const MUTE_KEY = 'goldmining2.muted';
@@ -86,13 +86,18 @@ export class Sound {
     for (const which of this.beds.keys()) this.bed(which, 0);
   }
 
-  play(which: OneShot): void {
+  /** Fire a one-shot. `volume` scales it, 0..1 (a gentle stroke sloshes softer than a hard one). */
+  play(which: OneShot, volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted_ || ctx.state !== 'running') return;
     const now = ctx.currentTime;
     if (now - (this.lastPlayed.get(which) ?? -1) < MIN_GAP[which]) return;
     this.lastPlayed.set(which, now);
+    const v = Math.max(0, Math.min(1, volume));
     switch (which) {
+      case 'slosh':
+        this.slosh(now, v);
+        break;
       case 'crunch':
         // Gravel on steel: a gritty burst with a few stones clicking in it.
         this.noiseBurst(now, 0.14, 'bandpass', 1900, 1.1, 0.5);
@@ -137,6 +142,45 @@ export class Sound {
         this.sweep(now, 0.07, 1400, 650, 'sine', 0.08);
         break;
     }
+  }
+
+  /**
+   * One stroke of water thrown against the pan's wall: a splash, not a flow. A sharp, bright crack
+   * as the water hits the wall (a fast attack and quick decay, so there's silence between strokes),
+   * a short low body of the water's weight under it, and a scatter of droplets falling back.
+   * Each stroke varies a little, so a shake never sounds looped.
+   */
+  private slosh(at: number, v: number): void {
+    const pitch = 0.85 + Math.random() * 0.3;
+    // The crack of the splash: bright noise that hits at once and is gone in a tenth of a second.
+    this.hit(at, 0.11, 'bandpass', 2400 * pitch, 0.9, 0.75 * v);
+    this.hit(at, 0.07, 'highpass', 4200 * pitch, 0.5, 0.3 * v);
+    // The water's weight under it: a short, low thump of body, not a sustained wash.
+    this.hit(at, 0.12, 'lowpass', 500 * pitch, 0.8, 0.35 * v);
+    // Droplets falling back into the pan: little plinks, each a quick pitch drop.
+    const drops = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < drops; i++) {
+      const t = at + 0.05 + Math.random() * 0.13;
+      const f = (1300 + Math.random() * 1500) * pitch;
+      this.sweep(t, 0.035 + Math.random() * 0.03, f, f * 0.55, 'sine', (0.05 + Math.random() * 0.05) * v);
+    }
+  }
+
+  /** A burst of filtered noise with an instant attack and a fast exponential fall: a hit, not a swell. */
+  private hit(at: number, length: number, type: BiquadFilterType, frequency: number, q: number, peak: number): void {
+    const ctx = this.ctx!;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = frequency;
+    filter.Q.value = q;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(Math.max(0.0001, peak), at);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+    source.connect(filter).connect(gain).connect(this.master!);
+    source.start(at, Math.random() * 1.5);
+    source.stop(at + length + 0.03);
   }
 
   private makeNoise(ctx: AudioContext): AudioBuffer {
@@ -225,6 +269,7 @@ const BED_VOLUME: Record<Bed, number> = { slosh: 0.35, creek: 0.22, churn: 0.2 }
 
 /** Seconds before the same one-shot can play again. */
 const MIN_GAP: Record<OneShot, number> = {
+  slosh: 0.1,
   crunch: 0.08,
   thud: 0.1,
   bedrock: 0.1,

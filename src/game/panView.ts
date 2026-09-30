@@ -121,6 +121,8 @@ export class PanView extends Container {
   private surge = 0;
   /** Water sheeting over the lip after a stroke toward it: rises with the stroke, drains away after. */
   private sheet = 0;
+  /** Strokes of the shake so far, and which way the last one threw the water: for the slosh sound. */
+  stroke = { n: 0, toLip: false };
   /** Seconds left of the riffled pan's turn when flipped, and the side it last showed. */
   private flipTime = 0;
   private lastSide: PanSide | null = null;
@@ -251,7 +253,11 @@ export class PanView extends Container {
     this.flipTime = Math.max(0, this.flipTime - dt);
     this.body.scale.x = 1 - 0.75 * Math.sin((this.flipTime / 0.35) * Math.PI);
 
+    const before = this.surge;
     this.surge = shaking ? Math.max(-1, Math.min(1, Math.sin(this.shakePhase) * (0.4 + controls.tilt))) : this.surge * 0.8;
+    // Each stroke throws the water against the wall: toward the lip, then back.
+    if (shaking && before <= 0.2 && this.surge > 0.2) this.stroke = { n: this.stroke.n + 1, toLip: true };
+    else if (shaking && before >= -0.2 && this.surge < -0.2) this.stroke = { n: this.stroke.n + 1, toLip: false };
     const pour = pan.phase === 'working' ? Math.max(0, this.surge) * Math.min(1, controls.tilt * 1.6) : 0;
     this.sheet = Math.max(pour, this.sheet - dt * 2.5);
     if (pan.phase === 'working') this.animateWorking(dt, pan, controls, events);
