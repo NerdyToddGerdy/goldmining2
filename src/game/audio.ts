@@ -1,6 +1,7 @@
 /**
- * The game's sounds, all made on the fly with the Web Audio API: no sound files to download.
- * One-shots (a shovel's crunch, a picker's ring, a coin's clink) fire and forget; beds (the pan's
+ * The game's sounds, made on the fly with the Web Audio API, apart from the pan's slosh, which is
+ * a recorded clip (public/sounds/slosh.wav) with the synthesized swish standing in until it has
+ * loaded, or if it can't be. One-shots (a shovel's crunch, a picker's ring, a coin's clink) fire and forget; beds (the pan's
  * slosh, the sluice's rush, whitewater churning) are noise through a filter whose level the game
  * sets every frame, eased so they swell and fade instead of clicking on and off.
  *
@@ -23,6 +24,8 @@ export class Sound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
+  /** The recorded slosh, once fetched and decoded. */
+  private sloshClip: AudioBuffer | null = null;
   private readonly beds = new Map<Bed, BedNodes>();
   private muted_ = false;
   /** The last time each one-shot played, so a burst of the same sound doesn't stack into a roar. */
@@ -64,6 +67,7 @@ export class Sound {
         this.makeBed('slosh', 'lowpass', 650, 0.7);
         this.makeBed('creek', 'bandpass', 520, 0.45);
         this.makeBed('churn', 'highpass', 1400, 0.3);
+        this.loadClip();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
     } catch {
@@ -150,7 +154,36 @@ export class Sound {
    * drops as it settles. Played on every stroke, each way, it makes the rhythm: swish, swish, swish.
    * Each varies a little, so a shake never sounds looped.
    */
+  /** Fetch and decode the recorded slosh. Relative to the page, so it works under any subpath. */
+  private loadClip(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    fetch('./sounds/slosh.wav')
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => ctx.decodeAudioData(data))
+      .then((buffer) => {
+        this.sloshClip = buffer;
+      })
+      .catch(() => {
+        // Keep the synthesized swish.
+      });
+  }
+
+  /** One stroke of the pan: the recorded slosh, a touch higher or lower each time so it never sounds looped. */
   private slosh(at: number, v: number): void {
+    const clip = this.sloshClip;
+    if (!clip) return this.swish(at, v);
+    const ctx = this.ctx!;
+    const source = ctx.createBufferSource();
+    source.buffer = clip;
+    source.playbackRate.value = 0.9 + Math.random() * 0.22;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.95 * v;
+    source.connect(gain).connect(this.master!);
+    source.start(at);
+  }
+
+  private swish(at: number, v: number): void {
     const ctx = this.ctx!;
     const len = 0.13 + Math.random() * 0.03;
     const pitch = 0.9 + Math.random() * 0.2;

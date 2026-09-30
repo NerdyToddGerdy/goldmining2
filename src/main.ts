@@ -1759,8 +1759,8 @@ async function start(): Promise<void> {
       const working = pan.phase === 'working';
       if (panView.stroke.n !== lastStroke) {
         lastStroke = panView.stroke.n;
-        // A swish on every stroke, each way: toward the lip a little louder, and louder the more the pan is tipped.
-        if (working) sound.play('slosh', (panView.stroke.toLip ? 0.6 : 0.45) + 0.4 * Math.min(1, controls.tilt * 1.5));
+        // A slosh on each stroke toward the lip (the swing back is quiet), louder the more the pan is tipped.
+        if (working && panView.stroke.toLip) sound.play('slosh', 0.6 + 0.4 * Math.min(1, controls.tilt * 1.5));
       }
       if (events && (events.goldLost > 0 || events.darkSpilled > 0.0005)) sound.play('drip');
       coach.guided = hud.walkthroughActive(mode, session);
