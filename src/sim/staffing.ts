@@ -137,6 +137,7 @@ export interface CrewWorld {
 export type HireResult = 'hired' | 'restricted' | 'cantAfford';
 export type SendResult = 'sent' | 'noneFree' | 'homeCreek' | 'full' | 'claimLapsed' | 'hasForeman';
 export type JobToggle = 'on' | 'off' | 'doesntFit';
+export type MoveResult = 'moved' | 'same' | 'noWorker' | 'homeCreek' | 'claimLapsed' | 'full' | 'hasForeman' | 'foremanNotAtStation';
 
 function noSpares(): Record<CrewMachine, number> {
   return { sluice: 0, highbanker: 0, trommel: 0, rocker: 0, drywasher: 0, classifier: 0 };
@@ -364,6 +365,36 @@ export class Crew {
     worker.siteId = creek.id;
     this.site(creek.id);
     return 'sent';
+  }
+
+  /**
+   * Move one worker straight to where they're wanted: another stretch (`to` its creek id, with
+   * `creek`), the crew's station in town (TOWN_SITE), or back to wait in town (null). The same
+   * rules as sending apply: never the Home Creek, a claim that can be worked, room for another
+   * digger, one foreman to a stretch, and no foreman or more than the room allows at the station.
+   */
+  moveTo(workerId: number, to: number | null, creek: Creek | null, economy: Economy, homeCreekId: number): MoveResult {
+    const worker = this.workers.find((w) => w.id === workerId);
+    if (!worker) return 'noWorker';
+    if (worker.siteId === to) return 'same';
+    if (to === TOWN_SITE) {
+      if (worker.role === 'foreman') return 'foremanNotAtStation';
+      if (this.workersAt(TOWN_SITE).length >= STAFF_TUNING.townCrewMax) return 'full';
+      worker.siteId = TOWN_SITE;
+      this.site(TOWN_SITE);
+      return 'moved';
+    }
+    if (to !== null) {
+      if (!creek || creek.id !== to) return 'noWorker';
+      if (creek.id === homeCreekId || creek.profile.site === 'homeCreek') return 'homeCreek';
+      if (!economy.canWork(creek.id)) return 'claimLapsed';
+      if (worker.role === 'foreman') {
+        if (this.foremanAt(creek.id)) return 'hasForeman';
+      } else if (this.diggersAt(creek.id).length >= traitsOf(creek.profile.site).crewMax) return 'full';
+      this.site(creek.id);
+    }
+    worker.siteId = to;
+    return 'moved';
   }
 
   /** Bring the most recently sent hand at a stretch back to town. */

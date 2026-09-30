@@ -580,6 +580,8 @@ export class PanningSession {
     this.pan = new Pan(this.rng, { richness: 0, clayiness: 0, rockiness: 0 }, { blackSand: amount, gold: poured });
     this.pan.waterMurk = waterMurk;
     this.pan.finishing = finishing && this.owns('finishingPan');
+    // Without the finishing pan to hand, the jar is panned in whatever pan the player owns.
+    this.pan.riffled = !this.pan.finishing && this.owns('riffledPan');
     return this.pan;
   }
 

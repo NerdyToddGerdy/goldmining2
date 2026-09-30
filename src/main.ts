@@ -1308,6 +1308,19 @@ async function start(): Promise<void> {
       magnetView.stripped(session.clump.sand);
       session.stripClump(); // Whatever gold was in it goes with it, unannounced.
     },
+    moveWorker: (workerId, to) => {
+      const worker = crew.workers.find((w) => w.id === workerId);
+      if (!worker) return;
+      const target = to !== null && to !== TOWN_SITE ? region.creek(to) : null;
+      const result = crew.moveTo(workerId, to, target, economy, region.home.id);
+      if (result === 'moved') {
+        hud.toast(`${worker.name} heads ${to === null ? 'back to town to wait for work' : to === TOWN_SITE ? 'to the settling tub in town' : `to ${target!.profile.name}`}.`);
+      } else if (result === 'full') hud.toast(to === TOWN_SITE ? 'The settling tub only needs two.' : `${target?.profile.name ?? 'That claim'} has no room for another digger.`);
+      else if (result === 'hasForeman') hud.toast(`${target?.profile.name ?? 'That claim'} already has a foreman.`);
+      else if (result === 'foremanNotAtStation') hud.toast('A foreman has no work at the settling tub.');
+      else if (result === 'claimLapsed') hud.toast(`The claim on ${target?.profile.name ?? 'that stretch'} has lapsed: pay its fees in town first.`);
+      else if (result === 'homeCreek') hud.toast('The Home Creek is yours alone: no crew there.');
+    },
     openSpiral: () => {
       if (!session.owns('spiralWheel')) return;
       if (mode !== 'town' && !(mode === 'bank' && region.allows(creek, 'spiralWheel'))) {
@@ -1746,9 +1759,8 @@ async function start(): Promise<void> {
       const working = pan.phase === 'working';
       if (panView.stroke.n !== lastStroke) {
         lastStroke = panView.stroke.n;
-        // One slosh per stroke toward the lip, with a gap before the next so it doesn't run together
-        // into a flowing sound; louder the more the pan is tipped.
-        if (working && panView.stroke.toLip) sound.play('slosh', 0.6 + 0.4 * Math.min(1, controls.tilt * 1.5));
+        // A swish on every stroke, each way: toward the lip a little louder, and louder the more the pan is tipped.
+        if (working) sound.play('slosh', (panView.stroke.toLip ? 0.6 : 0.45) + 0.4 * Math.min(1, controls.tilt * 1.5));
       }
       if (events && (events.goldLost > 0 || events.darkSpilled > 0.0005)) sound.play('drip');
       coach.guided = hud.walkthroughActive(mode, session);

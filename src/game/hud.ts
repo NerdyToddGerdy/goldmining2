@@ -184,6 +184,8 @@ export interface HudActions {
   pourIntoRocker(): void;
   // Magnet
   openMagnet(): void;
+  /** Move one worker: to a stretch (its creek id), the settling tub in town (TOWN_SITE), or to wait in town (null). */
+  moveWorker(workerId: number, to: number | null): void;
   // Spiral wheel
   openSpiral(): void;
   closeSpiral(): void;
@@ -519,6 +521,14 @@ export class Hud {
     this.tabletBody = this.root.querySelector('.tablet-body') as HTMLElement;
     this.tabletClock = this.root.querySelector('.tablet-clock') as HTMLElement;
     this.tabletClose = this.root.querySelector('[data-t="close"]') as HTMLElement;
+    // The Where dropdowns on the Claims sheet and the Crew spreadsheet move people.
+    this.tablet.addEventListener('change', (e) => {
+      const select = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-move]');
+      if (!select) return;
+      const to = select.value === 'idle' ? null : Number(select.value);
+      this.on.moveWorker(Number(select.dataset.move), to);
+      this.tabletKey = '';
+    });
     this.tablet.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-t], [data-ttab], [data-claim], [data-go]');
       if (!target) return;
@@ -1654,33 +1664,45 @@ export class Hud {
     }
 
     if (this.tabletTab === 'crew') {
-      const sites = views.filter((v) => v.crew.length > 0);
-      const groups = sites.map((v) => {
-        const roles = (['foreman', 'operator', 'hand'] as const).map((r) => ({ r, n: v.crew.filter((c) => c.role === r).length })).filter((x) => x.n > 0);
-        const flags = v.jobs.filter((j) => j.state === 'needsOperator' || j.state === 'noOne').map((j) => `${JOB_NAMES[j.job]} ${j.state === 'needsOperator' ? 'needs an operator' : 'has nobody on it'}`);
-        const idle = v.jobs.filter((j) => j.state !== 'working' && j.state !== 'standingBack' && j.state !== 'noOne' && j.state !== 'needsOperator').length;
-        return (
-          `<div class="tablet-group"><b>${name(v.creekId)}</b> <span class="small">${roles.map((x) => `${x.n} ${x.r}${x.n === 1 ? '' : 's'}`).join(', ')} · ${money(v.wagesPerDay)} a day</span>` +
-          `<p class="small">${v.crew.map(workerWords).join(', ')}</p>` +
-          (v.hasForeman ? `<p class="small">${liftWords(v.foremanLift)}</p>` : '') +
-          `<p class="small">Jobs: ${v.jobs.length ? v.jobs.map((j) => JOB_NAMES[j.job]).join(', ') : 'none switched on'}${idle ? ` · ${idle} idle` : ''}</p>` +
-          `${flags.map((f) => `<p class="small warn">${f}.</p>`).join('')}</div>`
-        );
-      });
-      const waiting = crew.idleWorkers;
       const spares = CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, label]) => `${crew.spares[m]} ${label.replace('Crew ', '')}`);
       if (crew.workers.length === 0) {
         this.tabletBody.innerHTML =
           `<p>No crew hired.</p><p class="small">Hands ($${STAFF_TUNING.wage.hand} a day) and operators ($${STAFF_TUNING.wage.operator} a day) are hired in town, in Claims & crew, and sent to a staked stretch. They work while you're somewhere else: they buy you time, not better recovery.</p>` +
-          (CREW_GEAR.some(([m]) => crew.spares[m] > 0) ? `<p class="small">Spare crew gear: ${CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, label]) => `${crew.spares[m]} ${label.replace('Crew ', '')}`).join(', ')}.</p>` : '');
+          (spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : '');
         return;
       }
+      // Sorted by where they are: each claim in turn, then the settling tub, then waiting in town.
+      const order = (w: { siteId: number | null }): number => (w.siteId === null ? 2 : w.siteId === TOWN_SITE ? 1 : 0);
+      const rows = [...crew.workers].sort((x, y) => order(x) - order(y) || (x.siteId ?? 0) - (y.siteId ?? 0) || x.id - y.id);
+      const crewSheet =
+        `<div class="sheet-wrap"><table class="sheet"><thead><tr><th class="rownum"></th><th>Name</th><th>Role</th><th>Skill</th><th>Pace</th><th class="num">Wage a day</th><th>Where</th></tr></thead><tbody>` +
+        rows
+          .map(
+            (w, i) =>
+              `<tr><td class="rownum">${i + 1}</td><td>${w.name}</td><td>${ROLE_WORDS[w.role]}</td><td>${w.skill}</td><td>${w.pace}</td><td class="num">${money(w.wage)}</td><td>${this.whereSelect(w, state)}</td></tr>`,
+          )
+          .join('') +
+        `</tbody><tfoot><tr><td class="rownum"></td><td>${rows.length} crew</td><td colspan="3"></td><td class="num">${money(crew.dailyWages)}</td><td></td></tr></tfoot></table></div>`;
+      const sites = views.filter((v) => v.crew.length > 0);
+      const claimSheet = sites.length
+        ? `<h4>Claims</h4><div class="sheet-wrap"><table class="sheet"><thead><tr><th class="rownum"></th><th>Claim</th><th class="num">Digging</th><th>Foreman</th><th>Jobs on</th><th class="num">Wages a day</th><th>Needs</th></tr></thead><tbody>` +
+          sites
+            .map((v, i) => {
+              const creek = region.creek(v.creekId);
+              const diggers = crew.diggersAt(v.creekId).length;
+              const flags = v.jobs.filter((j) => j.state === 'needsOperator' || j.state === 'noOne').map((j) => `${JOB_NAMES[j.job]} ${j.state === 'needsOperator' ? 'needs an operator' : 'has nobody'}`);
+              return (
+                `<tr><td class="rownum">${i + 1}</td><td>${name(v.creekId)}</td><td class="num">${diggers} of ${traitsOf(creek.profile.site).crewMax}</td>` +
+                `<td>${v.hasForeman ? 'yes' : '–'}</td><td>${v.jobs.length ? v.jobs.map((j) => JOB_NAMES[j.job]).join(', ') : 'none'}</td>` +
+                `<td class="num">${money(v.wagesPerDay)}</td><td class="${flags.length ? 'warn' : ''}">${flags.join('; ') || '–'}</td></tr>`
+              );
+            })
+            .join('') +
+          `</tbody></table></div>`
+        : '';
       this.tabletBody.innerHTML =
-        (groups.join('') || '<p class="small">Nobody is out at a claim.</p>') +
-        (crew.workersAt(TOWN_SITE).length
-          ? `<div class="tablet-group"><b>At the settling tub</b><p class="small">${crew.workersAt(TOWN_SITE).map(workerWords).join(', ')}</p><p class="small">Jobs: ${crew.findSite(TOWN_SITE)?.jobs.map((j) => JOB_NAMES[j]).join(', ') || 'none switched on'}</p></div>`
-          : '') +
-        `<div class="tablet-group"><b>In town</b><p class="small">${waiting.length ? waiting.map(workerWords).join(', ') : 'Nobody waiting.'}</p>${spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : ''}</div>`;
+        crewSheet + claimSheet + (spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : '') +
+        `<p class="small">Change Where to move someone: straight to another claim, to the settling tub in town, or to wait in town. Claims have room for only so many.</p>`;
       return;
     }
 
@@ -1902,6 +1924,33 @@ export class Hud {
     );
   }
 
+  /**
+   * Where a worker is, as a dropdown to move them: each held claim (greyed when it has no room for
+   * them), the settling tub in town, or waiting in town. The Home Creek never takes crew.
+   */
+  private whereSelect(w: { readonly id: number; readonly name: string; readonly role: Role; readonly siteId: number | null }, state: HudState): string {
+    const { crew, economy, region } = state;
+    const option = (value: string, label: string, ok: boolean): string => {
+      const here = (w.siteId === null ? 'idle' : String(w.siteId)) === value;
+      return `<option value="${value}" ${here ? 'selected' : ''} ${ok || here ? '' : 'disabled'}>${label}${ok || here ? '' : ' (no room)'}</option>`;
+    };
+    const claims = economy.allClaims
+      .filter((c) => c.status === 'held' && c.creekId !== region.home.id)
+      .map((c) => {
+        const creek = region.creek(c.creekId);
+        const room = w.role === 'foreman' ? !crew.foremanAt(c.creekId) : crew.diggersAt(c.creekId).length < traitsOf(creek.profile.site).crewMax;
+        return option(String(c.creekId), creek.profile.name, room && economy.canWork(c.creekId));
+      });
+    const tub = w.role !== 'foreman' && crew.workersAt(TOWN_SITE).length < STAFF_TUNING.townCrewMax;
+    return (
+      `<select class="where" data-move="${w.id}" aria-label="Where ${w.name} works">` +
+      claims.join('') +
+      option(String(TOWN_SITE), 'Settling tub, town', tub) +
+      option('idle', 'Waiting in town', true) +
+      `</select>`
+    );
+  }
+
   /** The detail sheet for one claim: everything on the card, spelled out. */
   private claimSheet(v: ClaimOverview, state: HudState): string {
     const creek = state.region.creek(v.creekId);
@@ -1918,7 +1967,11 @@ export class Hud {
       `<div class="tablet-sheet"><b>${creek.profile.name}</b> <span class="small">${traitsOf(creek.profile.site).label.toLowerCase()}</span>` +
       `${v.warnings.length ? `<ul class="warnings">${v.warnings.map((w) => `<li>${w}</li>`).join('')}</ul>` : '<p class="found">Nothing needs you here.</p>'}` +
       `<table class="tablet-table">` +
-      `<tr><td>Crew</td><td>${v.crew.length ? v.crew.map(workerWords).join(', ') : 'none'}</td></tr>` +
+      `<tr><td>Crew</td><td>${
+        state.crew.workersAt(v.creekId).length
+          ? `<ul class="crew-moves">${state.crew.workersAt(v.creekId).map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label></li>`).join('')}</ul>`
+          : 'none'
+      }</td></tr>` +
       `<tr><td>Working</td><td>${POLICY_WORDS[v.policy].name.toLowerCase()} <span class="small">(set in town)</span></td></tr>` +
       `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages${v.suppliesPerDay > 0 ? ` + ${money(v.suppliesPerDay)} supplies` : ''} + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
       (v.machineWear > 0 ? `<tr><td>Machines</td><td>${wearWord(v.machineWear)}</td></tr>` : '') +

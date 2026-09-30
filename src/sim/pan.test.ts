@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PAN_TUNING as PAN_T, Pan, totalMg, type PanLoad, type PanControls } from './pan';
 import { Creek } from './creek';
+import { PanningSession } from './panningSession';
 import { createRng } from './rng';
 
 const SPOT: PanLoad = { richness: 4, clayiness: 0.5, rockiness: 0.5 };
@@ -284,6 +285,18 @@ describe('Riffled pan', () => {
     const flipped = riffledRate(0.55);
     const unflipped = riffledRate(0.55, false);
     expect(unflipped.recovery).toBeLessThan(flipped.recovery - 0.05);
+  });
+
+  it('pans the jar too, unless the finishing pan is to hand', () => {
+    const session = new PanningSession(createRng(8));
+    session.acquire('riffledPan');
+    session.jar.blackSand = 0.3;
+    expect(session.startConcentratePan(0, false).riffled).toBe(true);
+    session.pan!.phase = 'emptied';
+    session.acquire('finishingPan');
+    const finishing = session.startConcentratePan(0, true);
+    expect(finishing.finishing).toBe(true);
+    expect(finishing.riffled).toBe(false);
   });
 
   it('keeps its side through a save; the steel pan has none', () => {

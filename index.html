@@ -283,6 +283,22 @@
       .tablet-sheet { margin-top: 10px; padding: 10px 12px; background: rgba(0, 0, 0, 0.3); border-radius: 6px; }
       .tablet-sheet ul { margin: 6px 0; padding-left: 18px; }
       .tablet-sheet .warnings li { color: #e8a36a; }
+      /* The Crew tab is a spreadsheet: light cells on gridlines, shaded headers and row numbers. */
+      .sheet-wrap { overflow-x: auto; margin: 6px 0 10px; border: 1px solid #9aa391; }
+      .sheet { border-collapse: collapse; width: 100%; font: 12.5px/1.3 system-ui, sans-serif; color: #22271f; background: #f4f6f1; }
+      .sheet th, .sheet td { border: 1px solid #c9cfc3; padding: 3px 7px; text-align: left; white-space: nowrap; }
+      .sheet thead th { position: sticky; top: 0; background: #dde3d6; color: #3d4538; font-weight: 600; }
+      .sheet .rownum { width: 1.8em; background: #dde3d6; color: #5d6657; text-align: center; }
+      .sheet .num { text-align: right; font-variant-numeric: tabular-nums; }
+      .sheet tbody tr:hover td:not(.rownum) { background: #e8f0df; }
+      .sheet tfoot td { background: #eaede5; font-weight: 600; border-top: 2px solid #9aa391; }
+      .sheet td.warn { color: #9a3d1f; white-space: normal; }
+      .sheet select.where { font: inherit; color: #22271f; background: #fff; border: 1px solid #b4bcab; border-radius: 3px; padding: 1px 2px; max-width: 12em; }
+      .crew-moves { margin: 0; padding: 0; list-style: none; }
+      .crew-moves li { padding: 2px 0; }
+      .crew-moves label { margin-left: 6px; font-size: 12px; opacity: 0.9; }
+      .crew-moves select { font: inherit; font-size: 12px; background: #26352b; color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.4); border-radius: 3px; margin-left: 4px; }
+      @media (pointer: coarse) { .sheet select.where, .crew-moves select { min-height: 32px; } }
       .tablet-table { border-collapse: collapse; margin: 6px 0; }
       .tablet-table td { padding: 2px 12px 2px 0; vertical-align: top; }
       .tablet-body h4 { margin: 12px 0 4px; font: 600 14px Georgia, serif; color: #f3d77a; }

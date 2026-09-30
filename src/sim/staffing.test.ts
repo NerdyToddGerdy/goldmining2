@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Creek } from './creek';
-import { CREW_TUNING, type CrewPolicy } from './crewJobs';
+import { CREW_TUNING, TOWN_SITE, type CrewPolicy } from './crewJobs';
 import { ECONOMY_TUNING, Economy } from './economy';
 import { buyGear } from './outfitter';
 import { totalMg } from './pan';
@@ -84,6 +84,42 @@ describe('hiring and placing the crew', () => {
     expect(bar.crew.send(bar.creek, bar.economy, bar.region.home.id)).toBe('claimLapsed');
     expect(s.crew.recall(s.creek.id)).not.toBeNull();
     expect(s.crew.workersAt(s.creek.id)).toHaveLength(1);
+  });
+
+  it('moves one worker straight from claim to claim, the settling tub or town, by the same rules as sending', () => {
+    const s = setup(7, 'creekBend');
+    // A second stretch, a gravel bar, staked alongside the first.
+    let bar: Creek | null = null;
+    while (!bar) {
+      const lead = s.region.clueFound();
+      (lead as { truth: unknown }).truth = { real: true, richness: 1.2, site: 'gravelBar' };
+      const result = s.region.follow(lead.id);
+      if (result.found) bar = result.creek;
+    }
+    s.economy.stakeFound(s.region);
+    const home = s.region.home.id;
+    for (let i = 0; i < 3; i++) s.crew.hire(s.session, false, 'hand');
+    s.crew.hire(s.session, false, 'foreman');
+    const [a, b, c] = s.crew.workers;
+    const boss = s.crew.workers[3]!;
+    expect(s.crew.moveTo(a!.id, s.creek.id, s.creek, s.economy, home)).toBe('moved');
+    expect(s.crew.moveTo(b!.id, s.creek.id, s.creek, s.economy, home)).toBe('moved');
+    expect(s.crew.moveTo(c!.id, s.creek.id, s.creek, s.economy, home)).toBe('full'); // A bend takes two.
+    expect(s.crew.moveTo(a!.id, s.creek.id, s.creek, s.economy, home)).toBe('same');
+    expect(s.crew.moveTo(a!.id, home, s.region.home, s.economy, home)).toBe('homeCreek');
+    // Straight across to the bar, without going back to town.
+    expect(s.crew.moveTo(a!.id, bar.id, bar, s.economy, home)).toBe('moved');
+    expect(s.crew.workersAt(bar.id).map((w) => w.id)).toEqual([a!.id]);
+    expect(s.crew.workersAt(s.creek.id).map((w) => w.id)).toEqual([b!.id]);
+    // One foreman to a stretch; never at the settling tub.
+    expect(s.crew.moveTo(boss.id, bar.id, bar, s.economy, home)).toBe('moved');
+    expect(s.crew.moveTo(boss.id, TOWN_SITE, null, s.economy, home)).toBe('foremanNotAtStation');
+    expect(s.crew.moveTo(c!.id, TOWN_SITE, null, s.economy, home)).toBe('moved');
+    expect(s.crew.moveTo(c!.id, null, null, s.economy, home)).toBe('moved');
+    expect(s.crew.idleWorkers.map((w) => w.id)).toEqual([c!.id]);
+    // A lapsed claim takes nobody new.
+    s.economy.advance(DAY * 10);
+    expect(s.crew.moveTo(b!.id, bar.id, bar, s.economy, home)).toBe('claimLapsed');
   });
 
   it('pays hands less than operators, and only operators run the sluice, highbanker and drywasher', () => {

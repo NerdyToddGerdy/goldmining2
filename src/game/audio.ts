@@ -145,42 +145,34 @@ export class Sound {
   }
 
   /**
-   * One stroke of water thrown against the pan's wall: a splash, not a flow. A sharp, bright crack
-   * as the water hits the wall (a fast attack and quick decay, so there's silence between strokes),
-   * a short low body of the water's weight under it, and a scatter of droplets falling back.
-   * Each stroke varies a little, so a shake never sounds looped.
+   * One stroke of the shake: a swish, water rushing across the pan and back. Airy noise that
+   * swells in and falls away (no hard attack), through a band that rises as the water rushes and
+   * drops as it settles. Played on every stroke, each way, it makes the rhythm: swish, swish, swish.
+   * Each varies a little, so a shake never sounds looped.
    */
   private slosh(at: number, v: number): void {
-    const pitch = 0.85 + Math.random() * 0.3;
-    // The crack of the splash: bright noise that hits at once and is gone in a tenth of a second.
-    this.hit(at, 0.11, 'bandpass', 2400 * pitch, 0.9, 0.75 * v);
-    this.hit(at, 0.07, 'highpass', 4200 * pitch, 0.5, 0.3 * v);
-    // The water's weight under it: a short, low thump of body, not a sustained wash.
-    this.hit(at, 0.12, 'lowpass', 500 * pitch, 0.8, 0.35 * v);
-    // Droplets falling back into the pan: little plinks, each a quick pitch drop.
-    const drops = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < drops; i++) {
-      const t = at + 0.05 + Math.random() * 0.13;
-      const f = (1300 + Math.random() * 1500) * pitch;
-      this.sweep(t, 0.035 + Math.random() * 0.03, f, f * 0.55, 'sine', (0.05 + Math.random() * 0.05) * v);
-    }
-  }
-
-  /** A burst of filtered noise with an instant attack and a fast exponential fall: a hit, not a swell. */
-  private hit(at: number, length: number, type: BiquadFilterType, frequency: number, q: number, peak: number): void {
     const ctx = this.ctx!;
+    const len = 0.13 + Math.random() * 0.03;
+    const pitch = 0.9 + Math.random() * 0.2;
     const source = ctx.createBufferSource();
     source.buffer = this.noise;
-    const filter = ctx.createBiquadFilter();
-    filter.type = type;
-    filter.frequency.value = frequency;
-    filter.Q.value = q;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.1;
+    band.frequency.setValueAtTime(700 * pitch, at);
+    band.frequency.exponentialRampToValueAtTime(2000 * pitch, at + len * 0.55);
+    band.frequency.exponentialRampToValueAtTime(1100 * pitch, at + len);
+    // Take the hiss off the top so it reads as water, not air.
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 3500;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(Math.max(0.0001, peak), at);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-    source.connect(filter).connect(gain).connect(this.master!);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(0.8 * v, at + len * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    source.connect(band).connect(soften).connect(gain).connect(this.master!);
     source.start(at, Math.random() * 1.5);
-    source.stop(at + length + 0.03);
+    source.stop(at + len + 0.03);
   }
 
   private makeNoise(ctx: AudioContext): AudioBuffer {

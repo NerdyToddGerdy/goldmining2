@@ -231,7 +231,7 @@ export class Pan {
   waterMurk = 0;
   /** Worked in the finishing pan (concentrate only). */
   finishing = false;
-  /** Worked in the riffled pan (creek gravel only). */
+  /** Worked in the riffled pan (anything but a jar pan in the finishing pan). */
   riffled = false;
   /** Which side of the riffled pan faces the lip. */
   side: PanSide = 'riffles';
@@ -396,8 +396,9 @@ export class Pan {
   get safeLimit(): number {
     const T = PAN_TUNING;
     const limit = T.safeLimitBase + T.safeLimitPerStrat * this.stratification;
-    if (this.kind === 'concentrate') return limit * T.concentrateSafeScale * (this.finishing ? T.finishingSafeScale : 1);
-    return limit * (T.fineSafe + T.grainSafe * this.grain) * (this.rifflesToLip ? T.riffleSafeScale : 1);
+    const riffles = this.rifflesToLip ? T.riffleSafeScale : 1;
+    if (this.kind === 'concentrate') return limit * T.concentrateSafeScale * (this.finishing ? T.finishingSafeScale : 1) * riffles;
+    return limit * (T.fineSafe + T.grainSafe * this.grain) * riffles;
   }
 
   effectiveWash(controls: PanControls): number {
