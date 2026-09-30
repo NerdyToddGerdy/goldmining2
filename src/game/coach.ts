@@ -183,7 +183,7 @@ export class RockerCoach {
     if (this.cooldown > 0) return;
     if (this.dryStrokes >= 3) {
       this.dryStrokes = 0;
-      this.nudge(`The box is dry: nothing moves. ${usingTouch() ? 'Ladle' : 'Ladle (L)'} some water over the screen.`);
+      this.nudge(`The box is dry: nothing moves. ${usingTouch() ? 'Ladle' : 'Ladle (W)'} some water over the screen.`);
     } else if (this.quickStrokes >= 5) {
       this.quickStrokes = 0;
       this.nudge('Easy: rocking that fast throws everything out the end, gold too. Find a steady beat, about once a second.');

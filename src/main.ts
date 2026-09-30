@@ -258,7 +258,7 @@ async function start(): Promise<void> {
   const noPanWater = (): string => {
     const tub = tubHere();
     if (tubFetching !== null) return "You're still hauling water for the tub.";
-    if (tub) return usingTouch() ? 'The wash tub is empty. Fetch water for it.' : 'The wash tub is empty. Fetch water for it (U).';
+    if (tub) return usingTouch() ? 'The wash tub is empty. Fetch water for it.' : 'The wash tub is empty. Fetch water for it (1).';
     return 'There is no water here to pan in. Bring a wash tub from the outfitter, haul water to a rocker box, or carry what you dig somewhere wetter.';
   };
   /**
@@ -271,7 +271,7 @@ async function start(): Promise<void> {
     const murk = tub ? (dipPan(tub, clayiness) ?? 0) : 0;
     if (murk > 0.6 && !toldMuddyTub) {
       toldMuddyTub = true;
-      hud.toast(`The tub water is thick with mud: it's slow to settle and hides colour. ${usingTouch() ? 'Change it' : 'Change it (U)'} when you can.`);
+      hud.toast(`The tub water is thick with mud: it's slow to settle and hides colour. ${usingTouch() ? 'Change it' : 'Change it (1)'} when you can.`);
     }
     if (murk < 0.3) toldMuddyTub = false;
     return murk;
@@ -448,7 +448,7 @@ async function start(): Promise<void> {
     if (creek.highWaterEvents > highWaterBefore) hud.toast('High water has come through and left fresh gravel along the creek.');
     if (result.clue) {
       const lead = region.clueFound();
-      hud.toast(`Your shovel turns something up. ${lead.note} It points to ${lead.name}. Noted in your notebook (M).`);
+      hud.toast(`Your shovel turns something up. ${lead.note} It points to ${lead.name}. Noted in your notebook on the region map.`);
     }
     if (result.load && classifier) {
       classifier.load(rollShovelful(rng, result.load));
@@ -499,7 +499,7 @@ async function start(): Promise<void> {
       if (traced?.found) {
         passTime(ECONOMY_TUNING.travel.lead);
         economy.stakeFound(region);
-        hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name} and stake a claim. It is on your region map (M).${salvageNote(traced.salvage)}`);
+        hud.toast(`Colour in the gully! You follow it upstream to ${traced.creek.profile.name} and stake a claim. It is on your region map.${salvageNote(traced.salvage)}`);
       }
     }
   };
@@ -714,7 +714,7 @@ async function start(): Promise<void> {
       hud.toast(
         usingTouch()
           ? 'Prime the pump, start the engine, then set the throttle and shovel into the hopper. Watch the heat and the fuel.'
-          : 'Prime the pump (P), start the engine (E), then set the Throttle and shovel into the hopper (F). Watch the heat and the fuel.',
+          : 'Prime the pump (A), start the engine (E), then set the Throttle and shovel into the hopper (F). Watch the heat and the fuel.',
       );
     }
   };
@@ -744,7 +744,7 @@ async function start(): Promise<void> {
       hud.toast(
         usingTouch()
           ? 'Ladle water over the screen, then tap Rock on a steady beat, about once a second. Too fast or too wet and gold goes out the end.'
-          : 'Ladle water over the screen (L), then rock it with Space on a steady beat, about once a second. Too fast or too wet and gold goes out the end.',
+          : 'Ladle water over the screen (W), then rock it with Space on a steady beat, about once a second. Too fast or too wet and gold goes out the end.',
       );
     }
   };
@@ -928,7 +928,7 @@ async function start(): Promise<void> {
       const rocker = rockerHere();
       if (!rocker || mode !== 'rocker') return;
       if (rocker.apronVolume < 0.001 && rocker.apronGoldCount === 0) return hud.toast('The apron is clean: nothing to wash up yet.');
-      if (!session.fitsInJar(rocker.apronVolume)) return hud.toast('Your jar is too full for the apron. Pan some of the jar down first (J).');
+      if (!session.fitsInJar(rocker.apronVolume)) return hud.toast('Your jar is too full for the apron. Pan some of the jar down first (Z).');
       session.addConcentrate(rocker.cleanUp());
       hud.toast('You lift the apron and scrape the riffles, and wash it all into your jar. Pan it to see what the rocker caught.');
     },
@@ -989,7 +989,7 @@ async function start(): Promise<void> {
       const result = t.start();
       if (result === 'noFuel') hud.toast(usingTouch() ? 'The tank is dry. Refuel it first.' : 'The tank is dry. Refuel it first (G).');
       else if (result === 'jammed') hud.toast(usingTouch() ? 'The drum is jammed solid. Clear it first.' : 'The drum is jammed solid. Clear it first (R).');
-      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (N).');
+      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (X).');
     },
     refuelTrommel: () => {
       if (!trommelHere()) return;
@@ -1012,7 +1012,7 @@ async function start(): Promise<void> {
     liftTrommelMat: () => {
       const t = trommelHere();
       if (!t?.rinsing) return;
-      if (!session.fitsInJar(t.deck.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
+      if (!session.fitsInJar(t.deck.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (Z).');
       session.addConcentrate(t.deck.liftMat());
       sound.play('thump');
       t.rinsing = false;
@@ -1078,7 +1078,7 @@ async function start(): Promise<void> {
       const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
       hud.toast(
         `${moved ? `You take the highbanker down at ${region.creek(before.creekId).profile.name}, wash its mat into your jar, and carry it here. ` : ''}` +
-          `The highbanker stands on the bank, its hose in the creek. ${usingTouch() ? 'Prime the pump and start the engine.' : 'Prime the pump (P) and start the engine (E).'}`,
+          `The highbanker stands on the bank, its hose in the creek. ${usingTouch() ? 'Prime the pump and start the engine.' : 'Prime the pump (A) and start the engine (E).'}`,
       );
     },
     takeDownHighbanker: () => {
@@ -1101,7 +1101,7 @@ async function start(): Promise<void> {
       const result = hb.start();
       if (result === 'noFuel') hud.toast(usingTouch() ? 'The tank is dry. Refuel it first.' : 'The tank is dry. Refuel it first (G).');
       else if (result === 'tooHot') hud.toast('The engine is still too hot to start. Give it a minute to cool.');
-      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (N).');
+      else if (result === 'seized') hud.toast(usingTouch() ? 'The engine has seized: worn out. Mend it with a repair kit.' : 'The engine has seized: worn out. Mend it with a repair kit (X).');
       else if (result === 'started' && !hb.primed) hud.toast("The engine catches, but the pump isn't primed: no water, and it will overheat running dry.");
     },
     clearHighbanker,
@@ -1125,7 +1125,7 @@ async function start(): Promise<void> {
     liftHighbankerMat: () => {
       const hb = highbankerHere();
       if (!hb?.rinsing) return;
-      if (!session.fitsInJar(hb.sluice.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J).');
+      if (!session.fitsInJar(hb.sluice.matVolume)) return hud.toast('Your jar is too full for this mat. Pan some of the jar down first (Z).');
       session.addConcentrate(hb.sluice.liftMat());
       sound.play('thump');
       hb.rinsing = false;
@@ -1199,7 +1199,7 @@ async function start(): Promise<void> {
       const sluice = sluiceHere();
       if (!sluice || !cleaningOut) return;
       if (!session.fitsInJar(sluice.matVolume)) {
-        hud.toast('Your jar is too full for this mat. Pan some of the jar down first (J); the mat can wait in the rinse.');
+        hud.toast('Your jar is too full for this mat. Pan some of the jar down first (Z); the mat can wait in the rinse.');
         return;
       }
       session.addConcentrate(sluice.liftMat());
@@ -1336,7 +1336,7 @@ async function start(): Promise<void> {
       setMode('spiral');
       if (!toldAboutSpiral) {
         toldAboutSpiral = true;
-        hud.toast('Level the wheel (L), then scoop in some of the jar (F). Sand should climb off the rim while specks ride to the centre: too hard and fines go over with the sand, too gentle or fed too fast and the centre crowds.');
+        hud.toast('Level the wheel (E), then scoop in some of the jar (F). Sand should climb off the rim while specks ride to the centre: too hard and fines go over with the sand, too gentle or fed too fast and the centre crowds.');
       }
     },
     levelSpiral: () => {
@@ -1499,7 +1499,7 @@ async function start(): Promise<void> {
         got.gold > 0 ? `${plural(got.gold, 'piece')} of gold from their poke into your vial` : '',
         got.sand > 0 ? 'their concentrate into your jar' : '',
       ].filter(Boolean);
-      if (parts.length === 0) return hud.toast('Your jar is full. Pan some of it down first (J), then collect the crew bucket.');
+      if (parts.length === 0) return hud.toast('Your jar is full. Pan some of it down first (Z), then collect the crew bucket.');
       hud.toast(`You collect ${parts.join(', and ')}.${got.sandLeft > 0 ? ' The rest of the bucket waits: your jar is full.' : ''}`);
     },
     panConcentrate: () => {

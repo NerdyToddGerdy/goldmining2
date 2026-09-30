@@ -355,11 +355,11 @@ const HINTS: Record<Mode, string> = {
   sluice: 'Set the intake with the Water slider · feed it from the hole · click the header to rake a clog · clean out before the moss fills',
   classifier: 'Hold Space or the screen to sift · click a rock to check it for a wedged picker · tip off the oversize when only rocks are left',
   magnet: 'Hold Space or Pass to sweep the magnet over the sand · W/S or the wheel sets how close · shake the clump back (B), then strip it off (T)',
-  rocker: 'Ladle water over the screen (L) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
-  highbanker: 'Prime the pump (P) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
+  rocker: 'Ladle water over the screen (W) · rock with Space on a steady beat · tip the rocks off (T) · clean up the apron (C) before it loads up',
+  highbanker: 'Prime the pump (A) · start the engine (E) · set the Throttle · shovel into the hopper (F) · clear jams (R) · watch the heat and fuel',
   trommel: 'Start the engine (E) · set the Drum to tumble and the Spray · shovel into the hopper (F) · clear a jammed drum (R) · clean out the deck (C)',
-  drywasher: 'Hold Space or Pump to work the bellows · W/S or the wheel sets the Air · shake out the dust (D) · knock the screen (K) · pull the drawer (C)',
-  spiral: 'Level the wheel (L) · scoop from the jar (F) · set the Tilt and Spray, and the Feed with W/S · lift the cup (C) · run the tailings again (T) or dump them (D)',
+  drywasher: 'Hold Space or Pump to work the bellows · W/S or the wheel sets the Air · shake out the dust (D) · knock the screen (R) · pull the drawer (C)',
+  spiral: 'Level the wheel (E) · scoop from the jar (F) · set the Tilt and Spray, and the Feed with W/S · lift the cup (C) · run the tailings again (T) or dump them (D)',
 };
 
 /** Shorter hints without keys, for touchscreens. */
@@ -655,14 +655,14 @@ export class Hud {
 
     // Styles that depend on what's behind the HUD (the region map is light paper) key off this.
     if (this.root.dataset.mode !== mode) this.root.dataset.mode = mode;
-    const tabletTitle = forInput('Field tablet (O): claims, crew, leads and costs');
+    const tabletTitle = forInput('Field tablet (Q): claims, crew, leads and costs');
     if (this.cashButton.title !== tabletTitle) this.cashButton.title = tabletTitle;
     setLabel(this.tabletClose, forInput('Close (Esc)'));
     const hint =
       mode === 'bank' && state.drywasher
         ? usingTouch()
           ? 'A dry wash: drag shovelfuls up to the drywasher behind the classifier, or to the pan if the wash tub has water. Tap the drywasher for a close look.'
-          : 'A dry wash: drag shovelfuls up to the drywasher (F), or to the pan (P) if the wash tub has water. Click the drywasher for a close look.'
+          : 'A dry wash: drag shovelfuls up to the drywasher (F), or to the pan (D) if the wash tub has water. Click the drywasher for a close look.'
         : mode === 'bank' && !state.canPan
         ? usingTouch()
           ? 'No water in a dry wash: drag shovelfuls to the rocker (with water you haul in) or the spoil pile. A wash tub or a drywasher from town would help.'
@@ -670,11 +670,11 @@ export class Hud {
         : mode === 'bank' && state.rocker && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls up to the rocker behind the pan, to the pan, or to the spoil pile. Tap the rocker for a close look.'
-          : 'Drag shovelfuls up to the rocker behind the pan (F), to the pan (P), or to the spoil pile (S). Click the rocker for a close look.'
+          : 'Drag shovelfuls up to the rocker behind the pan (F), to the pan (D), or to the spoil pile (S). Click the rocker for a close look.'
         : mode === 'bank' && state.classifier && !state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the classifier to screen them, to the pan, or to the spoil pile. Tap the classifier for a close look.'
-          : 'Drag shovelfuls to the classifier to screen them (K), the pan (P), or the spoil pile (S). Click the classifier for a close look.'
+          : 'Drag shovelfuls to the classifier to screen them (E), the pan (D), or the spoil pile (S). Click the classifier for a close look.'
         : mode === 'pan' && state.canSnuff
         ? usingTouch()
           ? 'Tap along the black-sand tail to snuff up fine gold: the head holds the heavy pieces, fines string out behind. Draw too much and the bottle clouds.'
@@ -682,7 +682,7 @@ export class Hud {
         : mode === 'bank' && state.sluice
         ? usingTouch()
           ? 'Drag shovelfuls to the sluice in the creek, the pan, or the spoil pile. Tap the sluice for a close look.'
-          : 'Drag shovelfuls to the sluice in the creek (F), the pan (P), or the spoil pile (S). Click the sluice for a close look.'
+          : 'Drag shovelfuls to the sluice in the creek (F), the pan (D), or the spoil pile (S). Click the sluice for a close look.'
         : usingTouch()
           ? TOUCH_HINTS[mode]
           : HINTS[mode];
@@ -859,27 +859,27 @@ export class Hud {
         state.classifier && state.classifier.bucketVolume > 0.005 ? [['Pan from the bucket (B)', () => this.on.panBucket()]] : [];
       // Straight on to the next shovelful from the same hole, without walking back to it first.
       const next: [string, () => void][] =
-        !state.panInTown && state.spot && state.canPan && session.pan?.kind === 'gravel' ? [['Next pan (P)', () => this.on.nextPan()]] : [];
-      return [...next, ...bucket, [state.panInTown ? 'Back to the counter (N)' : 'Back to the hole (N)', () => this.on.backToHole()], ...this.jarButton(session)];
+        !state.panInTown && state.spot && state.canPan && session.pan?.kind === 'gravel' ? [['Next pan (D)', () => this.on.nextPan()]] : [];
+      return [...next, ...bucket, [state.panInTown ? 'Back to the counter (Esc)' : 'Back to the hole (Esc)', () => this.on.backToHole()], ...this.jarButton(session)];
     }
     if (mode === 'bank' && spot) {
       const blocked = creek.blockedBy(spot);
       const list: [string, () => void][] = [];
       if (blocked === null) {
-        if (state.canPan) list.push(['Shovel into pan (P)', () => this.on.shovel('pan')]);
+        if (state.canPan) list.push(['Shovel into pan (D)', () => this.on.shovel('pan')]);
         list.push(['Toss aside (S)', this.feed('spoil')]);
       }
       if (blocked === 'boulder') list.push(['Pry boulder (B)', () => this.on.pry()]);
       if (spot.water > 0.2) list.push(['Bail with pan (A)', () => this.on.bail()]);
       if (state.classifier) {
-        if (blocked === null) list.push(['Shovel onto the classifier (K)', () => this.on.shovel('classifier')]);
+        if (blocked === null) list.push(['Shovel onto the classifier (E)', () => this.on.shovel('classifier')]);
         list.push(['Classifier (C)', () => this.on.openClassifier()]);
       }
       // F feeds and V watches the machine at the hole; a second one keeps its own keys.
       const main = machineAtHole(state);
       if (state.rocker) {
-        if (blocked === null) list.push([main === 'rocker' ? 'Shovel onto the rocker (F)' : 'Shovel onto the rocker (H)', this.feed('rocker')]);
-        list.push([main === 'rocker' ? 'Watch the rocker (V)' : 'Rocker (O)', () => this.on.openRocker()]);
+        if (blocked === null) list.push([main === 'rocker' ? 'Shovel onto the rocker (F)' : 'Shovel onto the rocker (R)', this.feed('rocker')]);
+        list.push([main === 'rocker' ? 'Watch the rocker (V)' : 'Rocker (T)', () => this.on.openRocker()]);
       }
       if (state.sluice) {
         if (blocked === null && !state.cleaningOut) list.push(['Shovel into sluice (F)', this.feed('sluice')]);
@@ -889,11 +889,11 @@ export class Hud {
         list.push([session.sluicePlace ? 'Move the sluice here' : 'Set up the sluice here', () => this.on.setUpSluice()]);
       }
       if (state.drywasher) {
-        if (blocked === null) list.push([main === 'drywasher' ? 'Shovel onto the drywasher (F)' : 'Shovel onto the drywasher (Y)', this.feed('drywasher')]);
-        list.push([main === 'drywasher' ? 'Watch the drywasher (V)' : 'Drywasher (D)', () => this.on.openDrywasher()]);
+        if (blocked === null) list.push([main === 'drywasher' ? 'Shovel onto the drywasher (F)' : 'Shovel onto the drywasher (R)', this.feed('drywasher')]);
+        list.push([main === 'drywasher' ? 'Watch the drywasher (V)' : 'Drywasher (T)', () => this.on.openDrywasher()]);
       }
       if (state.tub && (state.tub.water < 1 || state.tub.turbidity > 0)) {
-        list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (U)', () => this.on.changeTubWater()]);
+        list.push([state.tubFetching ? 'Hauling water…' : 'Change the tub water (1)', () => this.on.changeTubWater()]);
       }
       if (state.trommel) {
         if (blocked === null && !state.trommel.rinsing) list.push(['Shovel into the trommel (F)', this.feed('trommel')]);
@@ -916,11 +916,11 @@ export class Hud {
       const list: [string, () => void][] = [];
       if (!c.hasLoad) list.push([c.screen === 'coarse' ? 'Swap to the fine screen' : 'Swap to the coarse screen', () => this.on.swapScreen()]);
       if (!c.hasLoad && state.spot && state.creek.blockedBy(state.spot) === null) {
-        list.push(['Shovel onto the screen (K)', () => this.on.shovel('classifier')]);
+        list.push(['Shovel onto the screen (F)', () => this.on.shovel('classifier')]);
       }
       if (c.hasLoad) list.push([c.screened ? 'Tip off the oversize (T)' : 'Tip it all off (T)', () => this.on.tipOff()]);
-      if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (P)', () => this.on.panBucket()]);
-      if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (F)', () => this.on.pourIntoSluice()]);
+      if (c.bucketVolume > 0.005 && session.panIsFree) list.push(['Pan from the bucket (D)', () => this.on.panBucket()]);
+      if (c.bucketVolume > 0.005 && state.sluice && !state.cleaningOut) list.push(['Pour into the sluice (E)', () => this.on.pourIntoSluice()]);
       list.push(['Back to the hole (Esc)', () => this.on.backToHole()]);
       return list;
     }
@@ -928,7 +928,7 @@ export class Hud {
       const dw = state.drywasher;
       const list: [string, () => void][] = [];
       if (dw.dust > 0.15) list.push(['Shake out the dust (D)', () => this.on.shakeOutDust()]);
-      if (dw.screenClog > 0.15) list.push(['Knock the screen (K)', () => this.on.knockScreen()]);
+      if (dw.screenClog > 0.15) list.push(['Knock the screen (R)', () => this.on.knockScreen()]);
       if (dw.hasLoad) list.push([dw.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipDrywasher()]);
       if (!dw.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (F)', this.feed('drywasher')]);
       if (state.classifier && state.classifier.bucketVolume > 0.005 && !dw.hopperFull) list.push(['Pour in the classifier bucket (B)', () => this.on.pourIntoDrywasher()]);
@@ -939,10 +939,10 @@ export class Hud {
     if (mode === 'highbanker' && state.highbanker) {
       const hb = state.highbanker;
       if (hb.rinsing) {
-        return [['Lift the mat (L)', () => this.on.liftHighbankerMat()], ['Keep running', () => this.on.cancelHighbankerCleanout()], ...this.jarButton(session)];
+        return [['Lift the mat (C)', () => this.on.liftHighbankerMat()], ['Keep running', () => this.on.cancelHighbankerCleanout()], ...this.jarButton(session)];
       }
       const list: [string, () => void][] = [];
-      if (!hb.primed) list.push([state.priming ? 'Priming…' : 'Prime the pump (P)', () => this.on.primePump()]);
+      if (!hb.primed) list.push([state.priming ? 'Priming…' : 'Prime the pump (A)', () => this.on.primePump()]);
       list.push([hb.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleEngine()]);
       if (hb.jammed) list.push(['Clear the grizzly (R)', () => this.on.clearHighbanker()]);
       else if (hb.sluice.clog > 0.3) list.push(['Rake the intake (R)', () => this.on.clearHighbanker()]);
@@ -956,7 +956,7 @@ export class Hud {
     if (mode === 'trommel' && state.trommel) {
       const t = state.trommel;
       if (t.rinsing) {
-        return [['Lift the mat (L)', () => this.on.liftTrommelMat()], ['Keep running', () => this.on.cancelTrommelCleanout()], ...this.jarButton(session)];
+        return [['Lift the mat (C)', () => this.on.liftTrommelMat()], ['Keep running', () => this.on.cancelTrommelCleanout()], ...this.jarButton(session)];
       }
       const list: [string, () => void][] = [[t.running ? 'Stop the engine (E)' : 'Start the engine (E)', () => this.on.toggleTrommel()]];
       if (t.jammed) list.push(['Clear the drum (R)', () => this.on.clearTrommel()]);
@@ -971,7 +971,7 @@ export class Hud {
       const r = state.rocker;
       if (state.fetchingWater) return [['Back to the hole (Esc)', () => this.on.backToHole()]];
       const list: [string, () => void][] = [['Rock (Space)', () => this.on.rock()]];
-      if (r.bucket > 0) list.push([`Ladle water (L) · ${r.bucket} left`, () => this.on.ladle()]);
+      if (r.bucket > 0) list.push([`Ladle water (W) · ${r.bucket} left`, () => this.on.ladle()]);
       if (r.bucket < ROCKER_TUNING.bucketLadles) list.push(['Fetch water (E)', () => this.on.fetchWater()]);
       if (r.hasLoad) list.push([r.screened ? 'Tip off the rocks (T)' : 'Tip it all off (T)', () => this.on.tipRocker()]);
       if (!r.hopperFull && state.spot && state.creek.blockedBy(state.spot) === null) list.push(['Shovel onto the screen (F)', this.feed('rocker')]);
@@ -983,7 +983,7 @@ export class Hud {
     if (mode === 'spiral' && state.spiral) {
       const w = state.spiral;
       const list: [string, () => void][] = [];
-      if (!w.leveled) list.push(['Level the wheel (L)', () => this.on.levelSpiral()]);
+      if (!w.leveled) list.push(['Level the wheel (E)', () => this.on.levelSpiral()]);
       if (!w.trayFull && session.jar.blackSand >= MIN_CONCENTRATE) list.push(['Scoop from the jar (F)', () => this.on.scoopSpiral()]);
       if (w.cup.sand > 1e-4 || w.cup.gold.length) list.push(['Lift the cup (C)', () => this.on.liftSpiralCup()]);
       if (w.tailings.sand > 1e-4) list.push(['Run the tailings again (T)', () => this.on.rerunTailings()], ['Dump the tailings (D)', () => this.on.dumpTailings()]);
@@ -999,7 +999,7 @@ export class Hud {
     if (mode === 'sluice' && state.sluice) {
       if (state.cleaningOut) {
         return [
-          ['Lift the mat (L)', () => this.on.liftMat()],
+          ['Lift the mat (C)', () => this.on.liftMat()],
           ['Keep sluicing', () => this.on.cancelCleanout()],
           ...this.jarButton(session),
         ];
@@ -1018,7 +1018,7 @@ export class Hud {
       const sell: [string, () => void][] = offer.total > 0 ? [[`Sell the vial for $${offer.total.toFixed(2)} (S)`, () => this.on.sell()]] : [];
       // The assay office has a wash trough out back: the jar can be panned down here too.
       const pan: [string, () => void][] =
-        session.pan && !session.panIsFree ? [['Back to your pan (J)', () => this.on.panConcentrate()]] : this.jarButton(session);
+        session.pan && !session.panIsFree ? [['Back to your pan (Z)', () => this.on.panConcentrate()]] : this.jarButton(session);
       const counter = state.crew.findSite(TOWN_SITE)?.poke.length ?? 0;
       const collect: [string, () => void][] = counter > 0 ? [['Collect from the counter (W)', () => this.on.collectCounter()]] : [];
       return [
@@ -1036,9 +1036,9 @@ export class Hud {
       return [
         [`Back to ${state.creek.profile.name} (Esc)`, () => this.on.returnToWork()],
         ['Walk to town (T)', () => this.on.walkToTown()],
-        ['Zoom in (+)', () => this.on.zoomMap(1.3)],
-        ['Zoom out (−)', () => this.on.zoomMap(1 / 1.3)],
-        ['Fit the map (0)', () => this.on.zoomMap(0)],
+        ['Zoom in (W)', () => this.on.zoomMap(1.3)],
+        ['Zoom out (S)', () => this.on.zoomMap(1 / 1.3)],
+        ['Fit the map (F)', () => this.on.zoomMap(0)],
         ['Start over', () => this.on.newCreek()],
       ];
     }
@@ -1159,7 +1159,7 @@ export class Hud {
   private mendButton(state: HudState, wear: number): [string, () => void][] {
     if (wear < WEAR_TUNING.serviceAt) return [];
     const kits = state.session.repairKits;
-    return [[kits > 0 ? `Mend it (N) · ${kits} kit${kits === 1 ? '' : 's'}` : 'Mend it (N) · no kits', () => this.on.serviceMachine()]];
+    return [[kits > 0 ? `Mend it (X) · ${kits} kit${kits === 1 ? '' : 's'}` : 'Mend it (X) · no kits', () => this.on.serviceMachine()]];
   }
 
   /** Offered once the highbanker's tank is low enough for a can to be worth pouring in. */
@@ -1424,7 +1424,7 @@ export class Hud {
     const { session, mode } = state;
     const place = mode === 'town' || (mode === 'bank' && state.region.allows(state.creek, 'spiralWheel'));
     if (!place || !session.owns('spiralWheel') || session.jar.blackSand < MIN_CONCENTRATE) return [];
-    return [['Run the jar on the spiral wheel (I)', () => this.on.openSpiral()]];
+    return [['Run the jar on the spiral wheel (2)', () => this.on.openSpiral()]];
   }
 
   private magnetButton(state: HudState): [string, () => void][] {
@@ -1435,44 +1435,52 @@ export class Hud {
   }
 
   private jarButton(session: PanningSession): [string, () => void][] {
-    return session.canPanConcentrate && this.state?.canPan !== false ? [['Pan the concentrate jar (J)', () => this.on.panConcentrate()]] : [];
+    return session.canPanConcentrate && this.state?.canPan !== false ? [['Pan the concentrate jar (Z)', () => this.on.panConcentrate()]] : [];
   }
 
+  /**
+   * Every shortcut sits under the left hand (Q W E R T, A S D F G, Z X C V B, 1–5, Esc, Space),
+   * so the right hand can stay on the mouse. Some keys mean the same thing everywhere: Esc goes
+   * back, Q is the tablet, Z pans the jar, X mends a machine in its close-up, F feeds whatever is
+   * in front of you, D puts a shovelful in the pan, C starts a cleanout and then lifts the mat.
+   * W and S tilt the pan (and set the magnet's closeness, the drywasher's Air and the spiral
+   * wheel's Feed), so on those screens they're not used for anything else.
+   */
   private handleKey(key: string, repeat = false): void {
     const state = this.state;
     if (!state) return;
     // The tablet sits over everything: while it's open, keys are for it.
     if (this.tabletOpen) {
-      if (key === 'escape' || key === 'o') this.closeTablet();
+      if (key === 'escape' || key === 'q') this.closeTablet();
       return;
     }
-    if (key === 'o' && (state.mode === 'creek' || state.mode === 'region' || state.mode === 'town')) return this.openTablet();
+    if (key === 'q' && (state.mode === 'creek' || state.mode === 'region' || state.mode === 'town' || state.mode === 'bank')) return this.openTablet();
     const phase = state.session.pan?.phase;
     if (state.mode === 'creek') {
       const n = Number(key);
       if (Number.isInteger(n) && n >= 1) this.on.pickSpot(n - 1);
       else if (key === 't') this.on.walkToTown();
       else if (key === 'w') this.on.collectCrew();
-      else if (key === 'm' || key === 'escape') this.on.openRegion();
+      else if (key === 'escape') this.on.openRegion();
     } else if (state.mode === 'region') {
       if (key === 'escape') this.on.returnToWork();
       else if (key === 't') this.on.walkToTown();
-      else if (key === '+' || key === '=') this.on.zoomMap(1.3);
-      else if (key === '-' || key === '_') this.on.zoomMap(1 / 1.3);
-      else if (key === '0') this.on.zoomMap(0);
+      else if (key === 'w') this.on.zoomMap(1.3);
+      else if (key === 's') this.on.zoomMap(1 / 1.3);
+      else if (key === 'f') this.on.zoomMap(0);
     } else if (state.mode === 'rocker') {
-      if (key === 'n') return this.on.serviceMachine();
+      if (key === 'x') return this.on.serviceMachine();
       if (key === ' ' && !repeat) this.on.rock();
-      else if (key === 'l') this.on.ladle();
+      else if (key === 'w') this.on.ladle();
       else if (key === 'e') this.on.fetchWater();
       else if (key === 't') this.on.tipRocker();
       else if (key === 'c') this.on.cleanUpRocker();
-      else if (key === 'f' || key === 'h') this.on.shovel('rocker');
+      else if (key === 'f') this.on.shovel('rocker');
       else if (key === 'b') this.on.pourIntoRocker();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'spiral') {
-      if (key === 'l') this.on.levelSpiral();
+      if (key === 'e') this.on.levelSpiral();
       else if (key === 'f') this.on.scoopSpiral();
       else if (key === 'c') this.on.liftSpiralCup();
       else if (key === 't') this.on.rerunTailings();
@@ -1484,20 +1492,19 @@ export class Hud {
       else if (key === 'escape') this.on.closeMagnet();
     } else if (state.mode === 'town') {
       if (key === 'x') this.on.openMagnet();
-      else if (key === 'i') this.on.openSpiral();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === '2') this.on.openSpiral();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'w') this.on.collectCounter();
       else if (key === 's') this.on.sell();
-      else if (key === 'escape' || key === 'm') this.on.openRegion();
+      else if (key === 'escape') this.on.openRegion();
     } else if (state.mode === 'pan') {
       if (key === 'r' && phase === 'working') this.on.reveal();
       else if (key === 'f' && phase === 'working') this.on.flipPan();
       else if (key === 'c' && phase === 'revealed') this.on.collect(true);
       else if (key === 'f' && phase === 'revealed') this.on.snuff();
       else if (key === 'd' && phase === 'revealed') this.on.collect(false);
-      else if ((key === 'n' || key === 'enter') && phase === 'emptied') this.on.backToHole();
-      else if (key === 'p' && phase === 'emptied') this.on.nextPan();
-      else if (key === 'j' && phase === 'emptied') this.on.panConcentrate();
+      else if (key === 'd' && phase === 'emptied') this.on.nextPan();
+      else if (key === 'z' && phase === 'emptied') this.on.panConcentrate();
       else if (key === 'b' && phase === 'emptied' && state.classifier) this.on.panBucket();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'sluice') {
@@ -1505,39 +1512,37 @@ export class Hud {
       else if (key === 'g') this.on.refuelPump();
       else if (key === 'w') this.on.collectCrew();
       else if (key === 'f' && !state.cleaningOut) this.on.shovel('sluice');
-      else if (key === 'c' && !state.cleaningOut) this.on.startCleanout();
-      else if (key === 'l' && state.cleaningOut) this.on.liftMat();
-      else if (key === 'j') this.on.panConcentrate();
-      else if (key === 'n') this.on.serviceMachine();
+      else if (key === 'c') state.cleaningOut ? this.on.liftMat() : this.on.startCleanout();
+      else if (key === 'z') this.on.panConcentrate();
+      else if (key === 'x') this.on.serviceMachine();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'classifier' && state.classifier) {
       if (key === 't' && state.classifier.hasLoad) this.on.tipOff();
-      else if (key === 'k' && !state.classifier.hasLoad) this.on.shovel('classifier');
-      else if (key === 'p') this.on.panBucket();
-      else if (key === 'f' && state.sluice) this.on.pourIntoSluice();
+      else if (key === 'f' && !state.classifier.hasLoad) this.on.shovel('classifier');
+      else if (key === 'd') this.on.panBucket();
+      else if (key === 'e' && state.sluice) this.on.pourIntoSluice();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'drywasher') {
       if (key === 'd') this.on.shakeOutDust();
-      else if (key === 'k') this.on.knockScreen();
+      else if (key === 'r') this.on.knockScreen();
       else if (key === 't') this.on.tipDrywasher();
       else if (key === 'c') this.on.pullDrawer();
-      else if (key === 'f' || key === 'y') this.on.shovel('drywasher');
+      else if (key === 'f') this.on.shovel('drywasher');
       else if (key === 'b') this.on.pourIntoDrywasher();
-      else if (key === 'n') this.on.serviceMachine();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'x') this.on.serviceMachine();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'highbanker' && state.highbanker) {
       const hb = state.highbanker;
-      if (key === 'p') this.on.primePump();
+      if (key === 'a') this.on.primePump();
       else if (key === 'e') this.on.toggleEngine();
       else if (key === 'r') this.on.clearHighbanker();
       else if (key === 'f' && !hb.rinsing) this.on.shovel('highbanker');
       else if (key === 'b') this.on.pourIntoHighbanker();
       else if (key === 'g') this.on.refuelHighbanker();
-      else if (key === 'c' && !hb.rinsing) this.on.highbankerCleanout();
-      else if (key === 'l' && hb.rinsing) this.on.liftHighbankerMat();
-      else if (key === 'n') this.on.serviceMachine();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'c') hb.rinsing ? this.on.liftHighbankerMat() : this.on.highbankerCleanout();
+      else if (key === 'x') this.on.serviceMachine();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'trommel' && state.trommel) {
       const t = state.trommel;
@@ -1545,34 +1550,31 @@ export class Hud {
       else if (key === 'r') this.on.clearTrommel();
       else if (key === 'f' && !t.rinsing) this.on.shovel('trommel');
       else if (key === 'g') this.on.refuelTrommel();
-      else if (key === 'c' && !t.rinsing) this.on.trommelCleanout();
-      else if (key === 'l' && t.rinsing) this.on.liftTrommelMat();
-      else if (key === 'n') this.on.serviceMachine();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'c') t.rinsing ? this.on.liftTrommelMat() : this.on.trommelCleanout();
+      else if (key === 'x') this.on.serviceMachine();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'escape') this.on.backToHole();
     } else if (state.mode === 'bank') {
       const main = machineAtHole(state);
+      const second = secondMachine(state);
       if (key === 'f' && main) this.on.shovel(main);
       else if (key === 'v' && main) this.watch(main);
-      else if (key === 'k' && state.classifier) this.on.shovel('classifier');
+      else if (key === 'r' && second) this.on.shovel(second);
+      else if (key === 't' && second) this.watch(second);
+      else if (key === 'e' && state.classifier) this.on.shovel('classifier');
       else if (key === 'c' && state.classifier) this.on.openClassifier();
       else if (key === 'g' && state.sluice) this.on.refuelPump();
-      else if (key === 'y' && state.drywasher) this.on.shovel('drywasher');
-      else if (key === 'd' && state.drywasher) this.on.openDrywasher();
-      else if (key === 'u' && state.tub) this.on.changeTubWater();
       else if (key === 'g' && state.highbanker) this.on.refuelHighbanker();
+      else if (key === '1' && state.tub) this.on.changeTubWater();
       else if (key === 'w') this.on.collectCrew();
-      else if (key === 'p') this.on.shovel('pan');
-      // S for the spoil pile: T is the walk to town everywhere else.
+      else if (key === 'd') this.on.shovel('pan');
       else if (key === 's') this.on.shovel('spoil');
       else if (key === 'b') this.on.pry();
       else if (key === 'a') this.on.bail();
       else if (key === 'escape') this.on.walkCreek();
-      else if (key === 'j') this.on.panConcentrate();
+      else if (key === 'z') this.on.panConcentrate();
       else if (key === 'x') this.on.openMagnet();
-      else if (key === 'i') this.on.openSpiral();
-      else if (key === 'h' && state.rocker) this.on.shovel('rocker');
-      else if (key === 'o' && state.rocker) this.on.openRocker();
+      else if (key === '2') this.on.openSpiral();
     }
   }
 
@@ -1751,8 +1753,7 @@ export class Hud {
       case 'bank':
         if (key === 's') return 'spoil';
         if (key === 'f') return machineAtHole(state);
-        if (key === 'y' && state.drywasher) return 'drywasher';
-        if (key === 'h' && state.rocker) return 'rocker';
+        if (key === 'r') return secondMachine(state);
         return null;
       case 'sluice':
         return key === 'f' && !state.cleaningOut ? 'sluice' : null;
@@ -1761,9 +1762,9 @@ export class Hud {
       case 'trommel':
         return key === 'f' && !state.trommel?.rinsing ? 'trommel' : null;
       case 'rocker':
-        return key === 'f' || key === 'h' ? 'rocker' : null;
+        return key === 'f' ? 'rocker' : null;
       case 'drywasher':
-        return key === 'f' || key === 'y' ? 'drywasher' : null;
+        return key === 'f' ? 'drywasher' : null;
       default:
         return null;
     }
@@ -2245,7 +2246,7 @@ function el(tag: string, className: string): HTMLElement {
 export function setLabel(b: HTMLElement, label: string): void {
   if (b.dataset.label === label) return;
   b.dataset.label = label;
-  const match = /\s\(([A-Z0+−]|Esc|Enter)\)/.exec(label);
+  const match = /\s\(([A-Z1-5]|Esc|Enter)\)/.exec(label);
   if (!match) {
     b.textContent = label;
     return;
@@ -2267,7 +2268,7 @@ function isRare(label: string): boolean {
 
 /** The action Esc performs on a screen: going back to the hole, the creek, the map or the counter. */
 function isBack(label: string): boolean {
-  return /\(Esc\)$/.test(label) || /^Back to the (hole|counter) \(N\)$/.test(label) || /^Done \(Esc\)$/.test(label);
+  return /\(Esc\)$/.test(label);
 }
 
 function button(label: string, onClick: () => void, onHold?: () => void): HTMLElement {
@@ -2309,6 +2310,14 @@ function machineAtHole(state: HudState): Exclude<HoldTarget, 'spoil'> | null {
   if (state.sluice) return 'sluice';
   if (state.drywasher) return 'drywasher';
   if (state.rocker) return 'rocker';
+  return null;
+}
+
+/** A rocker or drywasher at the hole that isn't the machine F feeds: R shovels onto it, T opens it. */
+function secondMachine(state: HudState): 'rocker' | 'drywasher' | null {
+  const main = machineAtHole(state);
+  if (state.rocker && main !== 'rocker') return 'rocker';
+  if (state.drywasher && main !== 'drywasher') return 'drywasher';
   return null;
 }
 
