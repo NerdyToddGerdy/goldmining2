@@ -133,7 +133,6 @@ export interface HudActions {
   buyFuel(): void;
   hireApplicant(applicantId: number): void;
   dismissHand(workerId: number): void;
-  sendHand(creekId: number, role: Role): void;
   recallHand(creekId: number): void;
   toggleJob(creekId: number, job: JobKind): void;
   setPolicy(creekId: number, policy: CrewPolicy): void;
@@ -471,13 +470,13 @@ export class Hud {
         <div class="tablet-screen">
           <div class="tablet-head"><b>Field tablet</b><span class="tablet-clock"></span><button type="button" data-t="close">Close (Esc)</button></div>
           <div class="tablet-tabs" role="tablist">
-            <button type="button" role="tab" data-ttab="overview">Overview</button>
-            <button type="button" role="tab" data-ttab="claims">Claims</button>
-            <button type="button" role="tab" data-ttab="crew">Crew</button>
-            <button type="button" role="tab" data-ttab="leads">Leads</button>
-            <button type="button" role="tab" data-ttab="costs">Costs</button>
+            <button type="button" role="tab" aria-selected="false" data-ttab="overview">Overview</button>
+            <button type="button" role="tab" aria-selected="false" data-ttab="claims">Claims</button>
+            <button type="button" role="tab" aria-selected="false" data-ttab="crew">Crew</button>
+            <button type="button" role="tab" aria-selected="false" data-ttab="leads">Leads</button>
+            <button type="button" role="tab" aria-selected="false" data-ttab="costs">Costs</button>
           </div>
-          <div class="tablet-body"></div>
+          <div class="tablet-body" role="tabpanel"></div>
         </div>
       </div>
       <div class="hud-bar">
@@ -522,15 +521,14 @@ export class Hud {
     this.tabletClock = this.root.querySelector('.tablet-clock') as HTMLElement;
     this.tabletClose = this.root.querySelector('[data-t="close"]') as HTMLElement;
     // The Where dropdowns on the Claims sheet and the Crew spreadsheet move people.
-    this.tablet.addEventListener('change', (e) => {
-      const select = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-move]');
-      if (!select) return;
-      const to = select.value === 'idle' ? null : Number(select.value);
-      this.on.moveWorker(Number(select.dataset.move), to);
-      this.tabletKey = '';
-    });
+    this.tablet.addEventListener('change', (e) => this.onCrewSelect(e));
+    this.panel.addEventListener('change', (e) => this.onCrewSelect(e));
     this.tablet.addEventListener('click', (e) => {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+      if (action?.dataset.action === 'dismiss') {
+        this.confirmLetGo(Number(action.dataset.worker));
+        return;
+      }
       if (action?.dataset.action === 'job') {
         this.on.toggleJob(Number(action.dataset.creek), action.dataset.job as JobKind);
         this.tabletKey = '';
@@ -596,8 +594,7 @@ export class Hud {
       if (target.dataset.action === 'leavejar') this.on.leaveJar();
       if (target.dataset.action === 'counter') this.on.collectCounter();
       if (target.dataset.action === 'hire') this.on.hireApplicant(Number(target.dataset.applicant));
-      if (target.dataset.action === 'dismiss') this.on.dismissHand(Number(target.dataset.worker));
-      if (target.dataset.action === 'send') this.on.sendHand(Number(target.dataset.creek), target.dataset.role as Role);
+      if (target.dataset.action === 'dismiss') this.confirmLetGo(Number(target.dataset.worker));
       if (target.dataset.action === 'recall') this.on.recallHand(Number(target.dataset.creek));
       if (target.dataset.action === 'job') this.on.toggleJob(Number(target.dataset.creek), target.dataset.job as JobKind);
       if (target.dataset.action === 'policy') this.on.setPolicy(Number(target.dataset.creek), target.dataset.policy as CrewPolicy);
@@ -1260,10 +1257,9 @@ export class Hud {
     if (counter > 0) lines.push(`<p class="found">${counter} piece${counter === 1 ? '' : 's'} of gold at the counter. <button type="button" data-action="counter">Collect</button></p>`);
     if (session.jar.blackSand > 0.01) lines.push(`<button type="button" data-action="leavejar">Leave the jar's black sand in the tub</button>`);
     lines.push(
-      `<p class="small">Working it: ${here.length ? here.map(workerWords).join(', ') : 'nobody'} (room for ${STAFF_TUNING.townCrewMax}).</p>` +
-        `<button type="button" data-action="send" data-role="hand" data-creek="${TOWN_SITE}" ${here.length < STAFF_TUNING.townCrewMax && crew.idleOf('hand').length > 0 ? '' : 'disabled'}>Send a hand</button> ` +
-        `<button type="button" data-action="send" data-role="operator" data-creek="${TOWN_SITE}" ${here.length < STAFF_TUNING.townCrewMax && crew.idleOf('operator').length > 0 ? '' : 'disabled'}>Send an operator</button> ` +
-        `<button type="button" data-action="recall" data-creek="${TOWN_SITE}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
+      `<p class="small">Working it: ${here.length ? here.map((w) => `${workerWords(w)} ${this.letGo(w)}`).join(' · ') : 'nobody'} (room for ${STAFF_TUNING.townCrewMax}).</p>` +
+        `<div class="send-row">${this.assignSelect(TOWN_SITE, state)} ` +
+        `<button type="button" data-action="recall" data-creek="${TOWN_SITE}" ${here.length ? '' : 'disabled'}>Call one back</button></div>`,
     );
     lines.push(this.townJobToggles(state), this.policyToggles(TOWN_SITE, state));
     return `<div class="lead">${lines.join('')}</div>`;
@@ -1319,7 +1315,7 @@ export class Hud {
     const idle = crew.idleWorkers;
     if (idle.length) {
       crewLines.push(
-        `<p class="small">Waiting in town: ${idle.map((w) => `${workerWords(w)} <button type="button" class="link" data-action="dismiss" data-worker="${w.id}">let go</button>`).join(' · ')}</p>`,
+        `<p class="small">Waiting in town: ${idle.map((w) => `${workerWords(w)} ${this.letGo(w)}`).join(' · ')}</p>`,
       );
     }
     const spares = CREW_GEAR.filter(([m]) => crew.spares[m] > 0).map(([m, name]) => `${crew.spares[m]} ${name.replace('Crew ', '')}`);
@@ -1354,17 +1350,12 @@ export class Hud {
       const lines = [`<b>${name}</b> <span class="small">${kind}</span>${economy.isLapsed(claim) ? `<p>${status}</p>` : ''}`];
       const diggers = crew.diggersAt(claim.creekId);
       const foreman = crew.foremanAt(claim.creekId);
-      const room = diggers.length < cap && economy.canWork(claim.creekId);
       const lift = crew.foremanLift(creek);
       lines.push(
-        `<p class="small">Crew here: ${diggers.length ? diggers.map(workerWords).join(', ') : 'none'} (room for ${cap}).</p>` +
-          (foreman ? `<p class="small">Foreman: ${workerWords(foreman)}. ${liftWords(lift)}</p>` : '') +
-          `<button type="button" data-action="send" data-role="hand" data-creek="${claim.creekId}" ${room && crew.idleOf('hand').length > 0 ? '' : 'disabled'}>Send a hand</button> ` +
-          `<button type="button" data-action="send" data-role="operator" data-creek="${claim.creekId}" ${room && crew.idleOf('operator').length > 0 ? '' : 'disabled'}>Send an operator</button> ` +
-          (crew.idleOf('foreman').length > 0 && !foreman
-            ? `<button type="button" data-action="send" data-role="foreman" data-creek="${claim.creekId}" ${economy.canWork(claim.creekId) ? '' : 'disabled'}>Send a foreman</button> `
-            : '') +
-          `<button type="button" data-action="recall" data-creek="${claim.creekId}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
+        `<p class="small">Crew here: ${diggers.length ? diggers.map((w) => `${workerWords(w)} ${this.letGo(w)}`).join(' · ') : 'none'} (room for ${cap}).</p>` +
+          (foreman ? `<p class="small">Foreman: ${workerWords(foreman)} ${this.letGo(foreman)}. ${liftWords(lift)}</p>` : '') +
+          `<div class="send-row">${this.assignSelect(claim.creekId, state)} ` +
+          `<button type="button" data-action="recall" data-creek="${claim.creekId}" ${here.length ? '' : 'disabled'}>Call one back</button></div>`,
       );
       lines.push(this.jobToggles(claim.creekId, state));
       // One setting for how the whole crew here works.
@@ -1569,6 +1560,29 @@ export class Hud {
     else this.on.openRocker();
   }
 
+  /** A Where dropdown moves someone; a Send someone… picker sends the one picked. */
+  private onCrewSelect(e: Event): void {
+    const select = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-move], select[data-assign]');
+    if (!select) return;
+    if (select.dataset.move) {
+      this.on.moveWorker(Number(select.dataset.move), select.value === 'idle' ? null : Number(select.value));
+    } else if (select.value) {
+      this.on.moveWorker(Number(select.value), Number(select.dataset.assign));
+    }
+    this.tabletKey = '';
+    this.panelKey = '';
+  }
+
+  /** Letting someone go can't be taken back, wherever they're working: ask first. */
+  private confirmLetGo(workerId: number): void {
+    const w = this.state?.crew.workers.find((x) => x.id === workerId);
+    if (!w) return;
+    if (!window.confirm(`Let ${w.name} go? They leave for good; any wages already owed stay owed.`)) return;
+    this.on.dismissHand(workerId);
+    this.tabletKey = '';
+    this.panelKey = '';
+  }
+
   openTablet(): void {
     this.tabletOpen = true;
     this.tablet.hidden = false;
@@ -1594,7 +1608,12 @@ export class Hud {
     const key = `${this.tabletTab}:${this.tabletSelected}:${clock}:${views.map((v) => `${v.creekId}${v.status}${v.warnings.length}${v.jobs.map((j) => j.state).join('')}${Math.round(v.groundLeft * 10)}${v.waiting.gold}${v.waiting.sand.toFixed(1)}`).join()}:${crew.workers.map((w) => `${w.id}@${w.siteId}`).join()}:${state.money.state}:${session.vial.length}:${session.jar.blackSand.toFixed(2)}:${session.fuelCans}:${OUTFITTER.map((g) => (session.owns(g.id) ? 1 : 0)).join('')}:${JSON.stringify(session.sluicePlace)}:${JSON.stringify(session.highbankerPlace)}:${region.leads.map((l) => `${l.id}${l.status}`).join()}:${region.offers.length}:${Math.round(region.home.groundLeft * 20)}:${crew.returned.blackSand.toFixed(2)}:${session.milestones.size}`;
     if (key === this.tabletKey) return;
     this.tabletKey = key;
-    for (const tab of this.tablet.querySelectorAll<HTMLElement>('[data-ttab]')) tab.classList.toggle('active', tab.dataset.ttab === this.tabletTab);
+    for (const tab of this.tablet.querySelectorAll<HTMLElement>('[data-ttab]')) {
+      const on = tab.dataset.ttab === this.tabletTab;
+      tab.classList.toggle('active', on);
+      // The selected tab is said, not only shown.
+      if (tab.getAttribute('aria-selected') !== String(on)) tab.setAttribute('aria-selected', String(on));
+    }
     const money = (n: number): string => `$${n.toFixed(2)}`;
     const name = (id: number): string => region.creek(id).profile.name;
 
@@ -1622,7 +1641,7 @@ export class Hud {
     if (this.tabletTab === 'claims') {
       const home = region.home;
       const homeCard =
-        `<button type="button" class="tablet-card is-home ${this.tabletSelected === home.id ? 'selected' : ''}" data-claim="${home.id}">` +
+        `<button type="button" class="tablet-card is-home ${this.tabletSelected === home.id ? 'selected' : ''}" aria-pressed="${this.tabletSelected === home.id}" data-claim="${home.id}">` +
         `<span class="chip">Free · always yours</span><b>${home.profile.name}</b>` +
         `<span class="small">home creek · shovel and pan · ${Math.round(home.groundLeft * 10) * 10}% ground</span></button>`;
       const cards = views.map((v) => {
@@ -1630,7 +1649,7 @@ export class Hud {
         const jobsOn = v.jobs.length;
         const summary = v.crew.length ? `${v.crew.length} crew · ${jobsOn} job${jobsOn === 1 ? '' : 's'}` : 'No crew';
         return (
-          `<button type="button" class="tablet-card is-${v.status} ${this.tabletSelected === v.creekId ? 'selected' : ''}" data-claim="${v.creekId}">` +
+          `<button type="button" class="tablet-card is-${v.status} ${this.tabletSelected === v.creekId ? 'selected' : ''}" aria-pressed="${this.tabletSelected === v.creekId}" data-claim="${v.creekId}">` +
           `<span class="chip ${v.status}">${HEALTH_WORDS[v.status]}</span><b>${creek.profile.name}</b>` +
           `<span class="small">${traitsOf(creek.profile.site).label.toLowerCase()} · ${summary} · ${Math.round(v.groundLeft * 10) * 10}% ground</span>` +
           `${v.warnings[0] ? `<span class="small warn">${v.warnings[0]}</span>` : ''}</button>`
@@ -1641,7 +1660,7 @@ export class Hud {
       const atTub = crew.workersAt(TOWN_SITE);
       const showTub = crew.workers.length > 0 || tub !== 'empty' || counter > 0;
       const tubCard = showTub
-        ? `<button type="button" class="tablet-card is-town ${this.tabletSelected === TOWN_SITE ? 'selected' : ''}" data-claim="${TOWN_SITE}">` +
+        ? `<button type="button" class="tablet-card is-town ${this.tabletSelected === TOWN_SITE ? 'selected' : ''}" aria-pressed="${this.tabletSelected === TOWN_SITE}" data-claim="${TOWN_SITE}">` +
           `<span class="chip">In town</span><b>Settling tub</b>` +
           `<span class="small">${atTub.length} crew · tub ${tub === 'empty' ? 'empty' : 'has sand'}${counter ? ` · ${counter} at the counter` : ''}</span></button>`
         : '';
@@ -1654,9 +1673,9 @@ export class Hud {
             `<tr><td>Counter</td><td>${counter ? `${counter} piece${counter === 1 ? '' : 's'} of gold waiting: collect in town` : 'nothing waiting'}</td></tr>` +
             `<tr><td>Crew</td><td>${
               atTub.length
-                ? `<ul class="crew-moves">${atTub.map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label></li>`).join('')}</ul>`
-                : `nobody (room for ${STAFF_TUNING.townCrewMax}): move someone here from the Crew sheet`
-            }</td></tr></table>` +
+                ? `<ul class="crew-moves">${atTub.map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label> ${this.letGo(w)}</li>`).join('')}</ul>`
+                : `nobody yet (room for ${STAFF_TUNING.townCrewMax})`
+            }${this.assignSelect(TOWN_SITE, state)}</td></tr></table>` +
             `<p class="small">Jobs: tap to switch on or off.</p>${this.townJobToggles(state)}${this.policyToggles(TOWN_SITE, state)}` +
             `<p class="small">Leave the jar in the tub and collect the counter in person, in town.</p></div>`
           : this.tabletSelected === home.id
@@ -1679,14 +1698,14 @@ export class Hud {
       const order = (w: { siteId: number | null }): number => (w.siteId === null ? 2 : w.siteId === TOWN_SITE ? 1 : 0);
       const rows = [...crew.workers].sort((x, y) => order(x) - order(y) || (x.siteId ?? 0) - (y.siteId ?? 0) || x.id - y.id);
       const crewSheet =
-        `<div class="sheet-wrap"><table class="sheet"><thead><tr><th class="rownum"></th><th>Name</th><th>Role</th><th>Skill</th><th>Pace</th><th class="num">Wage a day</th><th>Where</th></tr></thead><tbody>` +
+        `<div class="sheet-wrap"><table class="sheet"><thead><tr><th class="rownum"></th><th>Name</th><th>Role</th><th>Skill</th><th>Pace</th><th class="num">Wage a day</th><th>Where</th><th></th></tr></thead><tbody>` +
         rows
           .map(
             (w, i) =>
-              `<tr><td class="rownum">${i + 1}</td><td>${w.name}</td><td>${ROLE_WORDS[w.role]}</td><td>${w.skill}</td><td>${w.pace}</td><td class="num">${money(w.wage)}</td><td>${this.whereSelect(w, state)}</td></tr>`,
+              `<tr><td class="rownum">${i + 1}</td><td>${w.name}</td><td>${ROLE_WORDS[w.role]}</td><td>${w.skill}</td><td>${w.pace}</td><td class="num">${money(w.wage)}</td><td>${this.whereSelect(w, state)}</td><td>${this.letGo(w)}</td></tr>`,
           )
           .join('') +
-        `</tbody><tfoot><tr><td class="rownum"></td><td>${rows.length} crew</td><td colspan="3"></td><td class="num">${money(crew.dailyWages)}</td><td></td></tr></tfoot></table></div>`;
+        `</tbody><tfoot><tr><td class="rownum"></td><td>${rows.length} crew</td><td colspan="3"></td><td class="num">${money(crew.dailyWages)}</td><td colspan="2"></td></tr></tfoot></table></div>`;
       const sites = views.filter((v) => v.crew.length > 0);
       const claimSheet = sites.length
         ? `<h4>Claims</h4><div class="sheet-wrap"><table class="sheet"><thead><tr><th class="rownum"></th><th>Claim</th><th class="num">Digging</th><th>Foreman</th><th>Jobs on</th><th class="num">Wages a day</th><th>Needs</th></tr></thead><tbody>` +
@@ -2007,6 +2026,49 @@ export class Hud {
   }
 
   /**
+   * "Send someone…" to a claim or the settling tub: every worker not already there, by name, role,
+   * skill and pace, from wherever they are. Anyone who can't go (no room, a foreman already there,
+   * a foreman to the tub) is listed but greyed, with why. Picking one sends that person.
+   */
+  private assignSelect(to: number, state: HudState): string {
+    const { crew, economy, region } = state;
+    const tub = to === TOWN_SITE;
+    const creek = tub ? null : region.creek(to);
+    const workable = tub || economy.canWork(to);
+    const diggerRoom = tub ? crew.workersAt(TOWN_SITE).length < STAFF_TUNING.townCrewMax : crew.diggersAt(to).length < traitsOf(creek!.profile.site).crewMax;
+    const where = (siteId: number | null): string => (siteId === null ? 'waiting in town' : siteId === TOWN_SITE ? 'at the tub' : `at ${region.creek(siteId).profile.name}`);
+    const option = (w: { id: number; name: string; role: Role; skill: Skill; pace: Pace; siteId: number | null }): string => {
+      const why = !workable
+        ? 'claim lapsed'
+        : w.role === 'foreman'
+          ? tub
+            ? 'no foreman work here'
+            : crew.foremanAt(to)
+              ? 'has a foreman'
+              : ''
+          : diggerRoom
+            ? ''
+            : 'no room';
+      return `<option value="${w.id}" ${why ? 'disabled' : ''}>${workerWords(w)}, ${where(w.siteId)}${why ? ` (${why})` : ''}</option>`;
+    };
+    const others = crew.workers.filter((w) => w.siteId !== to);
+    const idle = others.filter((w) => w.siteId === null);
+    const busy = others.filter((w) => w.siteId !== null);
+    if (others.length === 0) return '';
+    return (
+      `<select class="assign" data-assign="${to}" aria-label="Send someone ${tub ? 'to the settling tub' : `to ${creek!.profile.name}`}"><option value="" selected>Send someone…</option>` +
+      (idle.length ? `<optgroup label="Waiting in town">${idle.map(option).join('')}</optgroup>` : '') +
+      (busy.length ? `<optgroup label="Working elsewhere">${busy.map(option).join('')}</optgroup>` : '') +
+      `</select>`
+    );
+  }
+
+  /** Let someone go, wherever they're working: asks first (see the click handlers). */
+  private letGo(w: { id: number; name: string }): string {
+    return `<button type="button" class="link" data-action="dismiss" data-worker="${w.id}" aria-label="Let ${w.name} go">let go</button>`;
+  }
+
+  /**
    * Where a worker is, as a dropdown to move them: each held claim (greyed when it has no room for
    * them), the settling tub in town, or waiting in town. The Home Creek never takes crew.
    */
@@ -2048,9 +2110,9 @@ export class Hud {
       `<table class="tablet-table">` +
       `<tr><td>Crew</td><td>${
         state.crew.workersAt(v.creekId).length
-          ? `<ul class="crew-moves">${state.crew.workersAt(v.creekId).map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label></li>`).join('')}</ul>`
-          : 'none'
-      }</td></tr>` +
+          ? `<ul class="crew-moves">${state.crew.workersAt(v.creekId).map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label> ${this.letGo(w)}</li>`).join('')}</ul>`
+          : 'none yet'
+      }${this.assignSelect(v.creekId, state)}</td></tr>` +
       (state.crew.foremanAt(v.creekId) ? `<tr><td>Foreman</td><td>${liftWords(state.crew.foremanLift(creek))}</td></tr>` : '') +
       `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages${v.suppliesPerDay > 0 ? ` + ${money(v.suppliesPerDay)} supplies` : ''} + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
       (v.machineWear > 0 ? `<tr><td>Machines</td><td>${wearWord(v.machineWear)}</td></tr>` : '') +

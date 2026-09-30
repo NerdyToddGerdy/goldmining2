@@ -301,7 +301,14 @@
       .crew-moves li { padding: 2px 0; }
       .crew-moves label { margin-left: 6px; font-size: 12px; opacity: 0.9; }
       .crew-moves select { font: inherit; font-size: 12px; background: #26352b; color: #efe6cf; border: 1px solid rgba(239, 230, 207, 0.4); border-radius: 3px; margin-left: 4px; }
-      @media (pointer: coarse) { .sheet select.where, .crew-moves select { min-height: 32px; } }
+      /* Send someone…: pick who goes to a claim or the tub. */
+      .hud select.assign {
+        display: block; margin-top: 6px; max-width: 100%; font: 12.5px system-ui, sans-serif; background: #26352b; color: #efe6cf;
+        border: 1px solid rgba(239, 230, 207, 0.45); border-radius: 4px; padding: 4px 6px; pointer-events: auto;
+      }
+      .hud .send-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+      .hud .send-row select.assign { display: inline-block; margin-top: 0; }
+      @media (pointer: coarse) { .sheet select.where, .crew-moves select, .hud select.assign { min-height: 40px; } }
       .tablet-table { border-collapse: collapse; margin: 6px 0; }
       .tablet-table td { padding: 2px 12px 2px 0; vertical-align: top; }
       .tablet-body h4 { margin: 12px 0 4px; font: 600 14px Georgia, serif; color: #f3d77a; }
@@ -448,6 +455,20 @@
       #rotate svg { width: 72px; height: 72px; animation: turn 2.4s ease-in-out infinite; }
       @keyframes turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
       @media (orientation: portrait) and (max-width: 599px) { #rotate { display: flex; } }
+      /* Asked for less motion: the phone icon stands still (the words say what to do). */
+      @media (prefers-reduced-motion: reduce) { #rotate svg { animation: none; } }
+      /* Keyboard focus shows on every control: a gold ring on the dark HUD, graphite on paper and tags. */
+      .hud button:focus-visible, .hud select:focus-visible, .hud input:focus-visible, #sound:focus-visible, #fullscreen:focus-visible {
+        outline: 2px solid #f3d77a; outline-offset: 2px;
+      }
+      .hud .hud-panel.notebook button:focus-visible, .hud .walk button:focus-visible, .hud button.tag:focus-visible, .hud .sheet select:focus-visible { outline-color: #3a3830; }
+      .hud .hud-cash:focus-visible { outline-offset: 3px; }
+      /* Touch: every tappable control keeps the 40px floor, including the compact ones styled with min-height: 0. */
+      @media (pointer: coarse) {
+        .hud .hud-panel .tabs button, .hud .tablet-tabs button, .hud .hud-panel button.fold, .hud .hud-panel.notebook button.fold,
+        .hud .hud-panel.notebook button, .hud .hud-panel .jobs .job, .hud .tablet-sheet .jobs .job, .hud .tablet-card { min-height: 40px; }
+        .hud .hud-panel button.link, .hud .walk button.link { min-height: 40px; display: inline-flex; align-items: center; }
+      }
     </style>
   </head>
   <body>

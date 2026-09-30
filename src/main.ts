@@ -1415,24 +1415,6 @@ async function start(): Promise<void> {
       const hand = crew.dismiss(workerId);
       if (hand) hud.toast(`${hand.name} collects their things and heads off.${crew.wagesOwed > 0 ? ' Wages still owed stay owed.' : ''}`);
     },
-    sendHand: (creekId, role) => {
-      if (creekId === TOWN_SITE) {
-        const result = crew.sendToTown(role);
-        if (result === 'sent') hud.toast(`${role === 'operator' ? 'An operator' : 'A hand'} goes to work at the settling tub by the assay office.`);
-        else if (result === 'full') hud.toast('The tub has all the hands it can use.');
-        else hud.toast(`No ${role === 'operator' ? 'operator' : 'hand'} is waiting in town.`);
-        return;
-      }
-      const target = region.creek(creekId);
-      const result = crew.send(target, economy, region.home.id, role);
-      const name = target.profile.name;
-      if (result === 'sent' && role === 'foreman') hud.toast(`Your foreman sets off for ${name}. The more of it you've sampled, the more they can do with the crew there.`);
-      else if (result === 'sent') hud.toast(`${role === 'operator' ? 'An operator' : 'A hand'} sets off for ${name}. They'll take the first job on its list that nobody has and they can do.`);
-      else if (result === 'full') hud.toast(`${name} has no room or work for another hand.`);
-      else if (result === 'hasForeman') hud.toast(`${name} already has a foreman.`);
-      else if (result === 'noneFree') hud.toast(`No ${role === 'operator' ? 'operator' : role === 'foreman' ? 'foreman' : 'hand'} is waiting in town. Hire one, or call one back from another stretch.`);
-      else if (result === 'claimLapsed') hud.toast(`Your claim on ${name} can't be worked until its fees are paid.`);
-    },
     recallHand: (creekId) => {
       const hand = crew.recall(creekId);
       if (hand) hud.toast(`${hand.name} comes back to town.`);
