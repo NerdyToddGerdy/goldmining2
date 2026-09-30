@@ -530,9 +530,24 @@ export class Hud {
       this.tabletKey = '';
     });
     this.tablet.addEventListener('click', (e) => {
-      const job = (e.target as HTMLElement).closest<HTMLElement>('[data-action="job"]');
-      if (job) {
-        this.on.toggleJob(Number(job.dataset.creek), job.dataset.job as JobKind);
+      const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+      if (action?.dataset.action === 'job') {
+        this.on.toggleJob(Number(action.dataset.creek), action.dataset.job as JobKind);
+        this.tabletKey = '';
+        return;
+      }
+      if (action?.dataset.action === 'policy') {
+        this.on.setPolicy(Number(action.dataset.creek), action.dataset.policy as CrewPolicy);
+        this.tabletKey = '';
+        return;
+      }
+      if (action?.dataset.action === 'release') {
+        // From afar there's no clerk to ask "are you sure?", so the tablet does.
+        const id = Number(action.dataset.creek);
+        const name = this.state?.region.creek(id).profile.name ?? 'this stretch';
+        if (!window.confirm(`Release your claim on ${name}? What you owe on it is written off, and the crew there comes back to town with what they had. You can re-stake it later for $${ECONOMY_TUNING.restakeFee}.`)) return;
+        this.on.releaseClaim(id);
+        this.tabletSelected = null;
         this.tabletKey = '';
         return;
       }
@@ -1235,17 +1250,12 @@ export class Hud {
    */
   private townStation(state: HudState): string {
     const { crew, session } = state;
-    const site = crew.findSite(TOWN_SITE);
-    const tub = site?.bucket;
-    const sand = tub?.blackSand ?? 0;
-    const magnetite = tub && sand > 0.01 ? (tub.magnetite ?? 0) / sand : 0;
-    const counter = site?.poke.length ?? 0;
+    const { tub, counter } = this.tubStatus(state);
     const here = crew.workersAt(TOWN_SITE);
-    const policy = site?.policy ?? 'steady';
     const lines = [
       `<b>The settling tub</b> <span class="small">at the assay office</span>`,
       `<p class="small">Concentrate left here, or carried in by a courier from a claim, waits for the crew in town: the magnet strips out the magnetite, and finishing pans at the trough pan it down. Gold they find waits at the counter.</p>`,
-      `<p>Tub: ${sand < 0.01 ? 'empty' : `${sand < 0.3 ? 'a little' : sand < 1 ? 'some' : 'plenty of'} black sand, ${magnetite > 0.4 ? 'mostly magnetite' : magnetite > 0.15 ? 'some magnetite left' : 'cleaned of magnetite'}`}.</p>`,
+      `<p>Tub: ${tub}.</p>`,
     ];
     if (counter > 0) lines.push(`<p class="found">${counter} piece${counter === 1 ? '' : 's'} of gold at the counter. <button type="button" data-action="counter">Collect</button></p>`);
     if (session.jar.blackSand > 0.01) lines.push(`<button type="button" data-action="leavejar">Leave the jar's black sand in the tub</button>`);
@@ -1255,19 +1265,7 @@ export class Hud {
         `<button type="button" data-action="send" data-role="operator" data-creek="${TOWN_SITE}" ${here.length < STAFF_TUNING.townCrewMax && crew.idleOf('operator').length > 0 ? '' : 'disabled'}>Send an operator</button> ` +
         `<button type="button" data-action="recall" data-creek="${TOWN_SITE}" ${here.length ? '' : 'disabled'}>Call one back</button>`,
     );
-    const staffed = crew.staffedJobs(TOWN_SITE);
-    const jobs = TOWN_JOBS.map((job) => {
-      const on = site?.jobs.includes(job) ?? false;
-      const idle = site?.idle[job];
-      const detail = !on ? '' : !staffed.includes(job) ? ': nobody free for it' : idle ? `: ${job === 'magnet' ? 'nothing left to strip' : 'tub empty'}` : ': working';
-      return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${TOWN_SITE}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
-    });
-    lines.push(`<div class="jobs">${jobs.join('')}</div>`);
-    lines.push(
-      `<p class="small">How they work:</p><div class="jobs policies">${(['steady', 'careful', 'push'] as const)
-        .map((p) => `<button type="button" class="job ${p === policy ? 'on' : ''}" data-action="policy" data-creek="${TOWN_SITE}" data-policy="${p}" aria-pressed="${p === policy}">${POLICY_WORDS[p].name}</button>`)
-        .join('')}</div><p class="small">${policy === 'careful' ? 'The magnet held high and the clump shaken back: slow, and little gold lost with the magnetite.' : policy === 'push' ? 'The magnet held right down and stripped without shaking back: quick, and fine gold goes with the magnetite.' : POLICY_WORDS[policy].note}</p>`,
-    );
+    lines.push(this.townJobToggles(state), this.policyToggles(TOWN_SITE, state));
     return `<div class="lead">${lines.join('')}</div>`;
   }
 
@@ -1352,7 +1350,6 @@ export class Hud {
       }
       const cap = traitsOf(creek.profile.site).crewMax;
       const here = crew.workersAt(claim.creekId);
-      const site = crew.findSite(claim.creekId);
       // Fee, what's owed and ground left are in the ledger above; here is the work.
       const lines = [`<b>${name}</b> <span class="small">${kind}</span>${economy.isLapsed(claim) ? `<p>${status}</p>` : ''}`];
       const diggers = crew.diggersAt(claim.creekId);
@@ -1371,12 +1368,7 @@ export class Hud {
       );
       lines.push(this.jobToggles(claim.creekId, state));
       // One setting for how the whole crew here works.
-      const policy = site?.policy ?? 'steady';
-      lines.push(
-        `<p class="small">How they work:</p><div class="jobs policies">${CREW_POLICIES.map(
-          (p) => `<button type="button" class="job ${p === policy ? 'on' : ''}" data-action="policy" data-creek="${claim.creekId}" data-policy="${p}" aria-pressed="${p === policy}">${POLICY_WORDS[p].name}</button>`,
-        ).join('')}</div><p class="small">${POLICY_WORDS[policy].note}</p>`,
-      );
+      lines.push(this.policyToggles(claim.creekId, state));
       if (here.length > 0) {
         const days = crewGroundLeft(crew, creek);
         if (Number.isFinite(days)) {
@@ -1644,14 +1636,34 @@ export class Hud {
           `${v.warnings[0] ? `<span class="small warn">${v.warnings[0]}</span>` : ''}</button>`
         );
       });
+      // The settling tub in town, once there's a crew to work it or anything in it.
+      const { tub, counter } = this.tubStatus(state);
+      const atTub = crew.workersAt(TOWN_SITE);
+      const showTub = crew.workers.length > 0 || tub !== 'empty' || counter > 0;
+      const tubCard = showTub
+        ? `<button type="button" class="tablet-card is-town ${this.tabletSelected === TOWN_SITE ? 'selected' : ''}" data-claim="${TOWN_SITE}">` +
+          `<span class="chip">In town</span><b>Settling tub</b>` +
+          `<span class="small">${atTub.length} crew · tub ${tub === 'empty' ? 'empty' : 'has sand'}${counter ? ` · ${counter} at the counter` : ''}</span></button>`
+        : '';
       const selected = views.find((v) => v.creekId === this.tabletSelected);
       const sheet = selected
         ? this.claimSheet(selected, state)
-        : this.tabletSelected === home.id
+        : this.tabletSelected === TOWN_SITE && showTub
+          ? `<div class="tablet-sheet"><b>Settling tub</b> <span class="small">at the assay office in town</span>` +
+            `<table class="tablet-table"><tr><td>Tub</td><td>${tub}</td></tr>` +
+            `<tr><td>Counter</td><td>${counter ? `${counter} piece${counter === 1 ? '' : 's'} of gold waiting: collect in town` : 'nothing waiting'}</td></tr>` +
+            `<tr><td>Crew</td><td>${
+              atTub.length
+                ? `<ul class="crew-moves">${atTub.map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label></li>`).join('')}</ul>`
+                : `nobody (room for ${STAFF_TUNING.townCrewMax}): move someone here from the Crew sheet`
+            }</td></tr></table>` +
+            `<p class="small">Jobs: tap to switch on or off.</p>${this.townJobToggles(state)}${this.policyToggles(TOWN_SITE, state)}` +
+            `<p class="small">Leave the jar in the tub and collect the counter in person, in town.</p></div>`
+          : this.tabletSelected === home.id
           ? `<div class="tablet-sheet"><b>${home.profile.name}</b> <span class="small">home creek</span><p>No fee, no claim, no crew: shovel and pan only, and always there to come back to.</p>` +
             `<p>${groundWords(home.groundLeft)} Floods and the creek's slow trickle bring fresh gravel down over time.</p><button type="button" data-go="${home.id}">Walk there</button></div>`
           : `<p class="small">${views.length ? 'Tap a claim to read it.' : 'No claims held yet. Follow a lead and stake what you find.'}</p>`;
-      this.tabletBody.innerHTML = `<div class="tablet-cards">${cards.join('')}${homeCard}</div>${sheet}`;
+      this.tabletBody.innerHTML = `<div class="tablet-cards">${cards.join('')}${tubCard}${homeCard}</div>${sheet}`;
       return;
     }
 
@@ -1694,7 +1706,8 @@ export class Hud {
         : '';
       this.tabletBody.innerHTML =
         crewSheet + claimSheet + (spares.length ? `<p class="small">Spare crew gear: ${spares.join(', ')}.</p>` : '') +
-        `<p class="small">Change Where to move someone: straight to another claim, to the settling tub in town, or to wait in town. Claims have room for only so many.</p>`;
+        `<p class="small">Change Where to move someone: straight to another claim, to the settling tub in town, or to wait in town. Claims have room for only so many.</p>` +
+        `<p class="small"><b>Hands</b> pan, rock, haul, screen loads, prospect and finish concentrate. <b>Operators</b> also run the sluice, highbanker, trommel and drywasher. A <b>foreman</b> takes no job: they lift the whole crew at one stretch, as far as your field notes cover the ground. Seasoned hands lose less gold, quick ones get through more ground. Hire them in town.</p>`;
       return;
     }
 
@@ -1915,6 +1928,50 @@ export class Hud {
     );
   }
 
+  /** How the whole crew at a site works, as one row of choices, and what the chosen one means. */
+  private policyToggles(creekId: number, state: HudState): string {
+    const policy = state.crew.findSite(creekId)?.policy ?? 'steady';
+    const town = creekId === TOWN_SITE;
+    const choices = town ? (['steady', 'careful', 'push'] as const) : CREW_POLICIES;
+    const note = !town
+      ? POLICY_WORDS[policy].note
+      : policy === 'careful'
+        ? 'The magnet held high and the clump shaken back: slow, and little gold lost with the magnetite.'
+        : policy === 'push'
+          ? 'The magnet held right down and stripped without shaking back: quick, and fine gold goes with the magnetite.'
+          : POLICY_WORDS[policy].note;
+    return (
+      `<p class="small">How they work:</p><div class="jobs policies">${choices
+        .map((p) => `<button type="button" class="job ${p === policy ? 'on' : ''}" data-action="policy" data-creek="${creekId}" data-policy="${p}" aria-pressed="${p === policy}">${POLICY_WORDS[p].name}</button>`)
+        .join('')}</div><p class="small">${note}</p>`
+    );
+  }
+
+  /** The settling tub in town: what's in it, and gold waiting at the counter. */
+  private tubStatus(state: HudState): { tub: string; counter: number } {
+    const site = state.crew.findSite(TOWN_SITE);
+    const sand = site?.bucket.blackSand ?? 0;
+    const magnetite = site && sand > 0.01 ? (site.bucket.magnetite ?? 0) / sand : 0;
+    return {
+      tub: sand < 0.01 ? 'empty' : `${sand < 0.3 ? 'a little' : sand < 1 ? 'some' : 'plenty of'} black sand, ${magnetite > 0.4 ? 'mostly magnetite' : magnetite > 0.15 ? 'some magnetite left' : 'cleaned of magnetite'}`,
+      counter: site?.poke.length ?? 0,
+    };
+  }
+
+  /** The settling tub's jobs (the magnet, finishing) as toggles. */
+  private townJobToggles(state: HudState): string {
+    const { crew } = state;
+    const site = crew.findSite(TOWN_SITE);
+    const staffed = crew.staffedJobs(TOWN_SITE);
+    const jobs = TOWN_JOBS.map((job) => {
+      const on = site?.jobs.includes(job) ?? false;
+      const idle = site?.idle[job];
+      const detail = !on ? '' : !staffed.includes(job) ? ': nobody free for it' : idle ? `: ${job === 'magnet' ? 'nothing left to strip' : 'tub empty'}` : ': working';
+      return `<button type="button" class="job ${on ? 'on' : ''}" data-action="job" data-creek="${TOWN_SITE}" data-job="${job}" aria-pressed="${on}">${on ? '✓ ' : ''}${JOB_NAMES[job]}${detail}</button>`;
+    });
+    return `<div class="jobs">${jobs.join('')}</div>`;
+  }
+
   /**
    * The crew's jobs at a stretch as toggles: on and working (or why not: waiting for a hand or an
    * operator, a machine, the ground), or off. Shared by the town panel and the tablet's claim sheet.
@@ -1994,14 +2051,16 @@ export class Hud {
           ? `<ul class="crew-moves">${state.crew.workersAt(v.creekId).map((w) => `<li>${workerWords(w)} <label>Move to ${this.whereSelect(w, state)}</label></li>`).join('')}</ul>`
           : 'none'
       }</td></tr>` +
-      `<tr><td>Working</td><td>${POLICY_WORDS[v.policy].name.toLowerCase()} <span class="small">(set in town)</span></td></tr>` +
+      (state.crew.foremanAt(v.creekId) ? `<tr><td>Foreman</td><td>${liftWords(state.crew.foremanLift(creek))}</td></tr>` : '') +
       `<tr><td>Costs a day</td><td>${money(v.wagesPerDay)} wages${v.suppliesPerDay > 0 ? ` + ${money(v.suppliesPerDay)} supplies` : ''} + ${money(v.feePerDay)} fee${v.burnsFuel ? ' + fuel' : ''}</td></tr>` +
       (v.machineWear > 0 ? `<tr><td>Machines</td><td>${wearWord(v.machineWear)}</td></tr>` : '') +
       `<tr><td>Ground left</td><td>about ${Math.round(v.groundLeft * 10) * 10}%, ${days}</td></tr>` +
       `<tr><td>Take</td><td>${take}</td></tr>` +
       `<tr><td>Waiting to collect</td><td>crew bucket ${sand}${v.waiting.gold ? `, ${v.waiting.gold} piece${v.waiting.gold === 1 ? '' : 's'} of gold in the poke` : ''}</td></tr>` +
       `</table><p class="small">Jobs: tap to switch on or off. The crew fills them in the order they're switched on.</p>${this.jobToggles(v.creekId, state, v.jobs)}` +
-      `<button type="button" data-go="${v.creekId}">Walk there</button></div>`
+      this.policyToggles(v.creekId, state) +
+      `<div class="sheet-actions"><button type="button" data-go="${v.creekId}">Walk there</button>` +
+      `<button type="button" class="danger" data-action="release" data-creek="${v.creekId}">Release the claim</button></div></div>`
     );
   }
 
