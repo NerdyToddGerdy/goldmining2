@@ -823,6 +823,16 @@ async function start(): Promise<void> {
   layout();
   app.renderer.on('resize', layout);
 
+  /**
+   * A machine just set up with a dry tank: pour in a can if one is carried, and say what to do
+   * next (`then`), or say it needs fuel from town. Never tell the player to start a dry engine.
+   */
+  const fuelUp = (fuel: number, refuel: () => string, then: string): string => {
+    if (fuel > 0.001) return then;
+    if (refuel() === 'refuelled') return `The tank was dry, so you pour in a can (${plural(session.fuelCans, 'can')} left). ${then}`;
+    return 'Its tank is dry and you have no fuel: buy a can at the outfitter in town before starting it.';
+  };
+
   const hud = new Hud({
     reveal: () => {
       const pan = session.pan;
@@ -973,7 +983,7 @@ async function start(): Promise<void> {
       const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
       hud.toast(
         `${moved ? `You take the trommel down at ${region.creek(before.creekId).profile.name}, wash its deck into your jar, and haul it here. ` : ''}` +
-          `The trommel stands on the bar, its deck below the drum. ${usingTouch() ? 'Start the engine.' : 'Start the engine (E).'}`,
+          `The trommel stands on the bar, its deck below the drum. ${fuelUp(trommelHere()?.fuel ?? 0, () => session.refuelTrommel(), 'Start the engine (E).')}`,
       );
     },
     takeDownTrommel: () => {
@@ -1078,7 +1088,7 @@ async function start(): Promise<void> {
       const moved = before !== null && (before.creekId !== creek.id || before.spotId !== spot.id);
       hud.toast(
         `${moved ? `You take the highbanker down at ${region.creek(before.creekId).profile.name}, wash its mat into your jar, and carry it here. ` : ''}` +
-          `The highbanker stands on the bank, its hose in the creek. ${usingTouch() ? 'Prime the pump and start the engine.' : 'Prime the pump (A) and start the engine (E).'}`,
+          `The highbanker stands on the bank, its hose in the creek. ${fuelUp(highbankerHere()?.fuel ?? 0, () => session.refuelHighbanker(), 'Prime the pump (A) and start the engine (E).')}`,
       );
     },
     takeDownHighbanker: () => {

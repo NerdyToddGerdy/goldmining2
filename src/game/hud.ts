@@ -452,6 +452,10 @@ export class Hud {
   private resultKey = '';
   private lossRate = 0;
   private toastTimer = 0;
+  /** When the message went up, and the screen and creek-map spot it went up on, to put it away when the player moves on. */
+  private toastShownAt = 0;
+  private toastSeenMode: Mode | null = null;
+  private toastSeenSpot: DigSpot | null = null;
   /** Recent messages, newest first, for the tablet's Overview. */
   private readonly messages: { readonly text: string; readonly when: string }[] = [];
   private state: HudState | null = null;
@@ -664,6 +668,22 @@ export class Hud {
     this.tabletKey = '';
     // Longer messages stay up longer.
     this.toastTimer = Math.max(3, message.length / 18);
+    this.toastShownAt = performance.now();
+  }
+
+  /**
+   * A message is about the screen it went up on: once the player moves to another screen, or picks
+   * another spot on the creek map, it's put away (it stays in the tablet's Recent list). One sent
+   * as part of that very move (a close-up's first-time tip) is fresh, and stays.
+   */
+  private putAwayStaleToast(state: HudState): void {
+    const moved = state.mode !== this.toastSeenMode || (state.mode === 'creek' && state.selectedSpot !== this.toastSeenSpot);
+    this.toastSeenMode = state.mode;
+    this.toastSeenSpot = state.selectedSpot;
+    if (moved && !this.toastEl.hidden && performance.now() - this.toastShownAt > 300) {
+      this.toastEl.hidden = true;
+      this.toastTimer = 0;
+    }
   }
 
   update(dt: number, state: HudState): void {
@@ -794,9 +814,13 @@ export class Hud {
     // On a short screen a machine's rarer jobs fold under More, leaving the bar to the moment-to-moment ones.
     if (mode !== this.moreMode) this.moreOpen = false;
     this.moreMode = mode;
-    const rare = window.innerHeight < 500 && CLOSE_UPS.has(mode) ? buttons.filter(([label]) => isRare(label)) : [];
+    // On the bank, with several machines at the hole, the bar would run to three or four rows: fold
+    // there too, on a short screen or once it passes eight buttons.
+    const short = window.innerHeight < 500;
+    const fold = mode === 'bank' ? (short || buttons.length > 8) && isBankRare : short && CLOSE_UPS.has(mode) && isRare;
+    const rare = fold ? buttons.filter(([label]) => fold(label)) : [];
     if (rare.length < 2) this.moreOpen = false;
-    else buttons = buttons.filter(([label]) => !isRare(label));
+    else if (fold) buttons = buttons.filter(([label]) => !fold(label));
     const key = `${buttons.map(([label]) => label).join('|')}|${rare.length < 2 ? '' : this.moreOpen ? rare.map(([label]) => label).join('|') : 'more'}`;
     if (key !== this.buttonsKey) {
       this.buttonsKey = key;
@@ -841,6 +865,7 @@ export class Hud {
     }
 
     if (this.toastTimer > 0 && (this.toastTimer -= dt) <= 0) this.toastEl.hidden = true;
+    this.putAwayStaleToast(state);
     this.renderPanel(state);
     this.renderTablet(state);
 
@@ -1584,6 +1609,9 @@ export class Hud {
   }
 
   openTablet(): void {
+    // The tablet lists the message under Recent; up, it would sit over the tablet's Close button.
+    this.toastEl.hidden = true;
+    this.toastTimer = 0;
     this.tabletOpen = true;
     this.tablet.hidden = false;
     this.tabletKey = '';
@@ -2404,6 +2432,14 @@ export function setLabel(b: HTMLElement, label: string): void {
 const CLOSE_UPS: ReadonlySet<Mode> = new Set<Mode>(['sluice', 'highbanker', 'trommel', 'rocker', 'drywasher']);
 
 /** A machine's occasional jobs, as against feeding, running and clearing it: still on their keys. */
+/**
+ * The bank's occasional jobs, as against digging and feeding: opening a machine's close-up (the
+ * one F feeds keeps Watch in the bar), refuelling, the jar, the magnet, the spiral wheel, the tub.
+ */
+function isBankRare(label: string): boolean {
+  return /^(Classifier|Rocker|Drywasher|Refuel|Pan the concentrate jar|Clean the jar with the magnet|Run the jar on the spiral wheel|Change the tub water|Hauling water)/.test(label);
+}
+
 function isRare(label: string): boolean {
   return /^(Take down|Refuel|Mend it|Clean out|Pan the concentrate jar|Pour in the classifier bucket)/.test(label);
 }
